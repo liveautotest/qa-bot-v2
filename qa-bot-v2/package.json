@@ -1,0 +1,14 @@
+{
+  "name": "qa-bot-v2",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Slack ChatOps QA bot with run_id, reports, and structured results.",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "run:login": "node src/cli.js login"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.19.0"
+  }
+}

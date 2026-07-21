@@ -1,0 +1,19 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Generated reports and artifacts
+reports/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Runtime
+.device-locks/

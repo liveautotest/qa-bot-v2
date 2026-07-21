@@ -1,0 +1,69 @@
+id: TC-LOGIN-001
+name: 게스트 로그인
+platform: aos
+env: staging
+role: guest
+slack_command: "!게스트 로그인"
+runner:
+  test: login
+  implementation: src/tests/login.test.js
+preconditions:
+  - ADB_GUEST_DEVICE 단말이 연결되어 있어야 한다.
+  - 스테이징 앱이 단말에 설치되어 있어야 한다.
+  - GUEST_EMAIL, GUEST_PASSWORD가 .env에 설정되어 있어야 한다.
+  - 로그인 테스트는 앱을 완전히 종료한 뒤 재실행해서 시작한다.
+steps:
+  - id: LOGIN-GUEST-01
+    action: wake_device
+    description: 단말 화면을 깨우고 잠금 해제를 시도한다.
+    expected: 앱 조작이 가능한 상태가 된다.
+  - id: LOGIN-GUEST-02
+    action: force_stop_and_launch_app
+    description: 스테이징 앱을 완전히 종료한 뒤 다시 실행한다.
+    expected: 스테이징 앱 첫 화면 또는 기존 세션 홈 화면이 노출된다.
+  - id: LOGIN-GUEST-03
+    action: check_existing_session
+    description: 이미 로그인된 홈 화면인지 확인한다.
+    expected: 이미 로그인 상태면 게스트 로그인 완료로 처리한다.
+  - id: LOGIN-GUEST-04
+    action: tap_login_entry
+    description: 이메일/휴대폰 번호로 시작하기 버튼을 누른다.
+    expected: 이메일/비밀번호 입력 화면으로 이동한다.
+  - id: LOGIN-GUEST-05
+    action: input_email
+    description: 게스트 계정 이메일을 입력한다.
+    expected: 이메일 입력값이 화면 XML에 반영된다.
+  - id: LOGIN-GUEST-06
+    action: input_password
+    description: 게스트 계정 비밀번호를 입력한다.
+    expected: 비밀번호 필드는 마스킹 상태로 표시된다.
+  - id: LOGIN-GUEST-07
+    action: submit_login
+    description: 로그인 버튼을 누른다.
+    expected: 로그인 요청이 제출된다.
+  - id: LOGIN-GUEST-08
+    action: verify_login_success
+    description: 홈 화면 진입 여부를 확인한다.
+    expected: 홈 화면 신호가 확인되어야 PASS 처리한다.
+validations:
+  - id: LOGIN-GUEST-V01
+    description: 로그인 실패 문구가 보이면 FAIL 처리한다.
+  - id: LOGIN-GUEST-V02
+    description: 로그인 제출 후 홈 화면 신호가 없으면 FAIL 처리한다.
+  - id: LOGIN-GUEST-V03
+    description: 비밀번호 입력 필드 마스킹 여부를 확인한다.
+  - id: LOGIN-GUEST-V04
+    description: 자동화 리포트 XML에서 계정 정보가 제거되는지 확인한다.
+artifacts:
+  screenshots:
+    - after-launch.png
+    - after-login-entry.png
+    - final.png
+  logs:
+    - runner.log
+    - after-launch.xml
+    - after-submit.xml
+pass_criteria:
+  - 홈 화면이 확인된다.
+  - 로그인 실패 문구가 없다.
+  - 리포트 디렉토리가 생성된다.

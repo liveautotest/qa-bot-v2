@@ -1,0 +1,67 @@
+id: TC-LOGOUT-001
+name: 호스트 로그아웃
+platform: aos
+env: staging
+role: host
+slack_command: "!호스트 로그아웃"
+runner:
+  test: logout
+  implementation: src/tests/logout.test.js
+preconditions:
+  - ADB_HOST_DEVICE 단말이 연결되어 있어야 한다.
+  - 스테이징 앱이 단말에 설치되어 있어야 한다.
+  - 호스트 계정으로 로그인되어 있거나, 이미 로그아웃된 상태여야 한다.
+steps:
+  - id: LOGOUT-HOST-01
+    action: wake_device
+    description: 단말 화면을 깨우고 잠금 해제를 시도한다.
+    expected: 앱 조작이 가능한 상태가 된다.
+  - id: LOGOUT-HOST-02
+    action: launch_app
+    description: 스테이징 앱을 실행한다.
+    expected: 앱 화면이 노출된다.
+  - id: LOGOUT-HOST-03
+    action: check_already_logged_out
+    description: 이미 로그인 전 화면인지 확인한다.
+    expected: 이미 로그아웃 상태면 로그아웃 완료로 처리한다.
+  - id: LOGOUT-HOST-04
+    action: open_my_info_tab
+    description: 하단 내 정보 탭으로 이동한다.
+    expected: 내 정보 화면이 노출된다.
+  - id: LOGOUT-HOST-05
+    action: scroll_to_logout
+    description: 로그아웃 버튼이 보일 때까지 내 정보 화면을 스크롤한다.
+    expected: 로그아웃 텍스트가 화면 XML에 확인된다.
+  - id: LOGOUT-HOST-06
+    action: tap_logout_text
+    description: 로그아웃 텍스트 실제 영역을 누른다.
+    expected: 로그아웃 확인 팝업이 노출된다.
+  - id: LOGOUT-HOST-07
+    action: confirm_logout
+    description: 팝업의 파란 로그아웃 버튼을 누른다.
+    expected: 로그아웃 처리가 완료되고 앱이 홈 또는 내 정보 화면으로 이동한다.
+  - id: LOGOUT-HOST-08
+    action: verify_logged_out
+    description: 내 정보 탭에서 로그인해 주세요/회원가입 로그인하기 문구를 확인한다.
+    expected: 로그인 전 상태가 확인되어야 PASS 처리한다.
+validations:
+  - id: LOGOUT-HOST-V01
+    description: 로그아웃 버튼을 누른 뒤 확인 팝업이 뜨지 않으면 FAIL 처리한다.
+  - id: LOGOUT-HOST-V02
+    description: 로그아웃 확인 후 로그인 전 상태가 확인되지 않으면 FAIL 처리한다.
+  - id: LOGOUT-HOST-V03
+    description: 이미 로그아웃 상태면 추가 조작 없이 PASS 처리한다.
+artifacts:
+  screenshots:
+    - logout-start.png
+    - before-logout.png
+    - logout-confirm-dialog.png
+    - logout-final.png
+  logs:
+    - runner.log
+    - logout-start.xml
+    - logout-final.xml
+pass_criteria:
+  - 로그아웃 확인 팝업이 정상 노출된다.
+  - 팝업 확인 후 내 정보 화면에서 로그인 전 상태가 확인된다.
+  - 리포트 디렉토리가 생성된다.
