@@ -11,6 +11,7 @@
 | `!게스트 집검색` | `search.guest.yaml` | `src/tests/search.test.js` |
 | `!게스트 정확한일정 검색` | `search.guest.yaml` | `src/tests/search.test.js` |
 | `!게스트 유연한일정 검색` | `search-flexible.guest.yaml` | `src/tests/search.test.js` |
+| `!게스트 계약 요청` | `contract-request.guest.yaml` | `src/tests/contract-request.test.js` |
 | `!호스트 로그인` | `login.host.yaml` | `src/tests/login.test.js` |
 | `!호스트 로그아웃` | `logout.host.yaml` | `src/tests/logout.test.js` |
 

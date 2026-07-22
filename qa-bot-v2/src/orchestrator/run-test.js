@@ -35,13 +35,15 @@ async function runTest(request, config) {
       login: "TC-LOGIN-001",
       logout: "TC-LOGOUT-001",
       search: "TC-SEARCH-001",
-      "search-flexible": "TC-SEARCH-002"
+      "search-flexible": "TC-SEARCH-002",
+      "contract-request": "TC-CONTRACT-001"
     };
     const testNames = {
       login: "로그인",
       logout: "로그아웃",
       search: "집 검색",
-      "search-flexible": "유연한 일정 검색"
+      "search-flexible": "유연한 일정 검색",
+      "contract-request": "계약 요청"
     };
     const finalResult = {
       run_id: store.runId,

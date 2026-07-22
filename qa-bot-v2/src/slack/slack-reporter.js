@@ -8,6 +8,7 @@ function formatHelp() {
     "!게스트 집검색",
     "!게스트 정확한일정 검색",
     "!게스트 유연한일정 검색",
+    "!게스트 계약 요청",
     "!호스트 로그인",
     "!호스트 로그아웃",
     "",
@@ -18,7 +19,8 @@ function formatHelp() {
     "!qa logout env=staging role=guest",
     "!qa logout env=staging role=host",
     "!qa search env=staging role=guest",
-    "!qa search-flexible env=staging role=guest"
+    "!qa search-flexible env=staging role=guest",
+    "!qa contract-request env=staging role=guest"
   ].join("\n");
 }
 
@@ -40,7 +42,8 @@ function formatSearchConditions(conditions) {
     adult_count: "성인",
     child_count: "어린이",
     infant_count: "유아",
-    pet_count: "반려동물"
+    pet_count: "반려동물",
+    pet_info: "반려동물 정보"
   };
 
   return Object.entries(labels)
@@ -105,6 +108,15 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-CONTRACT-001") {
+    return [
+      "- 앱 재실행 후 정확한 일정 검색 결과 목록으로 진입했습니다.",
+      "- 임의 숙소 상세에서 계약 조건 확인 화면으로 이동했습니다.",
+      "- 반려동물 정보 입력, 필수 약관 전체 동의, 계약 요청 완료 화면을 확인했습니다.",
+      "- 완료 화면의 홈으로 버튼을 눌러 홈 화면 복귀까지 확인했습니다."
+    ];
+  }
+
   return [];
 }
 
@@ -131,6 +143,13 @@ function formatResult(result) {
     lines.push("");
     lines.push("검색 조건:");
     lines.push(...searchConditions);
+  }
+
+  const contractConditions = formatSearchConditions(result.contract_conditions);
+  if (contractConditions.length > 0) {
+    lines.push("");
+    lines.push("계약 요청 조건:");
+    lines.push(...contractConditions);
   }
 
   if (result.app_warnings && result.app_warnings.length > 0) {

@@ -13,7 +13,7 @@ function parseKeyValues(parts) {
 function parseKoreanShortcut(text) {
   const normalized = text.trim().replace(/\s+/g, " ");
   const match = normalized.match(
-    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색)$/
+    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청)$/
   );
   if (!match) return null;
 
@@ -25,7 +25,9 @@ function parseKoreanShortcut(text) {
     "정확한일정 검색": "search",
     "정확한 일정 검색": "search",
     "유연한일정 검색": "search-flexible",
-    "유연한 일정 검색": "search-flexible"
+    "유연한 일정 검색": "search-flexible",
+    계약요청: "contract-request",
+    "계약 요청": "contract-request"
   };
 
   return {
@@ -69,7 +71,8 @@ async function routeCommand(text, context) {
     command === "login" ||
     command === "logout" ||
     command === "search" ||
-    command === "search-flexible"
+    command === "search-flexible" ||
+    command === "contract-request"
   ) {
     const args = parseKeyValues(parts.slice(2));
     return runQaCommand(
