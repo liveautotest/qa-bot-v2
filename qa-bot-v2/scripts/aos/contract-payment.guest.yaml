@@ -1,0 +1,73 @@
+id: TC-CONTRACT-PAYMENT-001
+name: 게스트 계약 결제
+platform: aos
+env: staging
+role: guest
+slack_command: "!게스트 계약 결제"
+runner:
+  test: contract-payment
+  implementation: src/tests/contract-payment.test.js
+preconditions:
+  - ADB_GUEST_DEVICE 단말이 연결되어 있어야 한다.
+  - 스테이징 앱이 단말에 설치되어 있어야 한다.
+  - 게스트 계정으로 로그인되어 있어야 한다.
+  - 호스트가 계약 요청을 승인하여 홈 카드가 결제 대기 중 상태여야 한다.
+steps:
+  - id: PAYMENT-GUEST-01
+    action: wake_device
+    description: 단말 화면을 깨우고 잠금 해제를 시도한다.
+    expected: 앱 조작이 가능한 상태가 된다.
+  - id: PAYMENT-GUEST-02
+    action: force_stop_and_launch_app
+    description: 스테이징 앱을 완전히 종료한 뒤 다시 실행한다.
+    expected: 게스트 홈 화면이 노출된다.
+  - id: PAYMENT-GUEST-03
+    action: pull_to_refresh_home
+    description: 홈 화면에서 풀 리프레시를 수행한다.
+    expected: 홈 상단에 결제 대기 중 카드가 노출된다.
+  - id: PAYMENT-GUEST-04
+    action: tap_confirm_and_pay
+    description: 결제 대기 중 카드의 확인 및 결제 버튼을 누른다.
+    expected: 계약 결제 상세 화면으로 이동한다.
+  - id: PAYMENT-GUEST-05
+    action: verify_default_card_payment
+    description: 결제하기 영역과 신용·체크카드 기본 선택 상태를 확인한다.
+    expected: 신용·체크카드 결제 수단이 선택되어 있다.
+  - id: PAYMENT-GUEST-06
+    action: choose_jcb_card
+    description: 결제 방법 영역에서 더보기 버튼을 누른 뒤 JCB 카드를 선택한다.
+    expected: JCB 카드 선택됨 상태가 확인된다.
+  - id: PAYMENT-GUEST-07
+    action: submit_payment
+    description: 하단 결제하기 버튼을 누른다.
+    expected: PG사 결제 화면으로 이동한다.
+  - id: PAYMENT-GUEST-08
+    action: input_pg_card
+    description: 카드 번호 3530 1113 3330 0000과 만료일 0328을 입력한다.
+    expected: PG 입력값이 각 카드번호/만료일 필드에 반영된다.
+  - id: PAYMENT-GUEST-09
+    action: agree_required_and_next
+    description: Required 동의 항목을 선택하고 NEXT 버튼을 누른다.
+    expected: 결제 완료 또는 계약 확정 상태가 확인된다.
+validations:
+  - id: PAYMENT-GUEST-V01
+    description: 홈 화면에 결제 대기 중 카드가 없으면 FAIL 처리한다.
+  - id: PAYMENT-GUEST-V02
+    description: 결제 상세에서 신용·체크카드 기본 선택과 JCB 선택을 확인하지 못하면 FAIL 처리한다.
+  - id: PAYMENT-GUEST-V03
+    description: PG 결제 화면에서 카드번호/만료일/Required/NEXT를 찾지 못하면 FAIL 처리한다.
+  - id: PAYMENT-GUEST-V04
+    description: NEXT 후 결제 완료 또는 계약 확정 상태가 확인되지 않으면 FAIL 처리한다.
+artifacts:
+  screenshots:
+    - 실패 시점 화면만 저장한다.
+  logs:
+    - payment-home-after-refresh.xml
+    - payment-method-jcb.xml
+    - pg-payment-start.xml
+    - payment-final.xml
+pass_criteria:
+  - 홈 카드 상태가 결제 대기 중이다.
+  - JCB 카드가 선택된다.
+  - PG 카드 정보와 Required 동의가 입력된다.
+  - NEXT 후 결제 완료 또는 계약 확정 상태가 확인된다.
