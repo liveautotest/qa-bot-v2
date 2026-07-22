@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 const { withDeviceLock } = require("../infra/device-lock");
-const { inputUnicodeText } = require("./aos-text-input");
 const {
   dumpUi,
   keyEvent,
@@ -163,9 +162,10 @@ async function waitForUi(config, device, predicate, timeoutMs = 10000) {
   return xml;
 }
 
-async function saveArtifacts(config, device, store, name, xml) {
+async function saveArtifacts(config, device, store, name, xml, options = {}) {
   const xmlPath = path.join(store.logsDir, `${name}.xml`);
   const screenshotPath = path.join(store.screenshotsDir, `${name}.png`);
+  const shouldCaptureScreenshot = options.screenshot === true;
 
   try {
     fs.writeFileSync(xmlPath, xml || (await dumpUi(config, device)));
@@ -173,13 +173,19 @@ async function saveArtifacts(config, device, store, name, xml) {
     store.appendLog("runner.log", `failed to dump ui ${name}: ${error.message}`);
   }
 
-  try {
-    fs.writeFileSync(screenshotPath, await screenshotPng(config, device));
-  } catch (error) {
-    store.appendLog("runner.log", `failed to screenshot ${name}: ${error.message}`);
+  if (shouldCaptureScreenshot) {
+    try {
+      fs.writeFileSync(screenshotPath, await screenshotPng(config, device));
+    } catch (error) {
+      store.appendLog("runner.log", `failed to screenshot ${name}: ${error.message}`);
+    }
   }
 
-  return { xmlPath, screenshotPath };
+  return { xmlPath, screenshotPath: shouldCaptureScreenshot ? screenshotPath : null };
+}
+
+async function saveFailureArtifacts(config, device, store, name, xml) {
+  return saveArtifacts(config, device, store, name, xml, { screenshot: true });
 }
 
 async function wakeAndUnlock(config, device, steps, store) {
@@ -323,74 +329,38 @@ async function selectExactDates(config, device, xml, store, steps) {
   addStep(steps, "일정 다음 버튼 탭");
 }
 
-async function addGuestOptions(config, device, xml, store, steps) {
-  let guestXml = await waitForUi(config, device, isGuestScreen, 8000);
-  await saveArtifacts(config, device, store, "guest-select-start", guestXml);
+async function submitDefaultGuests(config, device, xml, store, steps) {
+  const guestXml = await waitForUi(config, device, isGuestScreen, 8000);
+  await saveArtifacts(config, device, store, "guest-select-default", guestXml);
   if (!isGuestScreen(guestXml)) {
     fail(
       "인원 선택 화면으로 이동하지 못했습니다.",
       steps,
       [
-        "계약 요청 선행 검색은 어린이 1명, 유아 1명, 반려동물 1마리를 포함합니다.",
-        "리포트의 guest-select-start.png 화면을 확인해주세요."
+        "계약 요청 선행 검색은 어린이, 유아, 반려동물을 추가하지 않은 기본 성인 1명 상태를 사용합니다.",
+        "리포트의 guest-select-default.png 화면을 확인해주세요."
       ]
     );
   }
 
-  const plusButtons = parseNodes(guestXml).filter(
-    (node) =>
-      node.bounds &&
-      node.attrs.class === "android.widget.Button" &&
-      node.attrs.clickable === "true" &&
-      node.bounds.left >= 900 &&
-      node.bounds.top >= 500 &&
-      node.bounds.top <= 1150
-  );
-
-  const childPlus = plusButtons.find((node) => node.bounds.top >= 540 && node.bounds.top <= 700);
-  const infantPlus = plusButtons.find((node) => node.bounds.top >= 760 && node.bounds.top <= 920);
-  const petPlus = plusButtons.find((node) => node.bounds.top >= 980 && node.bounds.top <= 1120);
-  const targets = [
-    { node: childPlus, label: "어린이 + 버튼" },
-    { node: infantPlus, label: "유아 + 버튼" },
-    { node: petPlus, label: "반려동물 + 버튼" }
-  ];
-
-  for (const target of targets) {
-    if (!target.node?.bounds) {
-      fail(
-        `${target.label}을 찾지 못했습니다.`,
-        steps,
-        [
-          "인원 선택 화면의 + 버튼이 텍스트 없이 잡히므로 버튼 좌표 범위로 찾습니다.",
-          "리포트의 guest-select-start.png 화면을 확인해주세요."
-        ]
-      );
-    }
-    await tap(config, device, target.node.bounds.x, target.node.bounds.y);
-    addStep(steps, `${target.label} 탭`);
-    await new Promise((resolve) => setTimeout(resolve, 350));
-  }
-
-  guestXml = await dumpUi(config, device);
-  await saveArtifacts(config, device, store, "guest-select-after-plus", guestXml);
   const labels = parseNodes(guestXml).map(nodeLabel).join("\n");
   if (
-    !labels.includes("어린이\n만 2~12세\n1") ||
-    !labels.includes("유아\n만 2세 미만\n1") ||
-    !labels.includes("반려동물\n1")
+    !labels.includes("성인\n만 13세 이상\n1") ||
+    !labels.includes("어린이\n만 2~12세\n0") ||
+    !labels.includes("유아\n만 2세 미만\n0") ||
+    !labels.includes("반려동물\n0")
   ) {
     fail(
-      "어린이 1명, 유아 1명, 반려동물 1마리 선택 상태를 확인하지 못했습니다.",
+      "계약 요청용 기본 인원 상태를 확인하지 못했습니다.",
       steps,
       [
-        "각 + 버튼을 한 번씩 눌렀지만 XML에 선택 수량 1이 확인되지 않았습니다.",
-        "리포트의 guest-select-after-plus.png 화면을 확인해주세요."
+        "계약 요청 기본 케이스는 어린이, 유아, 반려동물을 추가하지 않고 성인 1명으로 검색합니다.",
+        "리포트의 guest-select-default.png 화면을 확인해주세요."
       ]
     );
   }
 
-  addStep(steps, "계약 요청용 인원 선택 확인", "pass", "어린이 1, 유아 1, 반려동물 1");
+  addStep(steps, "계약 요청용 기본 인원 확인", "pass", "성인 1, 어린이 0, 유아 0, 반려동물 0");
   const search = findNode(guestXml, "검색", { clickable: true, enabled: true });
   await tapNode(config, device, search, "검색 버튼", steps);
   addStep(steps, "검색 버튼 탭");
@@ -416,7 +386,7 @@ async function openFirstListing(config, device, store, steps) {
     "shell", "input", "swipe", "540", "2300", "540", "900", "700"
   ]);
   addStep(steps, "검색 결과 리스트 끌어올리기");
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  await new Promise((resolve) => setTimeout(resolve, 300));
 
   let xml = await dumpUi(config, device);
   await saveArtifacts(config, device, store, "search-results-expanded", xml);
@@ -426,12 +396,13 @@ async function openFirstListing(config, device, store, steps) {
     await runAdb(config, device, [
       "shell", "input", "swipe", "540", "2050", "540", "1350", "500"
     ]);
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await new Promise((resolve) => setTimeout(resolve, 300));
     xml = await dumpUi(config, device);
     listing = findFirstListing(xml);
   }
 
   if (!listing?.bounds) {
+    await saveFailureArtifacts(config, device, store, "search-results-expanded", xml);
     fail(
       "검색 결과 목록에서 계약 가능한 숙소 카드를 찾지 못했습니다.",
       steps,
@@ -467,7 +438,7 @@ async function scrollToRequiredTerms(config, device, store, steps) {
   let xml = await waitForUi(config, device, isContractDetail, 10000);
   await saveArtifacts(config, device, store, "contract-detail-start", xml);
 
-  for (let count = 0; count < 8; count += 1) {
+  for (let batch = 0; batch < 4; batch += 1) {
     const terms = findNode(xml, "필수 약관 전체 동의", {
       clickable: true,
       enabled: true,
@@ -483,14 +454,16 @@ async function scrollToRequiredTerms(config, device, store, steps) {
       return { terms, request, xml };
     }
 
-    await runAdb(config, device, [
-      "shell", "input", "swipe", "540", "2150", "540", "450", "900"
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    for (let count = 0; count < 3; count += 1) {
+      await runAdb(config, device, [
+        "shell", "input", "swipe", "540", "2220", "540", "340", "450"
+      ]);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
     xml = await dumpUi(config, device);
   }
 
-  await saveArtifacts(config, device, store, "contract-detail-terms-not-found", xml);
+  await saveFailureArtifacts(config, device, store, "contract-detail-terms-not-found", xml);
   fail(
     "계약 상세 화면에서 필수 약관 전체 동의 영역을 찾지 못했습니다.",
     steps,
@@ -501,137 +474,12 @@ async function scrollToRequiredTerms(config, device, store, steps) {
   );
 }
 
-function findPetInfoInput(xml) {
-  const nodes = parseNodes(xml);
-  const guestSummary = nodes.find((node) => {
-    const label = nodeLabel(node);
-    return node.bounds && label.includes("성인 1") && label.includes("1 반려동물");
-  });
-  const petLabel = nodes.find((node) => {
-    const label = nodeLabel(node);
-    return node.bounds && label.includes("반려동물") && label.includes("정보");
-  });
-
-  const candidates = nodes.filter((node) => {
-    if (!node.bounds) return false;
-    if (node.attrs.enabled !== "true") return false;
-    if (!["android.widget.EditText", "android.widget.ImageView"].includes(node.attrs.class)) {
-      return false;
-    }
-    if (node.bounds.top < 250 || node.bounds.bottom > 2300) return false;
-    if (nodeLabel(node).includes("리트리버")) return false;
-    return true;
-  });
-
-  if (guestSummary?.bounds) {
-    const belowGuestSummary = candidates.find(
-      (node) =>
-        node.attrs.class === "android.widget.EditText" &&
-        !nodeLabel(node).trim() &&
-        node.bounds.top >= guestSummary.bounds.bottom &&
-        node.bounds.top - guestSummary.bounds.bottom < 220 &&
-        node.bounds.left <= 120 &&
-        node.bounds.right >= 900
-    );
-    if (belowGuestSummary) return belowGuestSummary;
-  }
-
-  if (petLabel?.bounds) {
-    const belowPetLabel = candidates.find(
-      (node) =>
-        node.bounds.top >= petLabel.bounds.bottom &&
-        node.bounds.top - petLabel.bounds.bottom < 450 &&
-        node.bounds.left <= 120 &&
-        node.bounds.right >= 900
-    );
-    if (belowPetLabel) return belowPetLabel;
-  }
-
-  return candidates.find((node) => {
-    const label = nodeLabel(node);
-    return (
-      label.includes("반려동물 정보를") ||
-      label.includes("견종") ||
-      label.includes("품종") ||
-      label.includes("입력")
-    );
-  });
-}
-
-async function fillPetInfoIfNeeded(config, device, store, steps) {
-  let xml = await dumpUi(config, device);
-
-  for (let count = 0; count < 8; count += 1) {
-    if (xml.includes("리트리버")) {
-      addStep(steps, "반려동물 정보 입력 확인", "pass", "리트리버");
-      return xml;
-    }
-
-    const petInput = findPetInfoInput(xml);
-    if (petInput?.bounds) {
-      await saveArtifacts(config, device, store, "contract-detail-pet-info", xml);
-      await tap(config, device, petInput.bounds.x, petInput.bounds.y);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      try {
-        await inputUnicodeText(config, device, "리트리버", store);
-      } catch (error) {
-        fail(
-          "반려동물 정보 입력란은 찾았지만 '리트리버' 입력에 실패했습니다.",
-          steps,
-          [
-            `입력 오류: ${error.message}`,
-            "ADB 기본 input text가 한글을 처리하지 못하면 ADB Keyboard로 우회 입력합니다.",
-            "리포트의 contract-detail-pet-info.png 화면을 확인해주세요."
-          ]
-        );
-      }
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      await keyEvent(config, device, 4);
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      xml = await dumpUi(config, device);
-      await saveArtifacts(config, device, store, "contract-detail-after-pet-info", xml);
-
-      if (!xml.includes("리트리버")) {
-        fail(
-          "반려동물 정보 입력란은 찾았지만 '리트리버' 입력을 확인하지 못했습니다.",
-          steps,
-          [
-            "반려동물 1마리 조건으로 계약 요청하려면 계약 상세에서 반려동물 정보 입력이 필요합니다.",
-            "기기 키보드가 ADB 한글 입력을 받지 않았을 수 있습니다.",
-            "리포트의 contract-detail-after-pet-info.png 화면을 확인해주세요."
-          ]
-        );
-      }
-
-      addStep(steps, "반려동물 정보 입력", "pass", "리트리버");
-      return xml;
-    }
-
-    await runAdb(config, device, [
-      "shell", "input", "swipe", "540", "2150", "540", "450", "900"
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    xml = await dumpUi(config, device);
-  }
-
-  await saveArtifacts(config, device, store, "contract-detail-pet-info-not-found", xml);
-  fail(
-    "반려동물 정보 입력란을 찾지 못했습니다.",
-    steps,
-    [
-      "검색 조건에 반려동물 1마리가 포함되어 있으므로 계약 상세에서 반려동물 정보 입력란이 보여야 합니다.",
-      "리포트의 contract-detail-pet-info-not-found.png 화면을 확인해주세요."
-    ]
-  );
-}
-
 async function submitContractRequest(config, device, store, steps) {
-  await fillPetInfoIfNeeded(config, device, store, steps);
   const { terms, request } = await scrollToRequiredTerms(config, device, store, steps);
 
   await tap(config, device, terms.bounds.x, terms.bounds.y);
   addStep(steps, "필수 약관 전체 동의 선택");
-  await new Promise((resolve) => setTimeout(resolve, 700));
+  await new Promise((resolve) => setTimeout(resolve, 300));
 
   let xml = await dumpUi(config, device);
   await saveArtifacts(config, device, store, "contract-detail-after-terms", xml);
@@ -654,18 +502,19 @@ async function submitContractRequest(config, device, store, steps) {
   await saveArtifacts(config, device, store, "contract-request-after-submit", xml);
 
   if (hasContractRequestError(xml) && !isContractComplete(xml)) {
+    await saveFailureArtifacts(config, device, store, "contract-request-after-submit", xml);
     fail(
       "계약 요청 완료 화면으로 이동하지 못했습니다.",
       steps,
       [
         "계약 요청 후 앱 오류 또는 필수 정보 누락 메시지가 노출되었습니다.",
-        "반려동물 정보 입력값 '리트리버'가 저장되었는지도 함께 확인해주세요.",
         "리포트의 contract-request-after-submit.png 화면을 확인해주세요."
       ]
     );
   }
 
   if (!isContractComplete(xml)) {
+    await saveFailureArtifacts(config, device, store, "contract-request-after-submit", xml);
     fail(
       "계약 요청 완료 화면을 확인하지 못했습니다.",
       steps,
@@ -683,6 +532,7 @@ async function submitContractRequest(config, device, store, steps) {
   xml = await waitForUi(config, device, hasHomeSearchBar, 10000);
   await saveArtifacts(config, device, store, "contract-request-final", xml);
   if (!hasHomeSearchBar(xml)) {
+    await saveFailureArtifacts(config, device, store, "contract-request-final", xml);
     fail(
       "홈으로 버튼을 눌렀지만 홈 화면을 확인하지 못했습니다.",
       steps,
@@ -708,11 +558,12 @@ async function runContractRequestTest({ request, config, store }) {
     addStep(steps, "환경 설정 확인");
     await wakeAndUnlock(config, device, steps, store);
     await launchFresh(config, device, appPackage, steps);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     let xml = await waitForUi(config, device, hasHomeSearchBar, 10000);
     await saveArtifacts(config, device, store, "search-home", xml);
     if (!hasHomeSearchBar(xml)) {
+      await saveFailureArtifacts(config, device, store, "search-home", xml);
       fail(
         "앱 재실행 후 홈 검색바를 확인하지 못했습니다.",
         steps,
@@ -727,6 +578,7 @@ async function runContractRequestTest({ request, config, store }) {
     xml = await waitForUi(config, device, isSearchConditionScreen, 8000);
     await saveArtifacts(config, device, store, "search-condition", xml);
     if (!isSearchConditionScreen(xml)) {
+      await saveFailureArtifacts(config, device, store, "search-condition", xml);
       fail(
         "검색 상세 조건 화면으로 진입하지 못했습니다.",
         steps,
@@ -744,11 +596,12 @@ async function runContractRequestTest({ request, config, store }) {
 
     await selectExactDates(config, device, xml, store, steps);
     xml = await waitForUi(config, device, isGuestScreen, 8000);
-    await addGuestOptions(config, device, xml, store, steps);
+    await submitDefaultGuests(config, device, xml, store, steps);
 
     xml = await waitForUi(config, device, isContractSearchResults, 20000);
     await saveArtifacts(config, device, store, "search-results", xml);
     if (!isContractSearchResults(xml)) {
+      await saveFailureArtifacts(config, device, store, "search-results", xml);
       fail(
         "계약 요청용 검색 결과 목록 화면을 확인하지 못했습니다.",
         steps,
@@ -778,17 +631,15 @@ async function runContractRequestTest({ request, config, store }) {
         start_date: "2026-08-01",
         end_date: "2026-08-07",
         adult_count: 1,
-        child_count: 1,
-        infant_count: 1,
-        pet_count: 1,
-        pet_info: "리트리버"
+        child_count: 0,
+        infant_count: 0,
+        pet_count: 0
       },
       artifacts: {
-        screenshots: [path.join(store.screenshotsDir, "contract-request-final.png")],
+        screenshots: [],
         logs: [
           path.join(store.logsDir, "search-results.xml"),
           path.join(store.logsDir, "accommodation-detail.xml"),
-          path.join(store.logsDir, "contract-detail-after-pet-info.xml"),
           path.join(store.logsDir, "contract-detail-terms.xml"),
           path.join(store.logsDir, "contract-request-after-submit.xml"),
           path.join(store.logsDir, "contract-request-final.xml")
