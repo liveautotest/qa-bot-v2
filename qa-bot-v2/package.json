@@ -9,7 +9,8 @@
     "run:login": "node src/cli.js login",
     "run:search": "node src/cli.js search",
     "run:search:flexible": "node src/cli.js search-flexible",
-    "run:contract-request": "node src/cli.js contract-request"
+    "run:contract-request": "node src/cli.js contract-request",
+    "run:contract-approve": "node src/cli.js contract-approve"
   },
   "dependencies": {
     "@slack/bolt": "^3.19.0"

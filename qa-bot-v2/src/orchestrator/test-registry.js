@@ -1,6 +1,7 @@
 const { runLoginTest } = require("../tests/login.test");
 const { runLogoutTest } = require("../tests/logout.test");
 const { runFlexibleSearchTest, runSearchTest } = require("../tests/search.test");
+const { runContractApproveTest } = require("../tests/contract-approve.test");
 const { runContractRequestTest } = require("../tests/contract-request.test");
 
 const registry = {
@@ -8,6 +9,7 @@ const registry = {
   logout: runLogoutTest,
   search: runSearchTest,
   "search-flexible": runFlexibleSearchTest,
+  "contract-approve": runContractApproveTest,
   "contract-request": runContractRequestTest
 };
 
