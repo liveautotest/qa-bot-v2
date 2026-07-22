@@ -94,6 +94,10 @@ function findEditableNodes(xml) {
 }
 
 function findPgPaymentFields(xml) {
+  const cardNumberLabel = findNode(xml, "Card number", { visible: true });
+  const expiryLabel = findNode(xml, "Expiry date", { visible: true });
+  const cardTop = cardNumberLabel?.bounds ? cardNumberLabel.bounds.top : 90;
+  const expiryTop = expiryLabel?.bounds ? expiryLabel.bounds.top : 1800;
   const editableNodes = findEditableNodes(xml).filter((node) => {
     const label = nodeLabel(node);
     return label !== "JCB" && !label.includes("@") && node.attrs["resource-id"] !== "cardExpiry";
@@ -101,7 +105,12 @@ function findPgPaymentFields(xml) {
   const cardCandidates = editableNodes
     .filter((node) => {
       const width = node.bounds.right - node.bounds.left;
-      return width <= 260 && node.bounds.top >= 700 && node.bounds.bottom <= 1800;
+      return (
+        width <= 260 &&
+        node.bounds.top >= cardTop &&
+        node.bounds.bottom <= expiryTop &&
+        isVisibleNode(node)
+      );
     })
     .sort((leftNode, rightNode) => leftNode.bounds.left - rightNode.bounds.left);
   const cardFields = [];
