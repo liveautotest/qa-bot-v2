@@ -5,6 +5,7 @@ function formatHelp() {
     "자주 쓰는 명령어",
     "!게스트 로그인",
     "!게스트 로그아웃",
+    "!게스트 집검색",
     "!호스트 로그인",
     "!호스트 로그아웃",
     "",
@@ -13,7 +14,8 @@ function formatHelp() {
     "!qa login env=staging role=guest",
     "!qa login env=staging role=host",
     "!qa logout env=staging role=guest",
-    "!qa logout env=staging role=host"
+    "!qa logout env=staging role=host",
+    "!qa search env=staging role=guest"
   ].join("\n");
 }
 

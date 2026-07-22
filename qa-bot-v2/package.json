@@ -6,7 +6,8 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
-    "run:login": "node src/cli.js login"
+    "run:login": "node src/cli.js login",
+    "run:search": "node src/cli.js search"
   },
   "dependencies": {
     "@slack/bolt": "^3.19.0"

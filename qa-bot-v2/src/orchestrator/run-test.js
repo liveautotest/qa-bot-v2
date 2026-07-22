@@ -33,15 +33,18 @@ async function runTest(request, config) {
     const role = request.role || "guest";
     const testIds = {
       login: "TC-LOGIN-001",
-      logout: "TC-LOGOUT-001"
+      logout: "TC-LOGOUT-001",
+      search: "TC-SEARCH-001"
+    };
+    const testNames = {
+      login: "로그인",
+      logout: "로그아웃",
+      search: "집 검색"
     };
     const finalResult = {
       run_id: store.runId,
       test_id: testIds[request.test] || "TC-UNKNOWN",
-      name:
-        request.test === "login" || request.test === "logout"
-          ? `${role} ${request.test === "login" ? "로그인" : "로그아웃"}`
-          : request.test,
+      name: testNames[request.test] ? `${role} ${testNames[request.test]}` : request.test,
       env: request.env,
       status: "fail",
       device: config.devices && config.devices[role] ? config.devices[role] : "unknown",

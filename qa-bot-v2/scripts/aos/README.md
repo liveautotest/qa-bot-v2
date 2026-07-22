@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `!게스트 로그인` | `login.guest.yaml` | `src/tests/login.test.js` |
 | `!게스트 로그아웃` | `logout.guest.yaml` | `src/tests/logout.test.js` |
+| `!게스트 집검색` | `search.guest.yaml` | `src/tests/search.test.js` |
 | `!호스트 로그인` | `login.host.yaml` | `src/tests/login.test.js` |
 | `!호스트 로그아웃` | `logout.host.yaml` | `src/tests/logout.test.js` |
 

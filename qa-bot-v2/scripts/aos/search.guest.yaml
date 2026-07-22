@@ -1,0 +1,76 @@
+id: TC-SEARCH-001
+name: 게스트 집 검색 - 정확한 일정
+platform: aos
+env: staging
+role: guest
+slack_command: "!게스트 집검색"
+runner:
+  test: search
+  implementation: src/tests/search.test.js
+preconditions:
+  - ADB_GUEST_DEVICE 단말이 연결되어 있어야 한다.
+  - 스테이징 앱이 단말에 설치되어 있어야 한다.
+  - 게스트 계정으로 이미 로그인되어 있어야 한다.
+  - 검색 테스트는 앱을 완전히 종료한 뒤 재실행해서 시작한다.
+steps:
+  - id: SEARCH-GUEST-01
+    action: wake_device
+    description: 단말 화면을 깨우고 잠금 해제를 시도한다.
+    expected: 앱 조작이 가능한 상태가 된다.
+  - id: SEARCH-GUEST-02
+    action: force_stop_and_launch_app
+    description: 스테이징 앱을 완전히 종료한 뒤 다시 실행한다.
+    expected: 로그인 세션이 유지된 홈 화면이 노출된다.
+  - id: SEARCH-GUEST-03
+    action: tap_home_search_bar
+    description: 홈 화면의 동네 주변 장소로 검색 검색바를 누른다.
+    expected: 검색 상세 조건 화면으로 이동한다.
+  - id: SEARCH-GUEST-04
+    action: select_domestic_region
+    description: 위치 화면에서 국내 탭을 선택한다.
+    expected: 국내 지역 목록이 노출된다.
+  - id: SEARCH-GUEST-05
+    action: select_exact_schedule
+    description: 일정 탭에서 정확한 일정을 선택한다.
+    expected: 정확한 일정 달력이 노출된다.
+  - id: SEARCH-GUEST-06
+    action: select_date_range
+    description: 2026년 8월 1일부터 2026년 8월 7일까지 선택하고 다음 버튼을 누른다.
+    expected: 게스트 인원 선택 화면으로 이동한다.
+  - id: SEARCH-GUEST-07
+    action: add_guest_options
+    description: 어린이, 유아, 반려동물 + 버튼을 각각 한 번씩 누른다.
+    expected: 어린이 1명, 유아 1명, 반려동물 1마리가 선택된다.
+  - id: SEARCH-GUEST-08
+    action: submit_search
+    description: 하단 검색 버튼을 누른다.
+    expected: 검색 결과 목록 화면으로 이동한다.
+validations:
+  - id: SEARCH-GUEST-V01
+    description: 앱 재실행 후 로그인 홈 화면이 아니면 FAIL 처리한다.
+  - id: SEARCH-GUEST-V02
+    description: 검색 상세 조건 화면에서 위치/일정/게스트 탭이 확인되어야 한다.
+  - id: SEARCH-GUEST-V03
+    description: 달력에서 2026년 8월 1일과 8월 7일을 선택할 수 있어야 한다.
+  - id: SEARCH-GUEST-V04
+    description: 인원 선택 후 어린이/유아/반려동물 수량이 각각 1로 확인되어야 한다.
+  - id: SEARCH-GUEST-V05
+    description: 결과 목록 화면에서 국내, 8월 1일 ~ 8월 7일, 집 목록 신호가 확인되어야 한다.
+artifacts:
+  screenshots:
+    - search-home.png
+    - search-condition.png
+    - calendar-after-select.png
+    - guest-select-after-plus.png
+    - search-results.png
+  logs:
+    - runner.log
+    - search-home.xml
+    - search-condition.xml
+    - calendar-after-select.xml
+    - guest-select-after-plus.xml
+    - search-results.xml
+pass_criteria:
+  - 검색 결과 목록 화면이 확인된다.
+  - 검색 조건에 국내와 8월 1일 ~ 8월 7일이 표시된다.
+  - 반려동물 필터 또는 결과 목록 신호가 확인된다.

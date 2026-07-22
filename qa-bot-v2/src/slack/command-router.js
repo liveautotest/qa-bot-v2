@@ -12,11 +12,18 @@ function parseKeyValues(parts) {
 
 function parseKoreanShortcut(text) {
   const normalized = text.trim().replace(/\s+/g, " ");
-  const match = normalized.match(/^!(게스트|호스트)\s+(로그인|로그아웃)$/);
+  const match = normalized.match(/^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색)$/);
   if (!match) return null;
 
+  const testByCommand = {
+    로그인: "login",
+    로그아웃: "logout",
+    집검색: "search",
+    "집 검색": "search"
+  };
+
   return {
-    test: match[2] === "로그인" ? "login" : "logout",
+    test: testByCommand[match[2]],
     role: match[1] === "게스트" ? "guest" : "host",
     env: "staging"
   };
@@ -52,7 +59,7 @@ async function routeCommand(text, context) {
     return formatHelp();
   }
 
-  if (command === "login" || command === "logout") {
+  if (command === "login" || command === "logout" || command === "search") {
     const args = parseKeyValues(parts.slice(2));
     return runQaCommand(
       {
