@@ -90,23 +90,10 @@ function findNode(xml, labels, options = {}) {
   return nodes.find((node) => node.attrs.clickable === "true") || nodes[0];
 }
 
-function isLoggedInHome(xml) {
-  const signals = [
-    "잠시 머물 집은",
-    "동네 · 주변 장소로 검색",
-    "동네 주변 장소로 검색",
-    "내 정보",
-    "계약",
-    "리브후기"
-  ];
-  return signals.filter((text) => xml.includes(text)).length >= 2;
-}
-
-function isLoggedOut(xml) {
+function hasHomeSearchBar(xml) {
   return (
-    xml.includes("이메일/휴대폰 번호로 시작하기") ||
-    (xml.includes("로그인해 주세요") && xml.includes("회원가입 / 로그인하기")) ||
-    (xml.includes("이메일 혹은 휴대폰 번호로 시작하기") && xml.includes("비밀번호"))
+    xml.includes("동네 · 주변 장소로 검색") ||
+    xml.includes("동네 주변 장소로 검색")
   );
 }
 
@@ -416,29 +403,18 @@ async function runSearchTest({ request, config, store }) {
     let xml = await waitForUi(
       config,
       device,
-      (nextXml) => isLoggedInHome(nextXml) || isLoggedOut(nextXml),
+      hasHomeSearchBar,
       10000
     );
     await saveArtifacts(config, device, store, "search-home", xml);
 
-    if (isLoggedOut(xml)) {
+    if (!hasHomeSearchBar(xml)) {
       fail(
-        "검색 테스트를 시작할 수 없습니다. 현재 단말이 로그인 상태가 아닙니다.",
+        "앱 재실행 후 홈 검색바를 확인하지 못했습니다.",
         steps,
         [
-          "먼저 Slack에서 !게스트 로그인 또는 CLI login을 실행해주세요.",
-          "검색 테스트는 앱을 완전히 껐다가 재실행하지만, 로그인 세션은 유지되어 있어야 합니다.",
-          "리포트의 search-home.png 화면을 확인해주세요."
-        ]
-      );
-    }
-
-    if (!isLoggedInHome(xml)) {
-      fail(
-        "앱 재실행 후 홈 화면을 확인하지 못했습니다.",
-        steps,
-        [
-          "홈 화면 신호는 검색바, 내 정보, 계약, 리브후기 텍스트 중 2개 이상으로 판단합니다.",
+          "검색은 로그인 필수 동작이 아니므로 로그인 여부를 보지 않고 홈 검색바만 확인합니다.",
+          "검색바 문구는 '동네 · 주변 장소로 검색' 또는 '동네 주변 장소로 검색'이어야 합니다.",
           "리포트의 search-home.png 화면을 확인해주세요."
         ]
       );
