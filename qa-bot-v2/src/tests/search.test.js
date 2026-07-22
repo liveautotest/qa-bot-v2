@@ -132,6 +132,48 @@ function isFlexibleSearchResults(xml) {
   );
 }
 
+const APP_ERROR_TEXTS = [
+  "일시적인 오류가 발생했습니다",
+  "오류가 발생했습니다",
+  "다시 시도해 주세요",
+  "네트워크 연결 상태를 확인",
+  "서버와 통신"
+];
+
+function findAppErrorText(xml) {
+  return APP_ERROR_TEXTS.find((text) => xml.includes(text));
+}
+
+function hasAppError(xml) {
+  return Boolean(findAppErrorText(xml));
+}
+
+async function collectAppErrorWarning(config, device, store, xml, screenshotName = "search-results") {
+  const errorText = findAppErrorText(xml);
+  if (!errorText) return null;
+
+  const logcatPath = path.join(store.logsDir, "app-error-logcat.txt");
+  try {
+    const { stdout } = await runAdb(config, device, ["logcat", "-d", "-t", "500"]);
+    fs.writeFileSync(logcatPath, stdout);
+  } catch (error) {
+    store.appendLog("runner.log", `failed to collect app error logcat: ${error.message}`);
+  }
+
+  return {
+    type: "app_warning",
+    name: "앱 화면 오류 문구",
+    message: errorText,
+    details: [
+      "검색 결과 목록은 확인됐지만 화면에 앱 오류 문구가 함께 노출되었습니다.",
+      "지도 영역 또는 부가 데이터 로딩 오류일 수 있어 검색 성공과 별도로 확인이 필요합니다.",
+      `리포트의 ${screenshotName}.png와 ${screenshotName}.xml을 확인해주세요.`,
+      "app-error-logcat.txt와 앱 내 정보 > 매니저 도구 > 앱 로그 내역에서 같은 시간대 로그를 확인해주세요."
+    ],
+    log: logcatPath
+  };
+}
+
 async function waitForUi(config, device, predicate, timeoutMs = 10000) {
   const startedAt = Date.now();
   let xml = "";
@@ -548,8 +590,14 @@ async function runSearchTest({ request, config, store }) {
     xml = await waitForUi(config, device, isGuestScreen, 8000);
     await addGuestOptions(config, device, xml, store, steps);
 
-    xml = await waitForUi(config, device, isSearchResults, 20000);
+    xml = await waitForUi(
+      config,
+      device,
+      (nextXml) => isSearchResults(nextXml) || hasAppError(nextXml),
+      20000
+    );
     const finalArtifacts = await saveArtifacts(config, device, store, "search-results", xml);
+    const appWarning = await collectAppErrorWarning(config, device, store, xml);
     if (!isSearchResults(xml)) {
       fail(
         "검색 버튼을 눌렀지만 검색 결과 목록 화면을 확인하지 못했습니다.",
@@ -561,6 +609,9 @@ async function runSearchTest({ request, config, store }) {
       );
     }
 
+    if (appWarning) {
+      addStep(steps, "앱 오류 경고 확인", "pass", appWarning.message);
+    }
     addStep(steps, "검색 결과 목록 진입 확인");
 
     return {
@@ -579,6 +630,7 @@ async function runSearchTest({ request, config, store }) {
         infant_count: 1,
         pet_count: 1
       },
+      app_warnings: appWarning ? [appWarning] : [],
       artifacts: {
         screenshots: [finalArtifacts.screenshotPath],
         logs: [
@@ -648,8 +700,14 @@ async function runFlexibleSearchTest({ request, config, store }) {
     xml = await waitForUi(config, device, isGuestScreen, 8000);
     await submitDefaultGuests(config, device, xml, store, steps);
 
-    xml = await waitForUi(config, device, isFlexibleSearchResults, 20000);
+    xml = await waitForUi(
+      config,
+      device,
+      (nextXml) => isFlexibleSearchResults(nextXml) || hasAppError(nextXml),
+      20000
+    );
     const finalArtifacts = await saveArtifacts(config, device, store, "search-results", xml);
+    const appWarning = await collectAppErrorWarning(config, device, store, xml);
     if (!isFlexibleSearchResults(xml)) {
       fail(
         "검색 버튼을 눌렀지만 유연한 일정 검색 결과 목록 화면을 확인하지 못했습니다.",
@@ -661,6 +719,9 @@ async function runFlexibleSearchTest({ request, config, store }) {
       );
     }
 
+    if (appWarning) {
+      addStep(steps, "앱 오류 경고 확인", "pass", appWarning.message);
+    }
     addStep(steps, "검색 결과 목록 진입 확인");
 
     return {
@@ -680,6 +741,7 @@ async function runFlexibleSearchTest({ request, config, store }) {
         infant_count: 0,
         pet_count: 0
       },
+      app_warnings: appWarning ? [appWarning] : [],
       artifacts: {
         screenshots: [finalArtifacts.screenshotPath],
         logs: [

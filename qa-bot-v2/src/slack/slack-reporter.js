@@ -133,6 +133,22 @@ function formatResult(result) {
     lines.push(...searchConditions);
   }
 
+  if (result.app_warnings && result.app_warnings.length > 0) {
+    lines.push("");
+    lines.push("기타 이슈:");
+    for (const warning of result.app_warnings) {
+      lines.push(`- ${warning.name}: ${warning.message}`);
+      if (warning.details && warning.details.length > 0) {
+        for (const detail of warning.details) {
+          lines.push(`  - ${detail}`);
+        }
+      }
+      if (warning.log) {
+        lines.push(`  - 로그: ${warning.log}`);
+      }
+    }
+  }
+
   if (result.session_reused) {
     lines.push("로그인 방식: 기존 로그인 세션 사용");
   }
