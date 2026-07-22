@@ -22,6 +22,92 @@ function formatHelp() {
   ].join("\n");
 }
 
+function formatConditionValue(value) {
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
+function formatSearchConditions(conditions) {
+  if (!conditions) return [];
+
+  const labels = {
+    region: "지역",
+    schedule_type: "일정 방식",
+    start_date: "체크인",
+    end_date: "체크아웃",
+    stay_duration: "머무는 기간",
+    expected_move_in_months: "예상 입주월",
+    adult_count: "성인",
+    child_count: "어린이",
+    infant_count: "유아",
+    pet_count: "반려동물"
+  };
+
+  return Object.entries(labels)
+    .filter(([key]) => conditions[key] !== undefined)
+    .map(([key, label]) => `- ${label}: ${formatConditionValue(conditions[key])}`);
+}
+
+function formatStepSummary(steps = [], { compact = false } = {}) {
+  if (!steps.length) return [];
+
+  const visibleSteps = compact ? steps.slice(0, 12) : steps;
+  const lines = visibleSteps.map((step, index) => {
+    const status =
+      step.status === "pass"
+        ? "PASS"
+        : step.status === "fail"
+          ? "FAIL"
+          : String(step.status || "UNKNOWN").toUpperCase();
+    const message = step.message ? ` (${step.message})` : "";
+    return `${index + 1}. [${status}] ${step.name}${message}`;
+  });
+
+  if (compact && steps.length > visibleSteps.length) {
+    lines.push(`...외 ${steps.length - visibleSteps.length}개 단계는 리포트에서 확인`);
+  }
+
+  return lines;
+}
+
+function formatPassSummary(result) {
+  if (result.status !== "pass") return [];
+
+  if (result.test_id === "TC-LOGIN-001") {
+    return [
+      "- 앱 재실행 후 로그인 완료 상태를 확인했습니다.",
+      result.session_reused
+        ? "- 기존 로그인 세션을 재사용했습니다."
+        : "- 이메일/비밀번호 입력 후 홈 화면 진입을 확인했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-LOGOUT-001") {
+    return [
+      result.session_already_logged_out
+        ? "- 시작 시점에 이미 로그아웃 상태임을 확인했습니다."
+        : "- 내 정보 화면에서 로그아웃 버튼과 확인 팝업을 처리했습니다.",
+      "- 로그아웃 후 로그인 시작 화면 또는 로그인 안내 상태를 확인했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-SEARCH-001") {
+    return [
+      "- 앱 재실행 후 홈 검색바를 확인했습니다.",
+      "- 정확한 일정 검색 조건을 적용하고 검색 결과 목록 진입을 확인했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-SEARCH-002") {
+    return [
+      "- 앱 재실행 후 홈 검색바를 확인했습니다.",
+      "- 유연한 일정 검색 조건을 적용하고 검색 결과 목록 진입을 확인했습니다."
+    ];
+  }
+
+  return [];
+}
+
 function formatResult(result) {
   const icon = result.status === "pass" ? "PASS" : "FAIL";
   const lines = [
@@ -32,6 +118,20 @@ function formatResult(result) {
     `디바이스: ${result.device || "unknown"}`,
     `소요시간: ${result.duration_ms}ms`
   ];
+
+  const passSummary = formatPassSummary(result);
+  if (passSummary.length > 0) {
+    lines.push("");
+    lines.push("검증 요약:");
+    lines.push(...passSummary);
+  }
+
+  const searchConditions = formatSearchConditions(result.search_conditions);
+  if (searchConditions.length > 0) {
+    lines.push("");
+    lines.push("검색 조건:");
+    lines.push(...searchConditions);
+  }
 
   if (result.session_reused) {
     lines.push("로그인 방식: 기존 로그인 세션 사용");
@@ -50,6 +150,15 @@ function formatResult(result) {
         lines.push(`- ${detail}`);
       }
     }
+  }
+
+  const stepSummary = formatStepSummary(result.steps, {
+    compact: result.status === "pass"
+  });
+  if (stepSummary.length > 0) {
+    lines.push("");
+    lines.push("실행 단계:");
+    lines.push(...stepSummary);
   }
 
   if (result.security_checks && result.security_checks.length > 0) {
