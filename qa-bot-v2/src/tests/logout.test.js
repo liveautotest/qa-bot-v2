@@ -89,6 +89,12 @@ async function saveArtifacts(config, device, store, name, xml) {
   return { xmlPath, screenshotPath };
 }
 
+function saveXmlArtifact(store, name, xml) {
+  const xmlPath = path.join(store.logsDir, `${name}.xml`);
+  fs.writeFileSync(xmlPath, xml);
+  return xmlPath;
+}
+
 async function getScreenSize(config, device) {
   const { stdout } = await runAdb(config, device, ["shell", "wm", "size"]);
   const match = stdout.match(/Physical size:\s*(\d+)x(\d+)/);
@@ -131,9 +137,9 @@ async function centerLogoutRowIfNeeded(config, device, candidates) {
   if (!firstCandidate || firstCandidate.y < 1650) return null;
 
   await runAdb(config, device, [
-    "shell", "input", "swipe", "540", "2050", "540", "1250", "450"
+    "shell", "input", "swipe", "540", "2050", "540", "1250", "300"
   ]);
-  await new Promise((resolve) => setTimeout(resolve, 800));
+  await new Promise((resolve) => setTimeout(resolve, 400));
 
   const xml = await dumpUi(config, device);
   const centeredCandidates = findLogoutTapCandidates(xml);
@@ -173,7 +179,6 @@ async function confirmLoggedOutAfterSubmit(config, device, store, steps) {
     xml = await waitForUi(config, device, isLoggedOut, 8000);
   }
 
-  await saveArtifacts(config, device, store, "logout-final", xml);
   return xml;
 }
 
@@ -188,7 +193,7 @@ function buildAlreadyLoggedOutResult({ role, env, device, steps, store, screensh
     session_already_logged_out: true,
     steps,
     artifacts: {
-      screenshots: [path.join(store.screenshotsDir, screenshotName)],
+      screenshots: [],
       logs: [path.join(store.logsDir, logName)]
     }
   };
@@ -220,10 +225,10 @@ async function runLogoutTest({ request, config, store }) {
       "1"
     ]);
     addStep(steps, "앱 실행");
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     let xml = await dumpUi(config, device);
-    await saveArtifacts(config, device, store, "logout-start", xml);
+    saveXmlArtifact(store, "logout-start", xml);
 
     if (isLoggedOut(xml)) {
       return buildAlreadyLoggedOutResult({
@@ -261,13 +266,13 @@ async function runLogoutTest({ request, config, store }) {
       }
       await tap(config, device, myInfo.bounds.x, myInfo.bounds.y);
       addStep(steps, "내 정보 탭 진입");
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      await new Promise((resolve) => setTimeout(resolve, 800));
 
-      for (let count = 0; count < 5; count += 1) {
+      for (let count = 0; count < 3; count += 1) {
         await runAdb(config, device, [
-          "shell", "input", "swipe", "540", "1200", "540", "2100", "500"
+          "shell", "input", "swipe", "540", "1200", "540", "2100", "300"
         ]);
-        await new Promise((resolve) => setTimeout(resolve, 400));
+        await new Promise((resolve) => setTimeout(resolve, 250));
       }
 
       let logoutTapCandidates = null;
@@ -304,7 +309,7 @@ async function runLogoutTest({ request, config, store }) {
         store.appendLog("runner.log", "moved logout row toward screen center before tapping");
       }
 
-      await saveArtifacts(config, device, store, "before-logout", xml);
+      saveXmlArtifact(store, "before-logout", xml);
       xml = await tapLogoutAndWaitForDialog(
         config,
         device,
@@ -312,8 +317,10 @@ async function runLogoutTest({ request, config, store }) {
         store
       );
       addStep(steps, "로그아웃 버튼 탭");
-      await saveArtifacts(config, device, store, "logout-confirm-dialog", xml);
+      saveXmlArtifact(store, "logout-confirm-dialog", xml);
       if (!hasLogoutConfirmDialog(xml)) {
+        await saveArtifacts(config, device, store, "before-logout", xml);
+        await saveArtifacts(config, device, store, "logout-confirm-dialog", xml);
         fail(
           "로그아웃 버튼은 찾았지만, 버튼을 눌러도 확인 팝업이 뜨지 않았습니다.",
           steps,

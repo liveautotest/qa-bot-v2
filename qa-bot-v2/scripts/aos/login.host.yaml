@@ -49,29 +49,32 @@ steps:
     action: tap_host_mode
     description: 호스트모드 버튼을 누른다.
     expected: 호스트모드 화면 또는 호스트 상태가 확인된다.
+  - id: LOGIN-HOST-10
+    action: open_host_contract_tab
+    description: 호스트모드 하단의 계약 탭을 누른다.
+    expected: 호스트 계약 화면이 노출된다.
 validations:
   - id: LOGIN-HOST-V01
     description: 로그인 실패 문구가 보이면 FAIL 처리한다.
   - id: LOGIN-HOST-V02
     description: 로그인 제출 후 홈 화면 신호가 없으면 FAIL 처리한다.
   - id: LOGIN-HOST-V03
-    description: 호스트 계정은 내 정보 탭에서 호스트모드 버튼까지 확인되어야 PASS 처리한다.
+    description: 호스트 계정은 내 정보 탭에서 호스트모드 진입 후 계약 탭까지 확인되어야 PASS 처리한다.
   - id: LOGIN-HOST-V04
     description: 비밀번호 입력 필드 마스킹 여부를 확인한다.
 artifacts:
   screenshots:
-    - after-launch.png
-    - after-login-entry.png
-    - final.png
-    - host-mode.png
+    - 실패 시점 화면만 저장한다.
   logs:
     - runner.log
     - after-launch.xml
     - after-submit.xml
     - host-my-info.xml
     - host-mode.xml
+    - host-contract.xml
 pass_criteria:
   - 홈 화면이 확인된다.
-  - 내 정보 탭에서 호스트모드 버튼 또는 호스트 상태가 확인된다.
+  - 내 정보 탭에서 호스트모드 버튼을 누른다.
+  - 호스트모드 하단 계약 탭 진입이 확인된다.
   - 로그인 실패 문구가 없다.
   - 리포트 디렉토리가 생성된다.

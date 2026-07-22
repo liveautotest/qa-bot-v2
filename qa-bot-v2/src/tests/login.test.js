@@ -168,6 +168,12 @@ async function saveArtifacts(config, device, store, name, secrets = []) {
   return { xmlPath, screenshotPath };
 }
 
+async function saveScreenshot(config, device, store, name) {
+  const screenshotPath = path.join(store.screenshotsDir, `${name}.png`);
+  fs.writeFileSync(screenshotPath, await screenshotPng(config, device));
+  return screenshotPath;
+}
+
 async function waitForUi(config, device, predicate, timeoutMs = 5000) {
   const startedAt = Date.now();
   let lastXml = "";
@@ -245,6 +251,18 @@ function isLoggedInHome(xml) {
   ];
 
   return homeSignals.filter((text) => xml.includes(text)).length >= 2;
+}
+
+function isHostContractTab(xml) {
+  const contractSignals = [
+    "전체 계약 보기",
+    "보증금",
+    "퇴실",
+    "입실",
+    "메시지"
+  ];
+
+  return xml.includes("계약") && contractSignals.filter((text) => xml.includes(text)).length >= 1;
 }
 
 function assertEnteredValue(xml, value, fieldName) {
@@ -395,7 +413,6 @@ async function submitLogin(config, device, xml, steps) {
 async function verifyHostMode(config, device, store, steps) {
   let xml = await waitForUi(config, device, isLoggedInHome, 10000);
   fs.writeFileSync(path.join(store.logsDir, "host-home.xml"), xml);
-  await saveArtifacts(config, device, store, "host-home");
 
   const myInfoBounds =
     findButtonBoundsByLabel(xml, "내 정보") ||
@@ -415,7 +432,6 @@ async function verifyHostMode(config, device, store, steps) {
     10000
   );
   fs.writeFileSync(path.join(store.logsDir, "host-my-info.xml"), xml);
-  await saveArtifacts(config, device, store, "host-my-info");
 
   const hostModeBounds =
     findButtonBoundsByLabel(xml, "호스트모드") ||
@@ -437,10 +453,27 @@ async function verifyHostMode(config, device, store, steps) {
     10000
   );
   fs.writeFileSync(path.join(store.logsDir, "host-mode.xml"), xml);
-  await saveArtifacts(config, device, store, "host-mode");
 
   if (!xml.includes("호스트")) {
     throw new Error("Host mode screen was not confirmed after tapping host mode.");
+  }
+
+  const contractTabBounds =
+    findButtonBoundsByLabel(xml, "계약") ||
+    findBoundsByTextIncludes(xml, "계약");
+
+  if (!contractTabBounds) {
+    throw new Error("Cannot find host contract tab after entering host mode.");
+  }
+
+  await tap(config, device, contractTabBounds.x, contractTabBounds.y);
+  addStep(steps, "호스트 계약 탭 진입");
+
+  xml = await waitForUi(config, device, isHostContractTab, 10000);
+  fs.writeFileSync(path.join(store.logsDir, "host-contract.xml"), xml);
+
+  if (!isHostContractTab(xml)) {
+    throw new Error("Host contract tab was not confirmed after tapping contract tab.");
   }
 }
 
@@ -517,7 +550,6 @@ async function runLoginTest({ request, config, store }) {
     await new Promise((resolve) => setTimeout(resolve, 2500));
     let xml = await dumpUi(config, device);
     fs.writeFileSync(path.join(store.logsDir, "after-launch.xml"), xml);
-    await saveArtifacts(config, device, store, "after-launch");
 
     if (xml.includes('package="com.android.systemui"')) {
       throw new Error("Device is still showing system UI/lock screen after app launch. Unlock the device and retry.");
@@ -531,7 +563,6 @@ async function runLoginTest({ request, config, store }) {
         6000
       );
       fs.writeFileSync(path.join(store.logsDir, "after-permission-allow.xml"), xml);
-      await saveArtifacts(config, device, store, "after-permission-allow");
     }
 
     if (await maybeDismissUpdatePopup(config, device, xml, store, steps)) {
@@ -542,7 +573,6 @@ async function runLoginTest({ request, config, store }) {
         6000
       );
       fs.writeFileSync(path.join(store.logsDir, "after-update-dismiss.xml"), xml);
-      await saveArtifacts(config, device, store, "after-update-dismiss");
     }
 
     if (isLoggedInHome(xml)) {
@@ -555,17 +585,14 @@ async function runLoginTest({ request, config, store }) {
         addStep(steps, "게스트 로그인 완료 확인");
       }
 
-      const sessionScreenshot =
-        role === "host"
-          ? path.join(store.screenshotsDir, "host-mode.png")
-          : path.join(store.screenshotsDir, "after-launch.png");
       const sessionLogs =
         role === "host"
           ? [
               path.join(store.logsDir, "after-launch.xml"),
               path.join(store.logsDir, "host-home.xml"),
               path.join(store.logsDir, "host-my-info.xml"),
-              path.join(store.logsDir, "host-mode.xml")
+              path.join(store.logsDir, "host-mode.xml"),
+              path.join(store.logsDir, "host-contract.xml")
             ]
           : [path.join(store.logsDir, "after-launch.xml")];
 
@@ -579,7 +606,7 @@ async function runLoginTest({ request, config, store }) {
         session_reused: true,
         security_checks: sessionReuseSecurityChecks(),
         artifacts: {
-          screenshots: [sessionScreenshot],
+          screenshots: [],
           logs: sessionLogs
         }
       };
@@ -603,7 +630,6 @@ async function runLoginTest({ request, config, store }) {
       await new Promise((resolve) => setTimeout(resolve, 1200));
       xml = await dumpUi(config, device);
       fs.writeFileSync(path.join(store.logsDir, "after-login-entry.xml"), xml);
-      await saveArtifacts(config, device, store, "after-login-entry");
     } else {
       addStep(steps, "기존 로그인 입력 화면 확인");
     }
@@ -670,8 +696,7 @@ async function runLoginTest({ request, config, store }) {
       device,
       (nextXml) =>
         isLoggedInHome(nextXml) ||
-        hasLoginFailure(nextXml) ||
-        (isStillOnLoginForm(nextXml) && isLoginSubmitReady(nextXml)),
+        hasLoginFailure(nextXml),
       20000
     );
     writeXmlArtifact(
@@ -679,15 +704,15 @@ async function runLoginTest({ request, config, store }) {
       xml,
       accountSecrets
     );
-    const finalArtifacts = await saveArtifacts(
-      config,
-      device,
-      store,
-      "final",
-      accountSecrets
-    );
 
     if (hasLoginFailure(xml) || !isLoggedInHome(xml)) {
+      const finalArtifacts = await saveArtifacts(
+        config,
+        device,
+        store,
+        "final",
+        accountSecrets
+      );
       throw new Error("Login submit did not leave the login screen. Check logs/after-submit.xml.");
     }
 
@@ -706,11 +731,12 @@ async function runLoginTest({ request, config, store }) {
       steps,
       security_checks: securityChecks,
       artifacts: {
-        screenshots: [finalArtifacts.screenshotPath],
+        screenshots: [],
         logs: [
           path.join(store.logsDir, "runner.log"),
           path.join(store.logsDir, "after-launch.xml"),
-          path.join(store.logsDir, "after-submit.xml")
+          path.join(store.logsDir, "after-submit.xml"),
+          ...(role === "host" ? [path.join(store.logsDir, "host-contract.xml")] : [])
         ]
       }
     };
