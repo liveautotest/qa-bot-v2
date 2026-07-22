@@ -44,9 +44,12 @@ async function main() {
     await handleQaMessage(message, say);
   });
 
-  app.message(/^!(게스트|호스트)\s+(로그인|로그아웃)$/i, async ({ message, say }) => {
-    await handleQaMessage(message, say);
-  });
+  app.message(
+    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색)$/i,
+    async ({ message, say }) => {
+      await handleQaMessage(message, say);
+    }
+  );
 
   app.message(/^!qa$/i, async ({ message, say }) => {
     await say({
