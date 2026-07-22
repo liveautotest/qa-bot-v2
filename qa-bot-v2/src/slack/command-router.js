@@ -12,14 +12,20 @@ function parseKeyValues(parts) {
 
 function parseKoreanShortcut(text) {
   const normalized = text.trim().replace(/\s+/g, " ");
-  const match = normalized.match(/^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색)$/);
+  const match = normalized.match(
+    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색)$/
+  );
   if (!match) return null;
 
   const testByCommand = {
     로그인: "login",
     로그아웃: "logout",
     집검색: "search",
-    "집 검색": "search"
+    "집 검색": "search",
+    "정확한일정 검색": "search",
+    "정확한 일정 검색": "search",
+    "유연한일정 검색": "search-flexible",
+    "유연한 일정 검색": "search-flexible"
   };
 
   return {
@@ -49,6 +55,9 @@ async function runQaCommand({ test, env, role }, context) {
 async function routeCommand(text, context) {
   const shortcut = parseKoreanShortcut(text);
   if (shortcut) {
+    if (shortcut.test === "search-flexible") {
+      return "유연한 일정 검색은 아직 준비 중입니다. 현재 실행 가능한 검색 명령어는 `!게스트 정확한일정 검색` 입니다.";
+    }
     return runQaCommand(shortcut, context);
   }
 

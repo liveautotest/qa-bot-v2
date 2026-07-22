@@ -3,7 +3,10 @@ name: 게스트 집 검색 - 정확한 일정
 platform: aos
 env: staging
 role: guest
-slack_command: "!게스트 집검색"
+slack_command: "!게스트 정확한일정 검색"
+aliases:
+  - "!게스트 집검색"
+  - "!게스트 정확한 일정 검색"
 runner:
   test: search
   implementation: src/tests/search.test.js
