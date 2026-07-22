@@ -131,6 +131,21 @@ function findBoundsByTextIncludes(xml, label) {
   return null;
 }
 
+function findBottomTabBounds(xml, label) {
+  const nodes = parseNodes(xml);
+  const matches = nodes.filter((node) => {
+    if (!node.bounds) return false;
+    const text = `${node.attrs.text || ""}\n${node.attrs["content-desc"] || ""}`;
+    return text.includes(label) && node.bounds.top >= 2200;
+  });
+
+  const exactMatch = matches.find((node) => {
+    const values = [node.attrs.text || "", node.attrs["content-desc"] || ""];
+    return values.includes(label);
+  });
+  return (exactMatch || matches[0])?.bounds || null;
+}
+
 function findEditableNodes(xml) {
   return parseNodes(xml).filter((node) => {
     const className = node.attrs.class || "";
@@ -172,6 +187,10 @@ async function saveScreenshot(config, device, store, name) {
   const screenshotPath = path.join(store.screenshotsDir, `${name}.png`);
   fs.writeFileSync(screenshotPath, await screenshotPng(config, device));
   return screenshotPath;
+}
+
+function existingPaths(paths) {
+  return paths.filter((filePath) => fs.existsSync(filePath));
 }
 
 async function waitForUi(config, device, predicate, timeoutMs = 5000) {
@@ -263,6 +282,11 @@ function isHostContractTab(xml) {
   ];
 
   return xml.includes("계약") && contractSignals.filter((text) => xml.includes(text)).length >= 1;
+}
+
+function isHostModeShell(xml) {
+  const hostBottomTabs = ["집 목록", "계약", "메시지", "내 정보"];
+  return hostBottomTabs.filter((text) => Boolean(findBottomTabBounds(xml, text))).length >= 3;
 }
 
 function assertEnteredValue(xml, value, fieldName) {
@@ -414,51 +438,65 @@ async function verifyHostMode(config, device, store, steps) {
   let xml = await waitForUi(config, device, isLoggedInHome, 10000);
   fs.writeFileSync(path.join(store.logsDir, "host-home.xml"), xml);
 
-  const myInfoBounds =
-    findButtonBoundsByLabel(xml, "내 정보") ||
-    findBoundsByTextIncludes(xml, "내 정보");
+  if (isHostModeShell(xml)) {
+    addStep(steps, "기존 호스트모드 확인");
+  } else {
+    const myInfoBounds =
+      findBottomTabBounds(xml, "내 정보") ||
+      findButtonBoundsByLabel(xml, "내 정보") ||
+      findBoundsByTextIncludes(xml, "내 정보");
 
-  if (!myInfoBounds) {
-    throw new Error("Cannot find '내 정보' tab after host login.");
+    if (!myInfoBounds) {
+      throw new Error("Cannot find '내 정보' tab after host login.");
+    }
+
+    await tap(config, device, myInfoBounds.x, myInfoBounds.y);
+    addStep(steps, "내 정보 탭 진입");
+
+    xml = await waitForUi(
+      config,
+      device,
+      (nextXml) =>
+        nextXml.includes("호스트") ||
+        nextXml.includes("호스트모드") ||
+        isHostModeShell(nextXml),
+      10000
+    );
+    fs.writeFileSync(path.join(store.logsDir, "host-my-info.xml"), xml);
+
+    if (isHostModeShell(xml)) {
+      addStep(steps, "기존 호스트모드 확인");
+    } else {
+      const hostModeBounds =
+        findButtonBoundsByLabel(xml, "호스트모드") ||
+        findButtonBoundsByLabel(xml, "호스트 모드") ||
+        findBoundsByTextIncludes(xml, "호스트모드") ||
+        findBoundsByTextIncludes(xml, "호스트 모드");
+
+      if (!hostModeBounds) {
+        throw new Error("Cannot find host mode button on '내 정보' screen.");
+      }
+
+      await tap(config, device, hostModeBounds.x, hostModeBounds.y);
+      addStep(steps, "호스트모드 버튼 탭");
+
+      xml = await waitForUi(
+        config,
+        device,
+        (nextXml) => isHostModeShell(nextXml) || (nextXml.includes("호스트") && !nextXml.includes("게스트모드로 전환 실패")),
+        10000
+      );
+    }
   }
 
-  await tap(config, device, myInfoBounds.x, myInfoBounds.y);
-  addStep(steps, "내 정보 탭 진입");
-
-  xml = await waitForUi(
-    config,
-    device,
-    (nextXml) => nextXml.includes("호스트") || nextXml.includes("호스트모드"),
-    10000
-  );
-  fs.writeFileSync(path.join(store.logsDir, "host-my-info.xml"), xml);
-
-  const hostModeBounds =
-    findButtonBoundsByLabel(xml, "호스트모드") ||
-    findButtonBoundsByLabel(xml, "호스트 모드") ||
-    findBoundsByTextIncludes(xml, "호스트모드") ||
-    findBoundsByTextIncludes(xml, "호스트 모드");
-
-  if (!hostModeBounds) {
-    throw new Error("Cannot find host mode button on '내 정보' screen.");
-  }
-
-  await tap(config, device, hostModeBounds.x, hostModeBounds.y);
-  addStep(steps, "호스트모드 버튼 탭");
-
-  xml = await waitForUi(
-    config,
-    device,
-    (nextXml) => nextXml.includes("호스트") && !nextXml.includes("게스트모드로 전환 실패"),
-    10000
-  );
   fs.writeFileSync(path.join(store.logsDir, "host-mode.xml"), xml);
 
-  if (!xml.includes("호스트")) {
+  if (!isHostModeShell(xml) && !xml.includes("호스트")) {
     throw new Error("Host mode screen was not confirmed after tapping host mode.");
   }
 
   const contractTabBounds =
+    findBottomTabBounds(xml, "계약") ||
     findButtonBoundsByLabel(xml, "계약") ||
     findBoundsByTextIncludes(xml, "계약");
 
@@ -607,7 +645,7 @@ async function runLoginTest({ request, config, store }) {
         security_checks: sessionReuseSecurityChecks(),
         artifacts: {
           screenshots: [],
-          logs: sessionLogs
+          logs: existingPaths(sessionLogs)
         }
       };
     }
@@ -737,7 +775,7 @@ async function runLoginTest({ request, config, store }) {
           path.join(store.logsDir, "after-launch.xml"),
           path.join(store.logsDir, "after-submit.xml"),
           ...(role === "host" ? [path.join(store.logsDir, "host-contract.xml")] : [])
-        ]
+        ].filter((filePath) => fs.existsSync(filePath))
       }
     };
   });
