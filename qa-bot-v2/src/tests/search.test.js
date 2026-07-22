@@ -124,6 +124,14 @@ function isSearchResults(xml) {
   );
 }
 
+function isFlexibleSearchResults(xml) {
+  return (
+    xml.includes("국내") &&
+    xml.includes("일주일 / 7월, 8월 / 1명") &&
+    (xml.includes("개의 집") || xml.includes("필터") || xml.includes("지도로 보기"))
+  );
+}
+
 async function waitForUi(config, device, predicate, timeoutMs = 10000) {
   const startedAt = Date.now();
   let xml = "";
@@ -308,6 +316,66 @@ async function selectExactDates(config, device, xml, store, steps) {
   addStep(steps, "일정 다음 버튼 탭");
 }
 
+async function selectFlexibleSchedule(config, device, xml, store, steps) {
+  const scheduleTab = findNode(xml, "일정", { clickable: true });
+  await tapNode(config, device, scheduleTab, "일정 탭", steps);
+  addStep(steps, "일정 탭 진입");
+
+  xml = await waitForUi(
+    config,
+    device,
+    (nextXml) => nextXml.includes("정확한 일정") && nextXml.includes("유연한 일정"),
+    8000
+  );
+  await saveArtifacts(config, device, store, "flex-calendar-open", xml);
+
+  const flexible = findNode(xml, "유연한 일정", { clickable: true });
+  await tapNode(config, device, flexible, "유연한 일정 탭", steps);
+  addStep(steps, "유연한 일정 선택");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  xml = await waitForUi(
+    config,
+    device,
+    (nextXml) =>
+      nextXml.includes("어느 정도 머물 예정인가요?") &&
+      nextXml.includes("예상 입주일이 언제 정도인가요?"),
+    8000
+  );
+  await saveArtifacts(config, device, store, "flex-options", xml);
+
+  const oneWeek = findNode(xml, "일주일", { clickable: true });
+  const july = findNode(xml, "7월", { clickable: true });
+  const august = findNode(xml, "8월", { clickable: true });
+
+  if (!oneWeek?.bounds || !july?.bounds || !august?.bounds) {
+    fail(
+      "유연한 일정에서 일주일, 7월, 8월 항목을 찾지 못했습니다.",
+      steps,
+      [
+        "유연한 일정 화면에는 '어느 정도 머물 예정인가요?'와 '예상 입주일이 언제 정도인가요?' 항목이 보여야 합니다.",
+        "리포트의 flex-options.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tap(config, device, oneWeek.bounds.x, oneWeek.bounds.y);
+  addStep(steps, "머무는 기간 선택", "pass", "일주일");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await tap(config, device, july.bounds.x, july.bounds.y);
+  addStep(steps, "예상 입주월 선택", "pass", "2026년 7월");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await tap(config, device, august.bounds.x, august.bounds.y);
+  addStep(steps, "예상 입주월 선택", "pass", "2026년 8월");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  xml = await dumpUi(config, device);
+  await saveArtifacts(config, device, store, "flex-after-select", xml);
+  const next = findNode(xml, "다음", { clickable: true, enabled: true });
+  await tapNode(config, device, next, "다음 버튼", steps);
+  addStep(steps, "유연한 일정 다음 버튼 탭");
+}
+
 function guestCountSelected(xml) {
   const labels = parseNodes(xml).map(nodeLabel).join("\n");
   return (
@@ -379,6 +447,43 @@ async function addGuestOptions(config, device, xml, store, steps) {
     );
   }
 
+  const search = findNode(guestXml, "검색", { clickable: true, enabled: true });
+  await tapNode(config, device, search, "검색 버튼", steps);
+  addStep(steps, "검색 버튼 탭");
+}
+
+async function submitDefaultGuests(config, device, xml, store, steps) {
+  const guestXml = await waitForUi(config, device, isGuestScreen, 8000);
+  await saveArtifacts(config, device, store, "guest-select-default", guestXml);
+  if (!isGuestScreen(guestXml)) {
+    fail(
+      "인원 선택 화면으로 이동하지 못했습니다.",
+      steps,
+      [
+        "유연한 일정 선택 후 '게스트' 탭이 선택되고 성인/어린이/유아/반려동물 항목이 보여야 합니다.",
+        "리포트의 guest-select-default.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  const labels = parseNodes(guestXml).map(nodeLabel).join("\n");
+  if (
+    !labels.includes("성인\n만 13세 이상\n1") ||
+    !labels.includes("어린이\n만 2~12세\n0") ||
+    !labels.includes("유아\n만 2세 미만\n0") ||
+    !labels.includes("반려동물\n0")
+  ) {
+    fail(
+      "기본 인원 상태를 확인하지 못했습니다.",
+      steps,
+      [
+        "유연한 일정 검색은 어린이, 유아, 반려동물을 추가하지 않고 기본 성인 1명으로 검색합니다.",
+        "리포트의 guest-select-default.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  addStep(steps, "기본 인원 확인", "pass", "성인 1, 어린이 0, 유아 0, 반려동물 0");
   const search = findNode(guestXml, "검색", { clickable: true, enabled: true });
   await tapNode(config, device, search, "검색 버튼", steps);
   addStep(steps, "검색 버튼 탭");
@@ -489,6 +594,108 @@ async function runSearchTest({ request, config, store }) {
   });
 }
 
+async function runFlexibleSearchTest({ request, config, store }) {
+  const role = request.role || "guest";
+  const env = request.env || "staging";
+  const device = config.devices[role] || "";
+  const appPackage = config.androidPackages[env];
+  const steps = [];
+
+  if (!device) throw new Error(`Missing device id for role: ${role}`);
+  if (!appPackage) throw new Error(`Unknown Android package for env: ${env}`);
+
+  return withDeviceLock(device, async () => {
+    addStep(steps, "환경 설정 확인");
+    await wakeAndUnlock(config, device, steps, store);
+    await launchFresh(config, device, appPackage, steps);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    let xml = await waitForUi(config, device, hasHomeSearchBar, 10000);
+    await saveArtifacts(config, device, store, "search-home", xml);
+
+    if (!hasHomeSearchBar(xml)) {
+      fail(
+        "앱 재실행 후 홈 검색바를 확인하지 못했습니다.",
+        steps,
+        [
+          "검색은 로그인 필수 동작이 아니므로 로그인 여부를 보지 않고 홈 검색바만 확인합니다.",
+          "검색바 문구는 '동네 · 주변 장소로 검색' 또는 '동네 주변 장소로 검색'이어야 합니다.",
+          "리포트의 search-home.png 화면을 확인해주세요."
+        ]
+      );
+    }
+
+    await tapSearchBar(config, device, xml, steps);
+    xml = await waitForUi(config, device, isSearchConditionScreen, 8000);
+    await saveArtifacts(config, device, store, "search-condition", xml);
+    if (!isSearchConditionScreen(xml)) {
+      fail(
+        "검색 상세 조건 화면으로 진입하지 못했습니다.",
+        steps,
+        [
+          "검색바 탭 후 위치/일정/게스트 탭과 검색 입력창이 보여야 합니다.",
+          "리포트의 search-condition.png 화면을 확인해주세요."
+        ]
+      );
+    }
+
+    await selectDomesticRegion(config, device, xml, steps);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    xml = await dumpUi(config, device);
+    await saveArtifacts(config, device, store, "domestic-selected", xml);
+
+    await selectFlexibleSchedule(config, device, xml, store, steps);
+    xml = await waitForUi(config, device, isGuestScreen, 8000);
+    await submitDefaultGuests(config, device, xml, store, steps);
+
+    xml = await waitForUi(config, device, isFlexibleSearchResults, 20000);
+    const finalArtifacts = await saveArtifacts(config, device, store, "search-results", xml);
+    if (!isFlexibleSearchResults(xml)) {
+      fail(
+        "검색 버튼을 눌렀지만 유연한 일정 검색 결과 목록 화면을 확인하지 못했습니다.",
+        steps,
+        [
+          "성공 기준은 '국내', '일주일 / 7월, 8월 / 1명', '개의 집/필터/지도로 보기' 신호입니다.",
+          "리포트의 search-results.png 화면을 확인해주세요."
+        ]
+      );
+    }
+
+    addStep(steps, "검색 결과 목록 진입 확인");
+
+    return {
+      test_id: "TC-SEARCH-002",
+      name: `${role} 유연한 일정 검색`,
+      env,
+      status: "pass",
+      device,
+      steps,
+      search_conditions: {
+        region: "국내",
+        schedule_type: "유연한 일정",
+        stay_duration: "일주일",
+        expected_move_in_months: ["2026-07", "2026-08"],
+        adult_count: 1,
+        child_count: 0,
+        infant_count: 0,
+        pet_count: 0
+      },
+      artifacts: {
+        screenshots: [finalArtifacts.screenshotPath],
+        logs: [
+          path.join(store.logsDir, "runner.log"),
+          path.join(store.logsDir, "search-home.xml"),
+          path.join(store.logsDir, "search-condition.xml"),
+          path.join(store.logsDir, "flex-after-select.xml"),
+          path.join(store.logsDir, "guest-select-default.xml"),
+          finalArtifacts.xmlPath
+        ]
+      }
+    };
+  });
+}
+
 module.exports = {
+  runFlexibleSearchTest,
   runSearchTest
 };

@@ -1,0 +1,86 @@
+id: TC-SEARCH-002
+name: 게스트 집 검색 - 유연한 일정
+platform: aos
+env: staging
+role: guest
+slack_command: "!게스트 유연한일정 검색"
+aliases:
+  - "!게스트 유연한 일정 검색"
+runner:
+  test: search-flexible
+  implementation: src/tests/search.test.js
+preconditions:
+  - ADB_GUEST_DEVICE 단말이 연결되어 있어야 한다.
+  - 스테이징 앱이 단말에 설치되어 있어야 한다.
+  - 검색 테스트는 앱을 완전히 종료한 뒤 재실행해서 시작한다.
+  - 검색은 로그인 필수 동작이 아니므로 로그인/비로그인 상태 모두 실행 가능해야 한다.
+steps:
+  - id: SEARCH-FLEX-GUEST-01
+    action: wake_device
+    description: 단말 화면을 깨우고 잠금 해제를 시도한다.
+    expected: 앱 조작이 가능한 상태가 된다.
+  - id: SEARCH-FLEX-GUEST-02
+    action: force_stop_and_launch_app
+    description: 스테이징 앱을 완전히 종료한 뒤 다시 실행한다.
+    expected: 검색바가 포함된 홈 화면이 노출된다.
+  - id: SEARCH-FLEX-GUEST-03
+    action: tap_home_search_bar
+    description: 홈 화면의 동네 주변 장소로 검색 검색바를 누른다.
+    expected: 검색 상세 조건 화면으로 이동한다.
+  - id: SEARCH-FLEX-GUEST-04
+    action: select_domestic_region
+    description: 위치 화면에서 국내 탭을 선택한다.
+    expected: 국내 지역 목록이 노출된다.
+  - id: SEARCH-FLEX-GUEST-05
+    action: select_flexible_schedule
+    description: 일정 탭에서 유연한 일정을 선택한다.
+    expected: 유연한 일정 조건 화면이 노출된다.
+  - id: SEARCH-FLEX-GUEST-06
+    action: select_stay_duration
+    description: 어느 정도 머물 예정인가요? 항목에서 일주일을 선택한다.
+    expected: 일주일 조건이 선택된다.
+  - id: SEARCH-FLEX-GUEST-07
+    action: select_expected_move_in_months
+    description: 예상 입주일이 언제 정도인가요? 항목에서 2026년 7월과 8월을 선택한다.
+    expected: 7월과 8월 조건이 선택된다.
+  - id: SEARCH-FLEX-GUEST-08
+    action: submit_schedule
+    description: 다음 버튼을 누른다.
+    expected: 게스트 인원 선택 화면으로 이동한다.
+  - id: SEARCH-FLEX-GUEST-09
+    action: keep_default_guests
+    description: 어린이, 유아, 반려동물을 추가하지 않고 기본 인원 상태를 유지한다.
+    expected: 성인 1명, 어린이 0명, 유아 0명, 반려동물 0마리 상태가 확인된다.
+  - id: SEARCH-FLEX-GUEST-10
+    action: submit_search
+    description: 하단 검색 버튼을 누른다.
+    expected: 검색 결과 목록 화면으로 이동한다.
+validations:
+  - id: SEARCH-FLEX-GUEST-V01
+    description: 앱 재실행 후 홈 검색바가 확인되지 않으면 FAIL 처리한다.
+  - id: SEARCH-FLEX-GUEST-V02
+    description: 검색 상세 조건 화면에서 위치/일정/게스트 탭이 확인되어야 한다.
+  - id: SEARCH-FLEX-GUEST-V03
+    description: 유연한 일정 화면에서 일주일, 7월, 8월 항목을 선택할 수 있어야 한다.
+  - id: SEARCH-FLEX-GUEST-V04
+    description: 인원 선택 화면에서 어린이/유아/반려동물을 추가하지 않은 기본 상태가 확인되어야 한다.
+  - id: SEARCH-FLEX-GUEST-V05
+    description: 결과 목록 화면에서 국내, 일주일 / 7월, 8월 / 1명, 집 목록 신호가 확인되어야 한다.
+artifacts:
+  screenshots:
+    - search-home.png
+    - search-condition.png
+    - flex-after-select.png
+    - guest-select-default.png
+    - search-results.png
+  logs:
+    - runner.log
+    - search-home.xml
+    - search-condition.xml
+    - flex-after-select.xml
+    - guest-select-default.xml
+    - search-results.xml
+pass_criteria:
+  - 검색 결과 목록 화면이 확인된다.
+  - 검색 조건에 국내와 일주일 / 7월, 8월 / 1명이 표시된다.
+  - 집 목록 신호가 확인된다.

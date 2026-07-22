@@ -17,7 +17,8 @@ function formatHelp() {
     "!qa login env=staging role=host",
     "!qa logout env=staging role=guest",
     "!qa logout env=staging role=host",
-    "!qa search env=staging role=guest"
+    "!qa search env=staging role=guest",
+    "!qa search-flexible env=staging role=guest"
   ].join("\n");
 }
 

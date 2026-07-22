@@ -55,9 +55,6 @@ async function runQaCommand({ test, env, role }, context) {
 async function routeCommand(text, context) {
   const shortcut = parseKoreanShortcut(text);
   if (shortcut) {
-    if (shortcut.test === "search-flexible") {
-      return "유연한 일정 검색은 아직 준비 중입니다. 현재 실행 가능한 검색 명령어는 `!게스트 정확한일정 검색` 입니다.";
-    }
     return runQaCommand(shortcut, context);
   }
 
@@ -68,7 +65,12 @@ async function routeCommand(text, context) {
     return formatHelp();
   }
 
-  if (command === "login" || command === "logout" || command === "search") {
+  if (
+    command === "login" ||
+    command === "logout" ||
+    command === "search" ||
+    command === "search-flexible"
+  ) {
     const args = parseKeyValues(parts.slice(2));
     return runQaCommand(
       {

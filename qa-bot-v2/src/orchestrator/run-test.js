@@ -34,12 +34,14 @@ async function runTest(request, config) {
     const testIds = {
       login: "TC-LOGIN-001",
       logout: "TC-LOGOUT-001",
-      search: "TC-SEARCH-001"
+      search: "TC-SEARCH-001",
+      "search-flexible": "TC-SEARCH-002"
     };
     const testNames = {
       login: "로그인",
       logout: "로그아웃",
-      search: "집 검색"
+      search: "집 검색",
+      "search-flexible": "유연한 일정 검색"
     };
     const finalResult = {
       run_id: store.runId,

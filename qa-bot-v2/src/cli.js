@@ -18,7 +18,7 @@ async function main() {
   const args = parseArgs(rest);
 
   if (!testName) {
-    throw new Error("Usage: node src/cli.js <login|logout|search> --env=staging --role=guest");
+    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible> --env=staging --role=guest");
   }
 
   const config = loadConfig();
