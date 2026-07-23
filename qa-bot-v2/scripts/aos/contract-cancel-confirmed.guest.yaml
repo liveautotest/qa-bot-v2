@@ -1,0 +1,86 @@
+id: TC-CONTRACT-CANCEL-CONFIRMED-001
+name: 게스트 계약 확정 취소
+platform: aos
+env: staging
+role: guest
+slack_command: "!게스트 계약 확정 취소"
+aliases:
+  - "!게스트 예약 확정 취소"
+runner:
+  test: contract-cancel-confirmed
+  implementation: src/tests/contract-cancel-request.test.js
+preconditions:
+  - ADB_GUEST_DEVICE 단말이 연결되어 있어야 한다.
+  - 대상 앱이 단말에 설치되어 있어야 한다.
+  - 게스트 계정으로 로그인되어 있어야 한다.
+  - 홈 화면에 예약 확정, 계약 확정, 이용 예정, 입주 예정 상태의 취소 가능한 카드가 있어야 한다.
+steps:
+  - id: CANCEL-CONFIRMED-01
+    action: wake_device
+    description: 단말 화면을 깨우고 잠금 해제를 시도한다.
+    expected: 앱 조작이 가능한 상태가 된다.
+  - id: CANCEL-CONFIRMED-02
+    action: force_stop_and_launch_app
+    description: 앱을 완전히 종료한 뒤 다시 실행한다.
+    expected: 게스트 홈 화면이 노출된다.
+  - id: CANCEL-CONFIRMED-03
+    action: pull_to_refresh_home
+    description: 홈 화면을 풀 리프레시한다.
+    expected: 예약 확정 상태 카드가 노출된다.
+  - id: CANCEL-CONFIRMED-04
+    action: open_contract_detail
+    description: 예약 확정 상태 카드를 선택한다.
+    expected: 계약 상세 화면으로 이동한다.
+  - id: CANCEL-CONFIRMED-05
+    action: scroll_to_cancel_button
+    description: 계약 상세 화면 최하단으로 빠르게 스크롤한다.
+    expected: 계약 취소 버튼이 노출된다.
+  - id: CANCEL-CONFIRMED-06
+    action: confirm_cancel_popup
+    description: 계약 취소 버튼을 누른 뒤 확인 팝업에서 계약 취소를 선택한다.
+    expected: 호스트에게 전달할 취소 사유 선택 화면으로 이동한다.
+  - id: CANCEL-CONFIRMED-07
+    action: select_host_reason
+    description: 기타를 제외한 취소 사유 4개 중 하나를 랜덤 선택한다.
+    expected: 다음 버튼이 활성화된다.
+  - id: CANCEL-CONFIRMED-08
+    action: review_cancel_detail
+    description: 취소 내역 확인 화면 하단에서 위 내용을 모두 확인하였습니다를 선택한다.
+    expected: 취소하기 버튼을 누를 수 있다.
+  - id: CANCEL-CONFIRMED-09
+    action: submit_confirmed_cancel
+    description: 취소하기 버튼을 선택한다.
+    expected: 취소가 완료되었습니다 팝업이 노출된다.
+  - id: CANCEL-CONFIRMED-10
+    action: close_complete_and_feedback
+    description: 완료 팝업 확인 후 리브애니웨어 취소 사유 전달 화면을 닫는다.
+    expected: 홈 화면으로 복귀한다.
+validations:
+  - id: CANCEL-CONFIRMED-V01
+    description: 홈 화면에서 예약 확정 상태 카드를 찾지 못하면 FAIL 처리한다.
+  - id: CANCEL-CONFIRMED-V02
+    description: 계약 상세 하단의 계약 취소 버튼을 찾지 못하면 FAIL 처리한다.
+  - id: CANCEL-CONFIRMED-V03
+    description: 계약 취소 확인 팝업을 처리하지 못하면 FAIL 처리한다.
+  - id: CANCEL-CONFIRMED-V04
+    description: 취소 사유 선택 후 다음 버튼이 활성화되지 않으면 FAIL 처리한다.
+  - id: CANCEL-CONFIRMED-V05
+    description: 취소 내역 확인 화면에서 최종 취소를 완료하지 못하면 FAIL 처리한다.
+  - id: CANCEL-CONFIRMED-V06
+    description: 완료 팝업 확인 후 홈 화면 복귀를 확인하지 못하면 FAIL 처리한다.
+artifacts:
+  screenshots:
+    - 실패 시점 화면만 저장한다.
+  logs:
+    - cancel-confirmed-home-after-refresh.xml
+    - cancel-confirmed-detail-start.xml
+    - cancel-confirmed-confirm-popup.xml
+    - cancel-confirmed-reason-start.xml
+    - cancel-confirmed-review-start.xml
+    - cancel-confirmed-complete-popup.xml
+    - cancel-confirmed-final-home.xml
+pass_criteria:
+  - 예약 확정 상태 카드를 선택한다.
+  - 계약 취소 확인 팝업에서 계약 취소를 선택한다.
+  - 호스트 전달 취소 사유와 취소 내역 확인을 완료한다.
+  - 취소 완료 팝업 확인 후 홈 화면 복귀가 확인된다.

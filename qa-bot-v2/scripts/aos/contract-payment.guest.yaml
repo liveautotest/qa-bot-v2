@@ -3,7 +3,9 @@ name: 게스트 계약 결제
 platform: aos
 env: staging
 role: guest
-slack_command: "!게스트 계약 결제"
+slack_command: "!게스트 계약 결제 일반카드"
+aliases:
+  - "!게스트 계약 결제 무통장"
 runner:
   test: contract-payment
   implementation: src/tests/contract-payment.test.js
@@ -49,6 +51,35 @@ steps:
     action: agree_required_and_next
     description: Required 동의 항목을 선택하고 NEXT 버튼을 누른다.
     expected: 결제 완료 또는 계약 확정 상태가 확인된다.
+  - id: PAYMENT-GUEST-10
+    action: return_home
+    description: 결제 완료 화면에서 홈으로 가기 버튼을 누른다.
+    expected: 홈 화면으로 복귀한다.
+bank_transfer_steps:
+  - id: PAYMENT-BANK-01
+    action: select_bank_transfer
+    description: 결제하기 영역에서 무통장 입금 탭을 선택한다.
+    expected: 무통장 입금 입력 영역이 노출된다.
+  - id: PAYMENT-BANK-02
+    action: request_cash_receipt
+    description: 현금영수증 개인을 선택하고 휴대폰 번호 01000000000 입력 후 발급 요청 버튼을 누른다.
+    expected: 현금영수증 발급 요청이 완료된다.
+  - id: PAYMENT-BANK-03
+    action: input_refund_account
+    description: 환불/보증금 반환 계좌에서 기업은행과 계좌번호 34108755301018을 입력한다.
+    expected: 예금주 확인 버튼을 누를 수 있다.
+  - id: PAYMENT-BANK-04
+    action: verify_account_holder
+    description: 예금주 확인 버튼을 누르고 홍길동님 계좌가 맞나요? 팝업에서 확인을 누른다.
+    expected: 예금주 확인 완료 상태가 된다.
+  - id: PAYMENT-BANK-05
+    action: save_and_submit_payment
+    description: 저장 버튼을 누른 뒤 하단 결제하기 버튼을 누른다.
+    expected: 결제 완료 화면으로 이동한다.
+  - id: PAYMENT-BANK-06
+    action: return_home
+    description: 결제 완료 화면에서 홈으로 가기 버튼을 누른다.
+    expected: 홈 화면으로 복귀한다.
 validations:
   - id: PAYMENT-GUEST-V01
     description: 홈 화면에 결제 대기 중 카드가 없으면 FAIL 처리한다.
@@ -58,16 +89,23 @@ validations:
     description: PG 결제 화면에서 카드번호/만료일/Required/NEXT를 찾지 못하면 FAIL 처리한다.
   - id: PAYMENT-GUEST-V04
     description: NEXT 후 결제 완료 또는 계약 확정 상태가 확인되지 않으면 FAIL 처리한다.
+  - id: PAYMENT-GUEST-V05
+    description: 무통장 결제에서 현금영수증 발급 요청, 예금주 확인, 저장, 결제하기 중 하나라도 누락되면 FAIL 처리한다.
+  - id: PAYMENT-GUEST-V06
+    description: 결제 완료 화면에서 홈 화면으로 복귀하지 못하면 FAIL 처리한다.
 artifacts:
   screenshots:
     - 실패 시점 화면만 저장한다.
   logs:
     - payment-home-after-refresh.xml
     - payment-method-jcb.xml
+    - payment-method-bank-transfer.xml
+    - cash-receipt-requested.xml
+    - account-holder-check.xml
     - pg-payment-start.xml
     - payment-final.xml
 pass_criteria:
   - 홈 카드 상태가 결제 대기 중이다.
-  - JCB 카드가 선택된다.
-  - PG 카드 정보와 Required 동의가 입력된다.
-  - NEXT 후 결제 완료 또는 계약 확정 상태가 확인된다.
+  - 일반카드 결제는 JCB 카드 선택, PG 카드 정보 입력, Required 동의, NEXT 처리를 완료한다.
+  - 무통장 결제는 현금영수증 발급 요청, 기업은행 계좌 입력, 예금주 확인, 저장, 결제하기 처리를 완료한다.
+  - 결제 완료 화면에서 홈으로 가기 버튼을 눌러 홈 화면 복귀가 확인된다.
