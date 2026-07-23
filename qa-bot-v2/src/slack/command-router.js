@@ -1,6 +1,9 @@
 const { runTest } = require("../orchestrator/run-test");
 const { formatHelp, formatResult } = require("./slack-reporter");
 
+const KOREAN_SHORTCUT_PATTERN =
+  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|계약승인|계약 승인|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
+
 function parseKeyValues(parts) {
   const values = {};
   for (const part of parts) {
@@ -12,9 +15,7 @@ function parseKeyValues(parts) {
 
 function parseKoreanShortcut(text) {
   const normalized = text.trim().replace(/\s+/g, " ");
-  const match = normalized.match(
-    /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|계약승인|계약 승인|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i
-  );
+  const match = normalized.match(KOREAN_SHORTCUT_PATTERN);
   if (!match) return null;
 
   const testByCommand = {
@@ -122,12 +123,13 @@ async function routeCommand(text, context) {
   }
 
   if (command === "status" || command === "rerun") {
-    return `아직 ${command} 명령은 1단계 구현 대상이 아닙니다. 먼저 login dry-run을 안정화합니다.`;
+    return `아직 ${command} 명령은 구현되지 않았습니다. 현재는 help에 표시된 실행 명령어를 사용해주세요.`;
   }
 
   return `알 수 없는 명령입니다: ${command}\n\n${formatHelp()}`;
 }
 
 module.exports = {
+  KOREAN_SHORTCUT_PATTERN,
   routeCommand
 };

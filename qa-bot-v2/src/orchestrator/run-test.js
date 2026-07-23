@@ -58,7 +58,7 @@ async function runTest(request, config) {
       "search-flexible": "유연한 일정 검색",
       "contract-request": "계약 요청",
       "contract-approve": "계약 승인",
-      "contract-cancel-confirmed": "예약 확정 취소",
+      "contract-cancel-confirmed": "계약 확정 취소",
       "contract-cancel-request": "계약 요청 취소",
       "contract-payment": "계약 결제"
     };

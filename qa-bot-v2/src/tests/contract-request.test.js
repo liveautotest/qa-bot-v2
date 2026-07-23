@@ -1228,10 +1228,10 @@ async function submitContractRequest(config, device, store, steps, contractDetai
   }
 
   await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
-  await new Promise((resolve) => setTimeout(resolve, 1200));
+  await new Promise((resolve) => setTimeout(resolve, 300));
   addStep(steps, "홈 화면 풀 리프레시");
 
-  xml = await waitForUi(config, device, hasHomeSearchBar, 8000);
+  xml = await waitForUi(config, device, hasHomeSearchBar, 6500);
   await saveArtifacts(config, device, store, "contract-request-final", xml);
   if (!hasHomeSearchBar(xml)) {
     await saveFailureArtifacts(config, device, store, "contract-request-final", xml);

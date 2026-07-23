@@ -304,9 +304,9 @@ async function openContractRequestDetailFromHome(config, device, store, steps, e
 
   if (!hasContractRequestCard(xml)) {
     await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await new Promise((resolve) => setTimeout(resolve, 300));
     addStep(steps, "홈 화면 풀 리프레시");
-    xml = await waitForUi(config, device, hasContractRequestCard, 9000);
+    xml = await waitForUi(config, device, hasContractRequestCard, 7000);
   } else {
     addStep(steps, "홈 화면 계약 요청 카드 즉시 확인", "pass", "리프레시 없이 카드가 이미 보이는 상태");
   }
@@ -382,9 +382,9 @@ async function openConfirmedContractDetailFromHome(config, device, store, steps,
 
   if (!hasConfirmedContractCard(xml)) {
     await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await new Promise((resolve) => setTimeout(resolve, 300));
     addStep(steps, "홈 화면 풀 리프레시");
-    xml = await waitForUi(config, device, hasConfirmedContractCard, 9000);
+    xml = await waitForUi(config, device, hasConfirmedContractCard, 7000);
   } else {
     addStep(steps, "홈 화면 예약 확정 카드 즉시 확인", "pass", "리프레시 없이 카드가 이미 보이는 상태");
   }

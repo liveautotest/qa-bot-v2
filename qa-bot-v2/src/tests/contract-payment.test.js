@@ -697,10 +697,10 @@ async function openPaymentDetailFromHome(config, device, store, steps) {
 
   if (!hasPaymentWaitingCard(xml)) {
     await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await new Promise((resolve) => setTimeout(resolve, 300));
     addStep(steps, "홈 화면 풀 리프레시");
 
-    xml = await waitForUi(config, device, hasPaymentWaitingCard, 8000);
+    xml = await waitForUi(config, device, hasPaymentWaitingCard, 6500);
   } else {
     addStep(steps, "홈 화면 결제 카드 즉시 확인", "pass", "리프레시 없이 카드가 이미 보이는 상태");
   }

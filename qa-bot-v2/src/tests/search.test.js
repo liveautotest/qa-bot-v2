@@ -187,9 +187,10 @@ async function waitForUi(config, device, predicate, timeoutMs = 10000) {
   return xml;
 }
 
-async function saveArtifacts(config, device, store, name, xml) {
+async function saveArtifacts(config, device, store, name, xml, options = {}) {
   const xmlPath = path.join(store.logsDir, `${name}.xml`);
   const screenshotPath = path.join(store.screenshotsDir, `${name}.png`);
+  const shouldCaptureScreenshot = options.screenshot === true;
 
   try {
     fs.writeFileSync(xmlPath, xml || (await dumpUi(config, device)));
@@ -197,13 +198,15 @@ async function saveArtifacts(config, device, store, name, xml) {
     store.appendLog("runner.log", `failed to dump ui ${name}: ${error.message}`);
   }
 
-  try {
-    fs.writeFileSync(screenshotPath, await screenshotPng(config, device));
-  } catch (error) {
-    store.appendLog("runner.log", `failed to screenshot ${name}: ${error.message}`);
+  if (shouldCaptureScreenshot) {
+    try {
+      fs.writeFileSync(screenshotPath, await screenshotPng(config, device));
+    } catch (error) {
+      store.appendLog("runner.log", `failed to screenshot ${name}: ${error.message}`);
+    }
   }
 
-  return { xmlPath, screenshotPath };
+  return { xmlPath, screenshotPath: shouldCaptureScreenshot ? screenshotPath : null };
 }
 
 async function wakeAndUnlock(config, device, steps, store) {
@@ -596,9 +599,9 @@ async function runSearchTest({ request, config, store }) {
       (nextXml) => isSearchResults(nextXml) || hasAppError(nextXml),
       20000
     );
-    const finalArtifacts = await saveArtifacts(config, device, store, "search-results", xml);
     const appWarning = await collectAppErrorWarning(config, device, store, xml);
     if (!isSearchResults(xml)) {
+      await saveArtifacts(config, device, store, "search-results", xml, { screenshot: true });
       fail(
         "검색 버튼을 눌렀지만 검색 결과 목록 화면을 확인하지 못했습니다.",
         steps,
@@ -608,6 +611,7 @@ async function runSearchTest({ request, config, store }) {
         ]
       );
     }
+    const finalArtifacts = await saveArtifacts(config, device, store, "search-results", xml);
 
     if (appWarning) {
       addStep(steps, "앱 오류 경고 확인", "pass", appWarning.message);
@@ -632,7 +636,7 @@ async function runSearchTest({ request, config, store }) {
       },
       app_warnings: appWarning ? [appWarning] : [],
       artifacts: {
-        screenshots: [finalArtifacts.screenshotPath],
+        screenshots: finalArtifacts.screenshotPath ? [finalArtifacts.screenshotPath] : [],
         logs: [
           path.join(store.logsDir, "runner.log"),
           path.join(store.logsDir, "search-home.xml"),
@@ -706,9 +710,9 @@ async function runFlexibleSearchTest({ request, config, store }) {
       (nextXml) => isFlexibleSearchResults(nextXml) || hasAppError(nextXml),
       20000
     );
-    const finalArtifacts = await saveArtifacts(config, device, store, "search-results", xml);
     const appWarning = await collectAppErrorWarning(config, device, store, xml);
     if (!isFlexibleSearchResults(xml)) {
+      await saveArtifacts(config, device, store, "search-results", xml, { screenshot: true });
       fail(
         "검색 버튼을 눌렀지만 유연한 일정 검색 결과 목록 화면을 확인하지 못했습니다.",
         steps,
@@ -718,6 +722,7 @@ async function runFlexibleSearchTest({ request, config, store }) {
         ]
       );
     }
+    const finalArtifacts = await saveArtifacts(config, device, store, "search-results", xml);
 
     if (appWarning) {
       addStep(steps, "앱 오류 경고 확인", "pass", appWarning.message);
@@ -743,7 +748,7 @@ async function runFlexibleSearchTest({ request, config, store }) {
       },
       app_warnings: appWarning ? [appWarning] : [],
       artifacts: {
-        screenshots: [finalArtifacts.screenshotPath],
+        screenshots: finalArtifacts.screenshotPath ? [finalArtifacts.screenshotPath] : [],
         logs: [
           path.join(store.logsDir, "runner.log"),
           path.join(store.logsDir, "search-home.xml"),
