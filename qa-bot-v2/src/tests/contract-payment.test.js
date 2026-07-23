@@ -363,6 +363,14 @@ function hasVisiblePaymentTypeTabs(xml) {
   return Boolean(creditTab && bankTransferTab);
 }
 
+function isPaymentMethodReady(xml, paymentMethod) {
+  if (paymentMethod === "bank-transfer") {
+    return hasVisiblePaymentTypeTabs(xml);
+  }
+
+  return hasPaymentMethodSection(xml) && hasVisiblePaymentMethodSection(xml);
+}
+
 function hasBankTransferForm(xml) {
   return (
     (xml.includes("현금영수증") || xml.includes("현금 영수증")) &&
@@ -744,7 +752,7 @@ async function openPaymentDetailFromHome(config, device, store, steps) {
 async function scrollToPaymentMethod(config, device, store, steps, paymentMethod = "card") {
   let xml = await dumpUiStable(config, device);
   for (let count = 0; count < 14; count += 1) {
-    if (paymentMethod === "bank-transfer" && hasVisiblePaymentTypeTabs(xml)) {
+    if (paymentMethod === "bank-transfer" && isPaymentMethodReady(xml, paymentMethod)) {
       saveXml(store, "payment-type-tabs", xml);
       addStep(steps, "결제 타입 탭 영역 확인");
       return xml;
@@ -752,8 +760,7 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
 
     if (
       paymentMethod === "card" &&
-      hasPaymentMethodSection(xml) &&
-      hasVisiblePaymentMethodSection(xml)
+      isPaymentMethodReady(xml, paymentMethod)
     ) {
       saveXml(store, "payment-method", xml);
       addStep(steps, "결제 방법 영역 확인");
@@ -777,6 +784,18 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
     await runAdb(config, device, swipeArgs);
     await new Promise((resolve) => setTimeout(resolve, 140));
     xml = await dumpUiStable(config, device);
+  }
+
+  if (paymentMethod === "bank-transfer" && isPaymentMethodReady(xml, paymentMethod)) {
+    saveXml(store, "payment-type-tabs", xml);
+    addStep(steps, "결제 타입 탭 영역 확인");
+    return xml;
+  }
+
+  if (paymentMethod === "card" && isPaymentMethodReady(xml, paymentMethod)) {
+    saveXml(store, "payment-method", xml);
+    addStep(steps, "결제 방법 영역 확인");
+    return xml;
   }
 
   await saveFailureArtifacts(config, device, store, "payment-method-not-found", xml);
