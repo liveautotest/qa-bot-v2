@@ -13,7 +13,7 @@ function parseKeyValues(parts) {
 function parseKoreanShortcut(text) {
   const normalized = text.trim().replace(/\s+/g, " ");
   const match = normalized.match(
-    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약승인|계약 승인|계약결제|계약 결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?$/i
+    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약승인|계약 승인|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장))?(?:\s+(dev|stg|staging))?$/i
   );
   if (!match) return null;
 
@@ -39,6 +39,7 @@ function parseKoreanShortcut(text) {
     staging: "staging"
   };
   const paymentMethodByShortcut = {
+    일반카드: "card",
     카드: "card",
     무통장: "bank-transfer"
   };
