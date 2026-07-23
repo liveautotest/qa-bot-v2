@@ -76,7 +76,53 @@ function defaultRoleForTest(test) {
   return test === "contract-approve" || test === "contract-reject" ? "host" : "guest";
 }
 
-async function runQaCommand({ test, env, role, payment_method: paymentMethod }, context) {
+function shouldAutoApproveTossDeposit({ test, paymentMethod }, result) {
+  return (
+    test === "contract-payment" &&
+    paymentMethod === "bank-transfer" &&
+    result.status === "pass"
+  );
+}
+
+function shouldAutoApproveHostContract({ test, paymentMethod }, result) {
+  return (
+    test === "contract-request" &&
+    (!paymentMethod || paymentMethod === "auto-card") &&
+    result.status === "pass"
+  );
+}
+
+function requiredLoginRoleForTest(test) {
+  const guestRequired = [
+    "contract-request",
+    "contract-payment",
+    "contract-cancel-request",
+    "contract-cancel-confirmed"
+  ];
+  if (guestRequired.includes(test)) return "guest";
+  if (test === "contract-approve" || test === "contract-reject") return "host";
+  return "";
+}
+
+async function runPrerequisiteLogin({ test, env }, context) {
+  const loginRole = requiredLoginRoleForTest(test);
+  if (!loginRole) return null;
+
+  return runTest(
+    {
+      test: "login",
+      env,
+      role: loginRole,
+      requested_by: context.user,
+      slack_channel: context.channel,
+      thread_ts: context.threadTs,
+      source: "slack-prerequisite"
+    },
+    context.config
+  );
+}
+
+async function runSingleQaCommand({ test, env, role, payment_method: paymentMethod }, context) {
   const result = await runTest(
     {
       test,
@@ -91,7 +137,82 @@ async function runQaCommand({ test, env, role, payment_method: paymentMethod }, 
     context.config
   );
 
-  return formatResult(result);
+  return result;
+}
+
+async function runQaCommandWithPrerequisite(command, context) {
+  const loginResult = await runPrerequisiteLogin(command, context);
+  if (loginResult && loginResult.status !== "pass") {
+    return {
+      result: loginResult,
+      formatted: [
+        "[사전 확인 실패] 로그인 세션 복구",
+        formatResult(loginResult)
+      ].join("\n")
+    };
+  }
+
+  const result = await runSingleQaCommand(command, context);
+  const loginRole = requiredLoginRoleForTest(command.test);
+  const prefix = loginResult
+    ? [
+      `[사전 확인] ${loginRole} 로그인 세션 확인 PASS`,
+      loginResult.session_reused ? "- 기존 로그인 세션 재사용" : "- 로그인 세션 복구 완료",
+      ""
+    ].join("\n")
+    : "";
+
+  return {
+    result,
+    formatted: `${prefix}${formatResult(result)}`
+  };
+}
+
+async function runQaCommand({ test, env, role, payment_method: paymentMethod }, context) {
+  const command = { test, env, role, payment_method: paymentMethod };
+  const { result, formatted: formattedResult } = await runQaCommandWithPrerequisite(command, context);
+
+  if (shouldAutoApproveHostContract({ test, paymentMethod }, result)) {
+    const { formatted: formattedApproveResult } = await runQaCommandWithPrerequisite(
+      {
+        test: "contract-approve",
+        env,
+        role: "host"
+      },
+      context
+    );
+
+    return [
+      formattedResult,
+      "",
+      "-----",
+      "",
+      "[연결 실행] 호스트 계약 승인",
+      formattedApproveResult
+    ].join("\n");
+  }
+
+  if (!shouldAutoApproveTossDeposit({ test, paymentMethod }, result)) {
+    return formattedResult;
+  }
+
+  const tossResult = await runSingleQaCommand(
+    {
+      test: "toss-deposit-approve",
+      env: "toss",
+      role: "admin"
+    },
+    context
+  );
+
+  return [
+    formattedResult,
+    "",
+    "-----",
+    "",
+    "[연결 실행] 무통장 입금 승인",
+    formatResult(tossResult)
+  ].join("\n");
 }
 
 async function routeCommand(text, context) {
