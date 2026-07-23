@@ -50,7 +50,8 @@ async function runTest(request, config) {
       "contract-reject": "TC-CONTRACT-REJECT-001",
       "contract-cancel-confirmed": "TC-CONTRACT-CANCEL-CONFIRMED-001",
       "contract-cancel-request": "TC-CONTRACT-CANCEL-REQUEST-001",
-      "contract-payment": "TC-CONTRACT-PAYMENT-001"
+      "contract-payment": "TC-CONTRACT-PAYMENT-001",
+      "toss-deposit-approve": "TC-TOSS-DEPOSIT-APPROVE-001"
     };
     const testNames = {
       login: "로그인",
@@ -62,7 +63,8 @@ async function runTest(request, config) {
       "contract-reject": "계약 요청 거절",
       "contract-cancel-confirmed": "계약 확정 취소",
       "contract-cancel-request": "계약 요청 취소",
-      "contract-payment": "계약 결제"
+      "contract-payment": "계약 결제",
+      "toss-deposit-approve": "무통장 입금 승인"
     };
     const finalResult = {
       run_id: store.runId,
@@ -70,7 +72,9 @@ async function runTest(request, config) {
       name: testNames[request.test] ? `${role} ${testNames[request.test]}` : request.test,
       env: request.env,
       status: "fail",
-      device: config.devices && config.devices[role] ? config.devices[role] : "unknown",
+      device: request.test === "toss-deposit-approve"
+        ? "browser"
+        : config.devices && config.devices[role] ? config.devices[role] : "unknown",
       duration_ms: Date.now() - startedAt,
       failed_step: "runner",
       error: error.message,

@@ -13,9 +13,11 @@
     "run:contract-cancel-request": "node src/cli.js contract-cancel-request",
     "run:contract-cancel-confirmed": "node src/cli.js contract-cancel-confirmed",
     "run:contract-approve": "node src/cli.js contract-approve",
-    "run:contract-payment": "node src/cli.js contract-payment"
+    "run:contract-payment": "node src/cli.js contract-payment",
+    "run:toss-deposit-approve": "node src/cli.js toss-deposit-approve"
   },
   "dependencies": {
-    "@slack/bolt": "^3.19.0"
+    "@slack/bolt": "^3.19.0",
+    "playwright-core": "^1.61.1"
   }
 }

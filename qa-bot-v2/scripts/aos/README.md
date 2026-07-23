@@ -15,6 +15,7 @@
 | `!게스트 계약 결제 자동카드` | `contract-request.guest.yaml` | `src/tests/contract-request.test.js` |
 | `!게스트 계약 결제 일반카드` | `contract-payment.guest.yaml` | `src/tests/contract-payment.test.js` |
 | `!게스트 계약 결제 무통장` | `contract-payment.guest.yaml` | `src/tests/contract-payment.test.js` |
+| `!무통장 입금 승인` | `toss-deposit-approve.web.yaml` | `src/tests/toss-deposit-approve.test.js` |
 | `!게스트 계약 요청 취소` | `contract-cancel-request.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
 | `!게스트 계약 확정 취소` | `contract-cancel-confirmed.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
 | `!호스트 로그인` | `login.host.yaml` | `src/tests/login.test.js` |

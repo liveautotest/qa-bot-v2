@@ -11,6 +11,7 @@ const {
 } = require("../tests/contract-cancel-request.test");
 const { runContractPaymentTest } = require("../tests/contract-payment.test");
 const { runContractRequestTest } = require("../tests/contract-request.test");
+const { runTossDepositApproveTest } = require("../tests/toss-deposit-approve.test");
 
 const registry = {
   login: runLoginTest,
@@ -22,7 +23,8 @@ const registry = {
   "contract-cancel-confirmed": runContractCancelConfirmedTest,
   "contract-cancel-request": runContractCancelRequestTest,
   "contract-payment": runContractPaymentTest,
-  "contract-request": runContractRequestTest
+  "contract-request": runContractRequestTest,
+  "toss-deposit-approve": runTossDepositApproveTest
 };
 
 function getTest(name) {

@@ -18,14 +18,14 @@ async function main() {
   const args = parseArgs(rest);
 
   if (!testName) {
-    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-approve|contract-reject|contract-payment> --env=staging --role=guest");
+    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-approve|contract-reject|contract-payment|toss-deposit-approve> --env=staging --role=guest");
   }
 
   const config = loadConfig();
   const request = {
     test: testName,
-    env: args.env || "staging",
-    role: args.role || "guest",
+    env: args.env || (testName === "toss-deposit-approve" ? "toss" : "staging"),
+    role: args.role || (testName === "toss-deposit-approve" ? "admin" : "guest"),
     payment_method: args.method || args.payment_method,
     requested_by: "local-cli",
     source: "cli"

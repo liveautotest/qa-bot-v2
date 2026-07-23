@@ -46,6 +46,7 @@ CLI 실행 예시:
 !게스트 계약 결제 일반카드 stg
 !게스트 계약 결제 자동카드 stg
 !게스트 계약 결제 무통장 stg
+!무통장 입금 승인
 !호스트 로그인 stg
 !호스트 로그아웃 stg
 !호스트 계약 승인 stg
@@ -57,6 +58,7 @@ CLI 실행 예시:
 ```text
 !게스트 계약 요청 dev
 !게스트 계약 결제 무통장 dev
+!무통장 입금 승인
 !호스트 계약 승인 dev
 !호스트 계약 요청 거절 dev
 ```
@@ -76,6 +78,7 @@ CLI 실행 예시:
 !qa contract-payment env=staging role=guest method=bank-transfer
 !qa contract-approve env=staging role=host
 !qa contract-reject env=staging role=host
+!qa toss-deposit-approve
 ```
 
 ## 구현된 시나리오
@@ -92,6 +95,7 @@ CLI 실행 예시:
 | `TC-CONTRACT-REJECT-001` | `!호스트 계약 요청 거절` | 게스트 홈 카드의 숙소명/일정과 매칭되는 요청 건 거절 |
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 일반카드` | JCB 카드 테스트 결제 후 홈 복귀 |
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 무통장` | 현금영수증, 환불 계좌, 무통장 결제 완료 후 홈 복귀 |
+| `TC-TOSS-DEPOSIT-APPROVE-001` | `!무통장 입금 승인` | 토스 테스트 결제내역에서 최근 무통장 입금대기 건 입금처리 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | `!게스트 계약 요청 취소` | 요청 상태 카드에서 계약 요청 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | `!게스트 계약 확정 취소` | 확정 계약 취소, 취소 내역 확인, 완료 팝업, 홈 복귀 |
 
@@ -112,6 +116,13 @@ GUEST_EMAIL=...
 GUEST_PASSWORD=...
 HOST_EMAIL=...
 HOST_PASSWORD=...
+
+TOSS_ADMIN_URL=https://developers.tosspayments.com/3118/accounts/127851/phases/test/payment-logs
+TOSS_ADMIN_MID=liveanjb2c
+TOSS_ADMIN_EMAIL=...
+TOSS_ADMIN_PASSWORD=...
+TOSS_ADMIN_HEADLESS=true
+TOSS_ADMIN_KEEP_OPEN_ON_FAIL=false
 ```
 
 기본 환경은 `staging`입니다.

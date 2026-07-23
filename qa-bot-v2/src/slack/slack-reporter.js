@@ -27,6 +27,7 @@ function formatHelp() {
     "!게스트 계약 결제 자동카드 dev",
     "!게스트 계약 결제 무통장 stg",
     "!게스트 계약 결제 무통장 dev",
+    "!무통장 입금 승인",
     "!호스트 로그인 stg",
     "!호스트 로그인 dev",
     "!호스트 로그아웃 stg",
@@ -52,7 +53,8 @@ function formatHelp() {
     "!qa contract-payment env=staging role=guest method=auto-card",
     "!qa contract-payment env=staging role=guest method=bank-transfer",
     "!qa contract-approve env=staging role=host",
-    "!qa contract-reject env=staging role=host"
+    "!qa contract-reject env=staging role=host",
+    "!qa toss-deposit-approve"
   ].join("\n");
 }
 
@@ -207,6 +209,14 @@ function formatPassSummary(result) {
       "- 계약 상세에서 신용·체크카드 결제 수단과 JCB 카드 선택을 확인했습니다.",
       "- PG 결제 화면에서 카드번호, 만료일, 필수 동의, NEXT 버튼을 처리했습니다.",
       "- 결제 완료 화면의 홈으로 버튼을 눌러 홈 화면 복귀까지 확인했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-TOSS-DEPOSIT-APPROVE-001") {
+    return [
+      "- 최근 무통장 결제 PASS 결과에서 금액/숙소명/계약번호 기준을 확인했습니다.",
+      "- 토스 테스트 결제내역에서 입금대기 상태와 입금처리 버튼이 있는 행을 매칭했습니다.",
+      "- 입금처리 버튼을 눌러 테스트 무통장 입금을 승인했습니다."
     ];
   }
 
@@ -365,6 +375,29 @@ function formatResult(result) {
     }
     if (result.payment_conditions.refund_account) {
       lines.push(`- 환불/보증금 반환 계좌: ${result.payment_conditions.refund_account}`);
+    }
+  }
+
+  if (result.toss_deposit) {
+    lines.push("");
+    lines.push("무통장 입금 승인:");
+    if (result.toss_deposit.source_payment_run_id) {
+      lines.push(`- 기준 결제 run_id: ${result.toss_deposit.source_payment_run_id}`);
+    }
+    if (result.toss_deposit.mid) {
+      lines.push(`- MID: ${result.toss_deposit.mid}`);
+    }
+    if (result.toss_deposit.amount) {
+      lines.push(`- 금액: ${result.toss_deposit.amount}`);
+    }
+    if (result.toss_deposit.buyer_name) {
+      lines.push(`- 구매자: ${result.toss_deposit.buyer_name}`);
+    }
+    if (result.toss_deposit.product_name) {
+      lines.push(`- 상품: ${result.toss_deposit.product_name}`);
+    }
+    if (result.toss_deposit.contract_number_suffix) {
+      lines.push(`- 계약번호 끝자리: ${result.toss_deposit.contract_number_suffix}`);
     }
   }
 

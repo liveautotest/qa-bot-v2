@@ -58,6 +58,16 @@ function loadConfig() {
       firebaseServiceAccountPath: env.FIREBASE_SERVICE_ACCOUNT_PATH || "",
       downloadDir: path.resolve(projectRoot, env.APP_BUILD_DOWNLOAD_DIR || ".tmp/app-builds")
     },
+    tossAdmin: {
+      url: env.TOSS_ADMIN_URL || "",
+      mid: env.TOSS_ADMIN_MID || "",
+      email: env.TOSS_ADMIN_EMAIL || "",
+      password: env.TOSS_ADMIN_PASSWORD || "",
+      headless: env.TOSS_ADMIN_HEADLESS === "true",
+      chromePath: env.TOSS_ADMIN_CHROME_PATH || "",
+      profileDir: env.TOSS_ADMIN_PROFILE_DIR || ".tmp/toss-admin-profile",
+      keepOpenOnFail: env.TOSS_ADMIN_KEEP_OPEN_ON_FAIL === "true"
+    },
     accounts: {
       guest: {
         email: env.GUEST_EMAIL || "",

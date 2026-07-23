@@ -181,6 +181,7 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 !qa contract-payment env=staging role=guest method=bank-transfer
 !qa contract-approve env=staging role=host
 !qa contract-reject env=staging role=host
+!qa toss-deposit-approve
 ```
 
 ---
@@ -199,6 +200,7 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 | `TC-CONTRACT-REJECT-001` | 계약 요청 거절 | host | 게스트 홈 카드의 숙소명/일정과 매칭되는 계약 요청 거절 |
 | `TC-CONTRACT-PAYMENT-001` | 일반카드 계약 결제 | guest | JCB 테스트 카드 결제 |
 | `TC-CONTRACT-PAYMENT-001` | 무통장 계약 결제 | guest | 현금영수증, 환불 계좌, 무통장 결제 |
+| `TC-TOSS-DEPOSIT-APPROVE-001` | 토스 무통장 입금 승인 | admin | 토스 테스트 결제내역에서 입금대기 건 입금처리 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | 계약 요청 취소 | guest | 요청 상태 계약 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | 계약 확정 취소 | guest | 확정 계약 취소 및 홈 복귀 |
 

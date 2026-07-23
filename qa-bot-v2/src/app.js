@@ -1,6 +1,10 @@
 const { App } = require("@slack/bolt");
 const { loadConfig } = require("./config");
-const { KOREAN_SHORTCUT_PATTERN, routeCommand } = require("./slack/command-router");
+const {
+  KOREAN_SHORTCUT_PATTERN,
+  TOSS_DEPOSIT_APPROVE_PATTERN,
+  routeCommand
+} = require("./slack/command-router");
 const { formatHelp } = require("./slack/slack-reporter");
 
 process.on("uncaughtException", (error) => {
@@ -45,6 +49,10 @@ async function main() {
   });
 
   app.message(KOREAN_SHORTCUT_PATTERN, async ({ message, say }) => {
+    await handleQaMessage(message, say);
+  });
+
+  app.message(TOSS_DEPOSIT_APPROVE_PATTERN, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
 

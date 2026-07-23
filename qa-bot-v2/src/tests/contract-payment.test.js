@@ -65,6 +65,47 @@ function nodeLabel(node) {
   ].join("\n");
 }
 
+function xmlTextLines(xml) {
+  return parseNodes(xml)
+    .map(nodeLabel)
+    .flatMap((label) => label.split("\n"))
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function extractFirstMatch(lines, pattern) {
+  for (const line of lines) {
+    const match = line.match(pattern);
+    if (match) return match[1];
+  }
+  return "";
+}
+
+function extractBankTransferApprovalTarget(store) {
+  const detailPath = path.join(store.logsDir, "payment-detail-start.xml");
+  const completePath = path.join(store.logsDir, "payment-complete.xml");
+  const detailXml = fs.existsSync(detailPath) ? fs.readFileSync(detailPath, "utf8") : "";
+  const completeXml = fs.existsSync(completePath) ? fs.readFileSync(completePath, "utf8") : "";
+  const detailLines = xmlTextLines(detailXml);
+  const completeLines = xmlTextLines(completeXml);
+
+  const contractNumber = extractFirstMatch(detailLines, /계약번호:\s*(\d+)/);
+  const amount =
+    extractFirstMatch(completeLines, /입금액:\s*([\d,]+)원/) ||
+    extractFirstMatch(detailLines, /총 결제 요금\s*([\d,]+)원/);
+
+  return {
+    contract_number: contractNumber,
+    contract_number_suffix: contractNumber ? contractNumber.slice(-6) : "",
+    product_name: detailLines[0] || "",
+    buyer_name: extractFirstMatch(detailLines, /게스트 이름:\s*(.+)/),
+    amount: amount ? `${amount}원` : "",
+    amount_number: amount ? Number(amount.replace(/,/g, "")) : null,
+    virtual_account_bank: extractFirstMatch(completeLines, /은행:\s*(.+)/),
+    virtual_account_number: extractFirstMatch(completeLines, /계좌 번호:\s*(.+)/)
+  };
+}
+
 function findNode(xml, labels, options = {}) {
   const labelList = Array.isArray(labels) ? labels : [labels];
   const nodes = parseNodes(xml).filter((node) => {
@@ -1605,7 +1646,8 @@ async function runContractPaymentTest({ request, config, store }) {
             cash_receipt_type: "개인",
             cash_receipt_phone: "01000000000",
             refund_bank: "기업은행",
-            refund_account: "34108755301018"
+            refund_account: "34108755301018",
+            toss_approval_target: extractBankTransferApprovalTarget(store)
           })
       },
       artifacts: {
