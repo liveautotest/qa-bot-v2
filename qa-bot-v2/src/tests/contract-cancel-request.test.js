@@ -255,6 +255,23 @@ function isCancelReviewScreen(xml) {
   );
 }
 
+function isRefundAccountConfirmScreen(xml) {
+  return (
+    (
+      xml.includes("환불 받으실 계좌정보를 확인해주세요") ||
+      xml.includes("환불 받으실 계좌 정보를 확인해주세요") ||
+      xml.includes("환불받으실 계좌정보를 확인해주세요") ||
+      xml.includes("환불 계좌")
+    ) &&
+    (
+      xml.includes("보증금 반환 계좌로 받을께요") ||
+      xml.includes("보증금 반환 계좌로 받을게요") ||
+      xml.includes("보증금 반환 계좌")
+    ) &&
+    xml.includes("다음")
+  );
+}
+
 function isCancelComplete(xml) {
   return (
     xml.includes("취소 완료") ||
@@ -519,11 +536,37 @@ async function tapConfirmedCancelButtonAtBottom(config, device, store, steps, in
       );
     }
 
-    const x = Math.round(screen.right * 0.69);
-    const y = Math.round(screen.bottom * 0.61);
-    await tap(config, device, x, y);
-    addStep(steps, "계약 취소 확인 팝업 계약 취소 선택", "pass", "팝업 버튼이 XML 노드로 분리되지 않아 오른쪽 버튼 위치를 탭");
-    return waitForUi(config, device, isConfirmedCancelReasonScreen, 10000);
+    const tapPoints = [
+      [0.70, 0.595],
+      [0.70, 0.61],
+      [0.66, 0.61]
+    ];
+    for (const [xRatio, yRatio] of tapPoints) {
+      const x = Math.round(screen.right * xRatio);
+      const y = Math.round(screen.bottom * yRatio);
+      await tap(config, device, x, y);
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const nextXml = await dumpUi(config, device);
+      if (isConfirmedCancelReasonScreen(nextXml)) {
+        addStep(steps, "계약 취소 확인 팝업 계약 취소 선택", "pass", `팝업 오른쪽 버튼 좌표 탭 (${x},${y})`);
+        return nextXml;
+      }
+      if (!isCancelConfirmPopup(nextXml)) {
+        addStep(steps, "계약 취소 확인 팝업 계약 취소 선택", "pass", `팝업 오른쪽 버튼 좌표 탭 (${x},${y})`);
+        return waitForUi(config, device, isConfirmedCancelReasonScreen, 8000);
+      }
+    }
+
+    xml = await dumpUi(config, device);
+    await saveFailureArtifacts(config, device, store, "cancel-confirmed-confirm-button-not-tapped", xml);
+    fail(
+      "계약 취소 확인 팝업의 계약 취소 버튼을 눌렀지만 팝업이 닫히지 않았습니다.",
+      steps,
+      [
+        "팝업의 오른쪽 '계약 취소' 버튼 좌표를 여러 번 탭했지만 앱 화면이 다음 단계로 이동하지 않았습니다.",
+        "리포트의 cancel-confirmed-confirm-button-not-tapped.png 화면을 확인해주세요."
+      ]
+    );
   }
 
   await tapNode(config, device, confirmButton, "팝업 계약 취소 버튼", steps);
@@ -593,6 +636,51 @@ function findNextButton(xml) {
     })
     .sort((a, b) => b.bounds.top - a.bounds.top);
   return buttons[0];
+}
+
+async function confirmRefundAccountIfNeeded(config, device, store, steps, initialXml) {
+  if (isCancelReviewScreen(initialXml)) return initialXml;
+
+  let xml = isRefundAccountConfirmScreen(initialXml)
+    ? initialXml
+    : await waitForUi(
+      config,
+      device,
+      (candidateXml) => isCancelReviewScreen(candidateXml) || isRefundAccountConfirmScreen(candidateXml),
+      10000
+    );
+
+  if (isCancelReviewScreen(xml)) return xml;
+
+  saveXml(store, "cancel-confirmed-refund-account", xml);
+  if (!isRefundAccountConfirmScreen(xml)) {
+    await saveFailureArtifacts(config, device, store, "cancel-confirmed-refund-account-not-found", xml);
+    fail(
+      "환불 계좌 확인 화면 또는 취소 내역 확인 화면을 확인하지 못했습니다.",
+      steps,
+      [
+        "무통장 입금 확정 계약은 취소 사유 선택 후 '환불 받으실 계좌정보를 확인해주세요' 화면이 노출될 수 있습니다.",
+        "리포트의 cancel-confirmed-refund-account-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  const nextButton = findNextButton(xml);
+  if (!nextButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, "cancel-confirmed-refund-next-not-found", xml);
+    fail(
+      "환불 계좌 확인 화면에서 다음 버튼을 찾지 못했습니다.",
+      steps,
+      [
+        "보증금 반환 계좌로 받을께요가 선택된 상태에서 하단 '다음' 버튼을 눌러야 합니다.",
+        "리포트의 cancel-confirmed-refund-next-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tapNode(config, device, nextButton, "환불 계좌 확인 다음 버튼", steps);
+  addStep(steps, "환불 계좌 확인 다음 버튼 선택");
+  return waitForUi(config, device, isCancelReviewScreen, 10000);
 }
 
 function findVisibleEnabledButton(xml, labels) {
@@ -752,9 +840,21 @@ async function selectConfirmedCancelReasonAndNext(config, device, store, steps, 
 
   await tapNode(config, device, nextButton, "활성화된 다음 버튼", steps);
   addStep(steps, "활성화된 다음 버튼 선택");
+  xml = await confirmRefundAccountIfNeeded(
+    config,
+    device,
+    store,
+    steps,
+    await waitForUi(
+      config,
+      device,
+      (candidateXml) => isCancelReviewScreen(candidateXml) || isRefundAccountConfirmScreen(candidateXml),
+      10000
+    )
+  );
   return {
     reason: reason.label,
-    xml: await waitForUi(config, device, isCancelReviewScreen, 10000)
+    xml
   };
 }
 
