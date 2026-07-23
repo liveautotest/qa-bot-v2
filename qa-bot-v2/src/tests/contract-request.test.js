@@ -136,7 +136,14 @@ function isContractSearchResults(xml) {
 }
 
 function isAccommodationDetail(xml) {
-  return xml.includes("계약 조건 확인");
+  return (
+    xml.includes("계약 조건 확인") ||
+    (
+      xml.includes("가산역 신축 풀옵션") &&
+      xml.includes("₩511,815") &&
+      (xml.includes("외국인 환영") || xml.includes("오피스텔"))
+    )
+  );
 }
 
 function isContractDetail(xml) {
@@ -178,6 +185,52 @@ function isContractPeriodConfirm(xml) {
   );
 }
 
+function findAutoCardPaymentOption(xml) {
+  const optionText = findNode(xml, [
+    "호스트 수락 즉시 자동 결제",
+    "호스트 수락 즉시 자동결제",
+    "수락 즉시 자동 결제",
+    "자동 결제"
+  ], {
+    enabled: true,
+    visible: true,
+    aboveBottomAction: true
+  });
+
+  if (!optionText?.bounds) return null;
+
+  const clickableOption = findNode(xml, [
+    "호스트 수락 즉시 자동 결제",
+    "호스트 수락 즉시 자동결제",
+    "수락 즉시 자동 결제",
+    "자동 결제"
+  ], {
+    clickable: true,
+    enabled: true,
+    visible: true,
+    aboveBottomAction: true
+  });
+
+  if (clickableOption?.bounds) return clickableOption;
+
+  return {
+    ...optionText,
+    bounds: {
+      ...optionText.bounds,
+      x: 78,
+      y: optionText.bounds.y
+    }
+  };
+}
+
+function hasAutoCardPaymentSelected(xml) {
+  return (
+    xml.includes("호스트 수락 즉시 자동 결제 선택됨") ||
+    xml.includes("호스트 수락 즉시 자동결제 선택됨") ||
+    xml.includes("자동 결제 선택됨")
+  );
+}
+
 function isContractComplete(xml) {
   return (
     (xml.includes("홈으로") || xml.includes("계약 확인")) &&
@@ -190,12 +243,32 @@ function isContractComplete(xml) {
   );
 }
 
+function isInvalidUiDump(xml) {
+  return (
+    !xml ||
+    xml.includes("ERROR: could not get idle state") ||
+    !xml.includes("<hierarchy")
+  );
+}
+
+async function dumpUiStable(config, device, attempts = 4) {
+  let xml = "";
+
+  for (let count = 0; count < attempts; count += 1) {
+    xml = await dumpUi(config, device);
+    if (!isInvalidUiDump(xml)) return xml;
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+
+  return xml;
+}
+
 async function waitForUi(config, device, predicate, timeoutMs = 10000) {
   const startedAt = Date.now();
   let xml = "";
 
   while (Date.now() - startedAt < timeoutMs) {
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     if (predicate(xml)) return xml;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -209,7 +282,7 @@ async function saveArtifacts(config, device, store, name, xml, options = {}) {
   const shouldCaptureScreenshot = options.screenshot === true;
 
   try {
-    fs.writeFileSync(xmlPath, xml || (await dumpUi(config, device)));
+    fs.writeFileSync(xmlPath, xml || (await dumpUiStable(config, device)));
   } catch (error) {
     store.appendLog("runner.log", `failed to dump ui ${name}: ${error.message}`);
   }
@@ -260,6 +333,77 @@ async function tapNode(config, device, node, label, steps) {
     fail(`${label}을 찾지 못했습니다.`, steps);
   }
   await tap(config, device, node.bounds.x, node.bounds.y);
+}
+
+function isContractSubmitOutcome(xml) {
+  return (
+    isContractComplete(xml) ||
+    isContractPeriodConfirm(xml) ||
+    hasTermsAgreementWarning(xml) ||
+    hasContractRequestError(xml)
+  );
+}
+
+async function pressContractRequestButton(config, device, store, button, mode = "tap") {
+  const x = button.bounds.x;
+  const y = Math.min(
+    button.bounds.bottom - 70,
+    Math.max(button.bounds.top + 70, button.bounds.y)
+  );
+
+  store.appendLog(
+    "runner.log",
+    `contract-request submit ${mode}: bounds=[${button.bounds.left},${button.bounds.top}][${button.bounds.right},${button.bounds.bottom}] point=(${x}, ${y})`
+  );
+
+  if (mode === "press") {
+    await runAdb(config, device, [
+      "shell", "input", "swipe", String(x), String(y), String(x), String(y), "120"
+    ]);
+    return;
+  }
+
+  await tap(config, device, x, y);
+}
+
+function hasRequiredTermOverlappingSubmit(xml) {
+  const request = findNode(xml, "계약 요청하기", {
+    clickable: true,
+    enabled: true,
+    visible: true
+  });
+  if (!request?.bounds) return false;
+
+  const requiredTerms = [
+    "결제대행 서비스 이용약관 동의",
+    "개인정보 제 3자 제공 동의",
+    "이용 규칙 및 환불 규정 동의"
+  ];
+
+  return requiredTerms.some((label) => {
+    const node = findNode(xml, label, { enabled: true, visible: true });
+    return node?.bounds && node.bounds.bottom > request.bounds.top - 16;
+  });
+}
+
+async function liftRequiredTermsAboveSubmit(config, device, store, xml) {
+  let currentXml = xml;
+
+  for (let count = 0; count < 3; count += 1) {
+    if (!hasRequiredTermOverlappingSubmit(currentXml)) return currentXml;
+
+    store.appendLog(
+      "runner.log",
+      `contract-request required terms overlap submit button; lifting content (${count + 1})`
+    );
+    await runAdb(config, device, [
+      "shell", "input", "swipe", "540", "2180", "540", "1910", "180"
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    currentXml = await dumpUiStable(config, device);
+  }
+
+  return currentXml;
 }
 
 async function tapSearchBar(config, device, xml, steps) {
@@ -316,7 +460,7 @@ async function ensureAugustVisible(config, device, xml, steps) {
     ]);
     addStep(steps, "달력 스크롤", "pass", "2026년 8월 탐색");
     await new Promise((resolve) => setTimeout(resolve, 700));
-    currentXml = await dumpUi(config, device);
+    currentXml = await dumpUiStable(config, device);
   }
   return currentXml;
 }
@@ -339,7 +483,7 @@ async function selectExactDates(config, device, xml, store, steps) {
   addStep(steps, "정확한 일정 선택");
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  xml = await dumpUi(config, device);
+  xml = await dumpUiStable(config, device);
   xml = await ensureAugustVisible(config, device, xml, steps);
   await saveArtifacts(config, device, store, "calendar-before-select", xml);
 
@@ -363,7 +507,7 @@ async function selectExactDates(config, device, xml, store, steps) {
   addStep(steps, "체크아웃 날짜 선택", "pass", "2026-08-07");
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  xml = await dumpUi(config, device);
+  xml = await dumpUiStable(config, device);
   await saveArtifacts(config, device, store, "calendar-after-select", xml);
   const next = findNode(xml, "다음", { clickable: true, enabled: true });
   await tapNode(config, device, next, "다음 버튼", steps);
@@ -429,7 +573,7 @@ async function openFirstListing(config, device, store, steps) {
   addStep(steps, "검색 결과 리스트 끌어올리기");
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  let xml = await dumpUi(config, device);
+  let xml = await dumpUiStable(config, device);
   await saveArtifacts(config, device, store, "search-results-expanded", xml);
   let listing = findFirstListing(xml);
 
@@ -438,7 +582,7 @@ async function openFirstListing(config, device, store, steps) {
       "shell", "input", "swipe", "540", "2050", "540", "1350", "500"
     ]);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     listing = findFirstListing(xml);
   }
 
@@ -637,7 +781,7 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
           "shell", "input", "swipe", startX, startY, endX, endY, duration
         ]);
         await new Promise((resolve) => setTimeout(resolve, 250));
-        xml = await dumpUi(config, device);
+        xml = await dumpUiStable(config, device);
 
         const adjustedTerms = findNode(xml, "필수 약관 전체 동의", {
           clickable: true,
@@ -665,7 +809,7 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
           "shell", "input", "swipe", "540", "1760", "540", "1180", "320"
         ]);
         await new Promise((resolve) => setTimeout(resolve, 250));
-        xml = await dumpUi(config, device);
+        xml = await dumpUiStable(config, device);
 
         const liftedTerms = findNode(xml, "필수 약관 전체 동의", {
           clickable: true,
@@ -710,7 +854,7 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
       ]);
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
   }
 
   await saveFailureArtifacts(config, device, store, "contract-detail-terms-not-found", xml);
@@ -812,14 +956,80 @@ async function continueContractPeriodIfNeeded(config, device, store, steps, xml)
   );
 }
 
-async function submitContractRequest(config, device, store, steps, contractDetailXml) {
-  const { terms, request } = await scrollToRequiredTerms(config, device, store, steps, contractDetailXml);
+async function selectAutoCardPayment(config, device, store, steps, initialXml) {
+  let xml = isContractDetail(initialXml)
+    ? initialXml
+    : await waitForUi(config, device, isContractDetail, 10000);
+
+  for (let count = 0; count < 8; count += 1) {
+    const autoCard = findAutoCardPaymentOption(xml);
+    if (autoCard?.bounds) {
+      await saveArtifacts(config, device, store, "contract-detail-auto-card", xml);
+      if (hasAutoCardPaymentSelected(xml)) {
+        addStep(steps, "자동카드 결제 수단 선택", "pass", "이미 선택된 상태");
+        return xml;
+      }
+
+      await tap(config, device, autoCard.bounds.x, autoCard.bounds.y);
+      addStep(steps, "자동카드 결제 수단 선택");
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      xml = await dumpUiStable(config, device);
+      await saveArtifacts(config, device, store, "contract-detail-auto-card-selected", xml);
+      if (
+        hasAutoCardPaymentSelected(xml) ||
+        isContractRequestScreen(xml) ||
+        xml.includes("호스트 수락 즉시 자동 결제")
+      ) {
+        return xml;
+      }
+    }
+
+    if (
+      xml.includes("결제 수단") &&
+      (
+        xml.includes("호스트 수락 즉시 자동 결제") ||
+        xml.includes("호스트 수락 즉시 자동결제") ||
+        xml.includes("자동 결제")
+      )
+    ) {
+      await runAdb(config, device, [
+        "shell", "input", "swipe", "540", "2060", "540", "1460", "220"
+      ]);
+    } else {
+      await runAdb(config, device, [
+        "shell", "input", "swipe", "540", "2050", "540", "950", "260"
+      ]);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    xml = await dumpUiStable(config, device);
+  }
+
+  await saveFailureArtifacts(config, device, store, "contract-detail-auto-card-not-found", xml);
+  fail(
+    "계약 요청 화면에서 자동카드 결제 수단을 찾지 못했습니다.",
+    steps,
+    [
+      "자동카드 계약 요청은 계약 요청 화면의 결제 수단 영역에서 '호스트 수락 즉시 자동 결제'를 선택해야 합니다.",
+      "화면에 실제 좌표로 보이는 자동카드 옵션만 탭합니다.",
+      "리포트의 contract-detail-auto-card-not-found.png 화면을 확인해주세요."
+    ]
+  );
+}
+
+async function submitContractRequest(config, device, store, steps, contractDetailXml, options = {}) {
+  let preparedContractDetailXml = contractDetailXml;
+  if (options.paymentMethod === "auto-card") {
+    preparedContractDetailXml = await selectAutoCardPayment(config, device, store, steps, contractDetailXml);
+  }
+
+  const { terms, request } = await scrollToRequiredTerms(config, device, store, steps, preparedContractDetailXml);
 
   await tap(config, device, terms.bounds.x, terms.bounds.y);
   addStep(steps, "필수 약관 전체 동의 선택");
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  let xml = await dumpUi(config, device);
+  let xml = await dumpUiStable(config, device);
   if (hasTermsAgreementWarning(xml)) {
     store.appendLog(
       "runner.log",
@@ -827,9 +1037,14 @@ async function submitContractRequest(config, device, store, steps, contractDetai
     );
     await tap(config, device, 78, 1708);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
   }
   await saveArtifacts(config, device, store, "contract-detail-after-terms", xml);
+  if (options.paymentMethod === "auto-card") {
+    xml = await liftRequiredTermsAboveSubmit(config, device, store, xml);
+    await saveArtifacts(config, device, store, "contract-detail-before-auto-card-submit", xml);
+  }
+
   const requestButton =
     findNode(xml, "계약 요청하기", {
       clickable: true,
@@ -837,22 +1052,62 @@ async function submitContractRequest(config, device, store, steps, contractDetai
       visible: true
     }) || request;
 
-  await tap(config, device, requestButton.bounds.x, requestButton.bounds.y);
+  await pressContractRequestButton(config, device, store, requestButton, "tap");
   addStep(steps, "계약 요청하기 버튼 탭");
 
-  xml = await waitForUi(
-    config,
-    device,
-    (nextXml) => (
-      isContractComplete(nextXml) ||
-      isContractPeriodConfirm(nextXml) ||
-      hasTermsAgreementWarning(nextXml) ||
-      hasContractRequestError(nextXml)
-    ),
-    20000
-  );
+  xml = await waitForUi(config, device, isContractSubmitOutcome, 2200);
+  if (!isContractSubmitOutcome(xml) && isContractRequestScreen(xml)) {
+    const pressSubmitButton = findNode(xml, "계약 요청하기", {
+      clickable: true,
+      enabled: true,
+      visible: true
+    });
+    if (pressSubmitButton?.bounds) {
+      await saveArtifacts(config, device, store, "contract-request-submit-still-detail", xml);
+      await pressContractRequestButton(config, device, store, pressSubmitButton, "press");
+      addStep(steps, "계약 요청하기 버튼 재시도");
+    }
+  }
+
+  xml = await waitForUi(config, device, isContractSubmitOutcome, 20000);
   await saveArtifacts(config, device, store, "contract-request-after-submit", xml);
   xml = await continueContractPeriodIfNeeded(config, device, store, steps, xml);
+
+  if (
+    isContractRequestScreen(xml) &&
+    !isContractComplete(xml) &&
+    !hasTermsAgreementWarning(xml) &&
+    !hasContractRequestError(xml)
+  ) {
+    const retrySubmitButton = findNode(xml, "계약 요청하기", {
+      clickable: true,
+      enabled: true,
+      visible: true
+    });
+    if (retrySubmitButton?.bounds) {
+      store.appendLog(
+        "runner.log",
+        `contract-request submit remained on detail; retrying submit (${retrySubmitButton.bounds.x}, ${retrySubmitButton.bounds.y})`
+      );
+      await pressContractRequestButton(config, device, store, retrySubmitButton, "press");
+      addStep(steps, "계약 요청하기 버튼 재탭");
+
+      xml = await waitForUi(
+        config,
+        device,
+        (nextXml) => (
+          isContractComplete(nextXml) ||
+          isContractPeriodConfirm(nextXml) ||
+          hasTermsAgreementWarning(nextXml) ||
+          hasContractRequestError(nextXml) ||
+          !isContractRequestScreen(nextXml)
+        ),
+        20000
+      );
+      await saveArtifacts(config, device, store, "contract-request-after-submit-retry", xml);
+      xml = await continueContractPeriodIfNeeded(config, device, store, steps, xml);
+    }
+  }
 
   if (hasTermsAgreementWarning(xml)) {
     store.appendLog(
@@ -860,7 +1115,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
       "contract-request terms warning appeared after submit; selecting visible terms and retrying submit"
     );
     await tapRequiredTerms(config, device, xml, store, steps, "whole");
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
 
     const retryButton =
       findNode(xml, "계약 요청하기", {
@@ -868,7 +1123,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
         enabled: true,
         visible: true
       }) || requestButton;
-    await tap(config, device, retryButton.bounds.x, retryButton.bounds.y);
+    await pressContractRequestButton(config, device, store, retryButton, "tap");
     addStep(steps, "약관 경고 후 계약 요청 재시도");
 
     xml = await waitForUi(
@@ -890,7 +1145,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
         "contract-request terms warning remained; selecting individual required terms and retrying submit"
       );
       await tapRequiredTerms(config, device, xml, store, steps, "children");
-      xml = await dumpUi(config, device);
+      xml = await dumpUiStable(config, device);
 
       const finalRetryButton =
         findNode(xml, "계약 요청하기", {
@@ -898,7 +1153,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
           enabled: true,
           visible: true
         }) || requestButton;
-      await tap(config, device, finalRetryButton.bounds.x, finalRetryButton.bounds.y);
+      await pressContractRequestButton(config, device, store, finalRetryButton, "tap");
       addStep(steps, "개별 필수 약관 선택 후 계약 요청 재시도");
 
       xml = await waitForUi(
@@ -932,12 +1187,12 @@ async function submitContractRequest(config, device, store, steps, contractDetai
   if (isContractRequestScreen(xml) && !isContractComplete(xml)) {
     await saveFailureArtifacts(config, device, store, "contract-request-after-submit", xml);
     fail(
-      "약관 동의 후 계약 요청을 눌렀지만 완료 화면으로 이동하지 않았습니다.",
+      "계약 요청하기 버튼을 눌렀지만 제출이 반영되지 않았습니다.",
       steps,
       [
         "현재 화면이 아직 계약 요청 상세 화면입니다.",
-        "필수 약관 체크가 실제로 선택되지 않았거나, 계약 요청 버튼 제출이 앱에 반영되지 않았습니다.",
-        "리포트의 contract-request-after-submit.png 화면과 runner.log의 약관 탭 좌표를 확인해주세요."
+        "자동화가 하단 '계약 요청하기' 버튼을 탭한 뒤 같은 좌표를 짧은 press 방식으로 재시도했습니다.",
+        "리포트의 contract-request-after-submit.png 화면과 runner.log의 제출 버튼 좌표를 확인해주세요."
       ]
     );
   }
@@ -960,7 +1215,6 @@ async function submitContractRequest(config, device, store, steps, contractDetai
   }
 
   xml = await waitForUi(config, device, hasHomeSearchBar, 10000);
-  await saveArtifacts(config, device, store, "contract-request-final", xml);
   if (!hasHomeSearchBar(xml)) {
     await saveFailureArtifacts(config, device, store, "contract-request-final", xml);
     fail(
@@ -972,15 +1226,37 @@ async function submitContractRequest(config, device, store, steps, contractDetai
       ]
     );
   }
+
+  await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  addStep(steps, "홈 화면 풀 리프레시");
+
+  xml = await waitForUi(config, device, hasHomeSearchBar, 8000);
+  await saveArtifacts(config, device, store, "contract-request-final", xml);
+  if (!hasHomeSearchBar(xml)) {
+    await saveFailureArtifacts(config, device, store, "contract-request-final", xml);
+    fail(
+      "홈 화면 풀 리프레시 후 홈 화면을 확인하지 못했습니다.",
+      steps,
+      [
+        "완료 화면에서 홈으로 버튼을 누른 뒤 홈 화면에서 풀드리프레시까지 수행합니다.",
+        "리포트의 contract-request-final.png 화면을 확인해주세요."
+      ]
+    );
+  }
 }
 
 async function runContractRequestTest({ request, config, store }) {
   const role = request.role || "guest";
   const env = request.env || "staging";
+  const paymentMethod = request.payment_method || "manual";
   const device = config.devices[role] || "";
   const appPackage = config.androidPackages[env];
   const steps = [];
 
+  if (!["manual", "auto-card"].includes(paymentMethod)) {
+    throw new Error(`Unknown contract request payment method: ${paymentMethod}`);
+  }
   if (!device) throw new Error(`Missing device id for role: ${role}`);
   if (!appPackage) throw new Error(`Unknown Android package for env: ${env}`);
 
@@ -1033,7 +1309,7 @@ async function runContractRequestTest({ request, config, store }) {
 
     await selectDomesticRegion(config, device, xml, steps);
     await new Promise((resolve) => setTimeout(resolve, 600));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     await saveArtifacts(config, device, store, "domestic-selected", xml);
 
     await selectExactDates(config, device, xml, store, steps);
@@ -1057,12 +1333,12 @@ async function runContractRequestTest({ request, config, store }) {
 
     const detailXml = await openFirstListing(config, device, store, steps);
     const contractDetailXml = await tapContractCondition(config, device, store, steps, detailXml);
-    await submitContractRequest(config, device, store, steps, contractDetailXml);
+    await submitContractRequest(config, device, store, steps, contractDetailXml, { paymentMethod });
     addStep(steps, "계약 요청 완료 후 홈 화면 확인");
 
     return {
       test_id: "TC-CONTRACT-001",
-      name: `${role} 계약 요청`,
+      name: paymentMethod === "auto-card" ? `${role} 자동카드 계약 요청` : `${role} 계약 요청`,
       env,
       status: "pass",
       device,
@@ -1075,7 +1351,8 @@ async function runContractRequestTest({ request, config, store }) {
         adult_count: 1,
         child_count: 0,
         infant_count: 0,
-        pet_count: 0
+        pet_count: 0,
+        payment_method: paymentMethod === "auto-card" ? "호스트 수락 즉시 자동 결제" : "호스트 승인 후 별도 결제"
       },
       artifacts: {
         screenshots: [],

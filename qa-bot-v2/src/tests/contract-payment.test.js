@@ -159,17 +159,37 @@ function saveXml(store, name, xml) {
 }
 
 async function saveFailureArtifacts(config, device, store, name, xml) {
-  const xmlPath = saveXml(store, name, xml || (await dumpUi(config, device)));
+  const xmlPath = saveXml(store, name, xml || (await dumpUiStable(config, device)));
   const screenshotPath = path.join(store.screenshotsDir, `${name}.png`);
   fs.writeFileSync(screenshotPath, await screenshotPng(config, device));
   return { xmlPath, screenshotPath };
+}
+
+function isInvalidUiDump(xml) {
+  return (
+    !xml ||
+    xml.includes("ERROR: could not get idle state") ||
+    !xml.includes("<hierarchy")
+  );
+}
+
+async function dumpUiStable(config, device, attempts = 4) {
+  let xml = "";
+
+  for (let count = 0; count < attempts; count += 1) {
+    xml = await dumpUi(config, device);
+    if (!isInvalidUiDump(xml)) return xml;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  return xml;
 }
 
 async function waitForUi(config, device, predicate, timeoutMs = 12000) {
   const startedAt = Date.now();
   let xml = "";
   while (Date.now() - startedAt < timeoutMs) {
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     if (predicate(xml)) return xml;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
@@ -184,14 +204,14 @@ async function tapNode(config, device, node, label, steps) {
 async function hideKeyboard(config, device) {
   await keyEvent(config, device, 111).catch(() => {});
   await new Promise((resolve) => setTimeout(resolve, 200));
-  let xml = await dumpUi(config, device);
+  let xml = await dumpUiStable(config, device);
   const focusedInput = findEditableNodes(xml).some((node) => node.attrs.focused === "true");
 
   if (/honeyboard|inputmethod|keyboard|키보드|보안키패드/i.test(xml) || focusedInput) {
     // Do not send KEYCODE_BACK here. In the WebView payment page it can navigate away to Home.
     await tap(config, device, 540, 260).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 250));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
   }
   return xml;
 }
@@ -279,8 +299,8 @@ async function tapPaymentHomeCard(config, device, xml, steps) {
 
 function isContractPaymentDetail(xml) {
   return (
-    xml.includes("계약번호:") &&
-    xml.includes("결제해 주세요") &&
+    xml.includes("계약번호") &&
+    (xml.includes("결제해 주세요") || xml.includes("결제해 주세요.")) &&
     xml.includes("결제하기")
   );
 }
@@ -364,6 +384,36 @@ function hasJcbSelected(xml) {
   return xml.includes("JCB 카드 선택됨");
 }
 
+function findJcbCardOption(xml, { visible = true } = {}) {
+  return findNode(xml, "JCB 카드", {
+    visible,
+    clickable: true,
+    enabled: true
+  });
+}
+
+async function scrollJcbCardIntoView(config, device, store, xml) {
+  let currentXml = xml;
+
+  for (let count = 0; count < 6; count += 1) {
+    const visibleJcb = findJcbCardOption(currentXml, { visible: true });
+    if (visibleJcb?.bounds) return { xml: currentXml, node: visibleJcb };
+
+    const clippedJcb = findJcbCardOption(currentXml, { visible: false });
+    if (!clippedJcb?.bounds) return { xml: currentXml, node: null };
+
+    store.appendLog(
+      "runner.log",
+      `JCB card option clipped at [${clippedJcb.bounds.left},${clippedJcb.bounds.top}][${clippedJcb.bounds.right},${clippedJcb.bounds.bottom}], scrolling into view (${count + 1})`
+    );
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2250", "540", "1800", "180"]);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    currentXml = await dumpUiStable(config, device);
+  }
+
+  return { xml: currentXml, node: findJcbCardOption(currentXml, { visible: true }) };
+}
+
 function isPgPaymentScreen(xml) {
   return (
     xml.includes("Payment information") &&
@@ -414,9 +464,49 @@ function isBankTransferPaymentComplete(xml) {
 function isHomeScreen(xml) {
   return (
     xml.includes("동네 주변 장소로 검색") ||
+    xml.includes("동네 · 주변 장소로 검색") ||
     xml.includes("어디로 떠나세요") ||
     xml.includes("홈")
   );
+}
+
+async function returnHomeFromPaymentComplete(config, device, store, steps, xml, artifactPrefix = "payment") {
+  const homeButton = findNode(xml, ["홈으로 가기", "홈으로", "홈 화면으로", "홈"], {
+    visible: true,
+    clickable: true,
+    enabled: true
+  });
+  if (!homeButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, `${artifactPrefix}-home-button-not-found`, xml);
+    fail(
+      "결제 완료 화면에서 홈으로 버튼을 찾지 못했습니다.",
+      steps,
+      [
+        "결제 완료 후 홈 화면으로 이동하는 버튼이 보여야 합니다.",
+        `리포트의 ${artifactPrefix}-home-button-not-found.png 화면을 확인해주세요.`
+      ]
+    );
+  }
+
+  await tapNode(config, device, homeButton, "홈으로 버튼", steps);
+  addStep(steps, "결제 완료 화면 홈으로 버튼 탭");
+
+  const homeXml = await waitForUi(config, device, isHomeScreen, 8000);
+  saveXml(store, "payment-return-home", homeXml);
+  if (!isHomeScreen(homeXml)) {
+    await saveFailureArtifacts(config, device, store, `${artifactPrefix}-return-home-not-found`, homeXml);
+    fail(
+      "결제 완료 후 홈 화면으로 이동하지 못했습니다.",
+      steps,
+      [
+        "홈으로 버튼을 눌렀지만 홈 화면 검색바를 확인하지 못했습니다.",
+        `리포트의 ${artifactPrefix}-return-home-not-found.png 화면을 확인해주세요.`
+      ]
+    );
+  }
+  addStep(steps, "홈 화면 이동 확인");
+
+  return homeXml;
 }
 
 function hasVisibleEnabledHolderCheck(xml) {
@@ -529,17 +619,17 @@ async function bringSecureKeypadIntoView(config, device) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await runAdb(config, device, ["shell", "input", "swipe", "540", "2250", "540", "850", "450"]);
     await new Promise((resolve) => setTimeout(resolve, 400));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     if (hasVisibleSecureDigit(xml, "0") && hasVisibleSecureDigit(xml, "1")) break;
   }
 
-  return xml || dumpUi(config, device);
+  return xml || (await dumpUiStable(config, device));
 }
 
 async function openSecureKeypad(config, device, store, fieldIndex, steps) {
   let xml = "";
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     const { cardFields } = findPgPaymentFields(xml);
     const field = cardFields[fieldIndex];
     if (!field?.bounds) break;
@@ -580,7 +670,7 @@ async function inputSecureKeypadDigits(config, device, store, digits, fieldIndex
   }
 
   for (const digit of digits) {
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     if (!hasVisibleSecureDigit(xml, digit)) {
       xml = await bringSecureKeypadIntoView(config, device);
     }
@@ -652,7 +742,7 @@ async function openPaymentDetailFromHome(config, device, store, steps) {
 }
 
 async function scrollToPaymentMethod(config, device, store, steps, paymentMethod = "card") {
-  let xml = await dumpUi(config, device);
+  let xml = await dumpUiStable(config, device);
   for (let count = 0; count < 14; count += 1) {
     if (paymentMethod === "bank-transfer" && hasVisiblePaymentTypeTabs(xml)) {
       saveXml(store, "payment-type-tabs", xml);
@@ -677,7 +767,7 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
     ) {
       await runAdb(config, device, ["shell", "input", "swipe", "540", "850", "540", "1350", "250"]);
       await new Promise((resolve) => setTimeout(resolve, 180));
-      xml = await dumpUi(config, device);
+      xml = await dumpUiStable(config, device);
       continue;
     }
 
@@ -686,7 +776,7 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
       : ["shell", "input", "swipe", "540", "1900", "540", "760", "180"];
     await runAdb(config, device, swipeArgs);
     await new Promise((resolve) => setTimeout(resolve, 140));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
   }
 
   await saveFailureArtifacts(config, device, store, "payment-method-not-found", xml);
@@ -708,7 +798,7 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
 }
 
 async function scrollUntil(config, device, store, steps, predicate, artifactName, failMessage, details) {
-  let xml = await dumpUi(config, device);
+  let xml = await dumpUiStable(config, device);
   for (let count = 0; count < 12; count += 1) {
     if (predicate(xml)) {
       saveXml(store, artifactName, xml);
@@ -717,7 +807,7 @@ async function scrollUntil(config, device, store, steps, predicate, artifactName
 
     await runAdb(config, device, ["shell", "input", "swipe", "540", "1850", "540", "900", "170"]);
     await new Promise((resolve) => setTimeout(resolve, 140));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
   }
 
   await saveFailureArtifacts(config, device, store, artifactName, xml);
@@ -781,11 +871,10 @@ async function chooseJcbAndSubmit(config, device, store, steps, xml) {
   saveXml(store, "payment-method-expanded", xml);
 
   if (!hasJcbSelected(xml)) {
-    const jcbButton = findNode(xml, "JCB 카드", {
-      visible: true,
-      clickable: true,
-      enabled: true
-    });
+    const jcbResult = await scrollJcbCardIntoView(config, device, store, xml);
+    xml = jcbResult.xml;
+    saveXml(store, "payment-method-jcb-visible", xml);
+    const jcbButton = jcbResult.node;
     await tapNode(config, device, jcbButton, "JCB 카드", steps);
     addStep(steps, "JCB 카드 선택");
 
@@ -951,7 +1040,7 @@ async function bringRefundAccountInputIntoSafeView(config, device, xml) {
       await runAdb(config, device, ["shell", "input", "swipe", "540", "1000", "540", "1300", "140"]);
     }
     await new Promise((resolve) => setTimeout(resolve, 120));
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
   }
 
   return xml;
@@ -1152,7 +1241,7 @@ async function selectBank(config, device, store, steps, xml) {
   addStep(steps, "기업은행 선택");
   await new Promise((resolve) => setTimeout(resolve, 250));
 
-  return dumpUi(config, device);
+  return dumpUiStable(config, device);
 }
 
 async function fillRefundAccount(config, device, store, steps, xml) {
@@ -1343,41 +1432,7 @@ async function submitBankTransferPayment(config, device, store, steps, xml) {
   }
   addStep(steps, "무통장 입금 안내 완료 화면 확인");
 
-  const homeButton = findNode(xml, ["홈으로 가기", "홈으로", "홈 화면으로", "홈"], {
-    visible: true,
-    clickable: true,
-    enabled: true
-  });
-  if (!homeButton?.bounds) {
-    await saveFailureArtifacts(config, device, store, "payment-home-button-not-found", xml);
-    fail(
-      "결제 완료 화면에서 홈으로 버튼을 찾지 못했습니다.",
-      steps,
-      [
-        "결제 완료 후 홈 화면으로 이동하는 버튼이 보여야 합니다.",
-        "리포트의 payment-home-button-not-found.png 화면을 확인해주세요."
-      ]
-    );
-  }
-  await tapNode(config, device, homeButton, "홈으로 버튼", steps);
-  addStep(steps, "결제 완료 화면 홈으로 버튼 탭");
-
-  xml = await waitForUi(config, device, isHomeScreen, 8000);
-  saveXml(store, "payment-return-home", xml);
-  if (!isHomeScreen(xml)) {
-    await saveFailureArtifacts(config, device, store, "payment-return-home-not-found", xml);
-    fail(
-      "결제 완료 후 홈 화면으로 이동하지 못했습니다.",
-      steps,
-      [
-        "홈으로 버튼을 눌렀지만 홈 화면 검색바를 확인하지 못했습니다.",
-        "리포트의 payment-return-home-not-found.png 화면을 확인해주세요."
-      ]
-    );
-  }
-  addStep(steps, "홈 화면 이동 확인");
-
-  return xml;
+  return returnHomeFromPaymentComplete(config, device, store, steps, xml, "payment");
 }
 
 async function inputPgCard(config, device, store, steps, xml) {
@@ -1398,7 +1453,7 @@ async function inputPgCard(config, device, store, steps, xml) {
 
   const cardParts = ["3530", "1113", "3330", "0000"];
   for (let index = 0; index < cardParts.length; index += 1) {
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     ({ cardFields } = findPgPaymentFields(xml));
     const field = cardFields[index];
     if (!field?.bounds) {
@@ -1416,7 +1471,7 @@ async function inputPgCard(config, device, store, steps, xml) {
   }
   addStep(steps, "PG 카드 번호 입력");
 
-  xml = await dumpUi(config, device);
+  xml = await dumpUiStable(config, device);
   ({ expiryField } = findPgPaymentFields(xml));
   if (!expiryField?.bounds) {
     await saveFailureArtifacts(config, device, store, "pg-expiry-field-missing", xml);
@@ -1478,7 +1533,7 @@ async function inputPgCard(config, device, store, steps, xml) {
     );
   }
 
-  return xml;
+  return returnHomeFromPaymentComplete(config, device, store, steps, xml, "card-payment");
 }
 
 async function runContractPaymentTest({ request, config, store }) {

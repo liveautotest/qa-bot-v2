@@ -17,8 +17,14 @@ function formatHelp() {
     "!게스트 유연한일정 검색 dev",
     "!게스트 계약 요청 stg",
     "!게스트 계약 요청 dev",
+    "!게스트 계약 요청 취소 stg",
+    "!게스트 계약 요청 취소 dev",
+    "!게스트 계약 확정 취소 stg",
+    "!게스트 계약 확정 취소 dev",
     "!게스트 계약 결제 일반카드 stg",
     "!게스트 계약 결제 일반카드 dev",
+    "!게스트 계약 결제 자동카드 stg",
+    "!게스트 계약 결제 자동카드 dev",
     "!게스트 계약 결제 무통장 stg",
     "!게스트 계약 결제 무통장 dev",
     "!호스트 로그인 stg",
@@ -37,7 +43,11 @@ function formatHelp() {
     "!qa search env=staging role=guest",
     "!qa search-flexible env=staging role=guest",
     "!qa contract-request env=staging role=guest",
+    "!qa contract-request env=staging role=guest method=auto-card",
+    "!qa contract-cancel-request env=staging role=guest",
+    "!qa contract-cancel-confirmed env=staging role=guest",
     "!qa contract-payment env=staging role=guest method=card",
+    "!qa contract-payment env=staging role=guest method=auto-card",
     "!qa contract-payment env=staging role=guest method=bank-transfer",
     "!qa contract-approve env=staging role=host"
   ].join("\n");
@@ -62,7 +72,8 @@ function formatSearchConditions(conditions) {
     child_count: "어린이",
     infant_count: "유아",
     pet_count: "반려동물",
-    pet_info: "반려동물 정보"
+    pet_info: "반려동물 정보",
+    payment_method: "계약 요청 결제 방식"
   };
 
   return Object.entries(labels)
@@ -128,6 +139,15 @@ function formatPassSummary(result) {
   }
 
   if (result.test_id === "TC-CONTRACT-001") {
+    if (result.contract_conditions?.payment_method === "호스트 수락 즉시 자동 결제") {
+      return [
+        "- 앱 재실행 후 정확한 일정 검색 결과 목록으로 진입했습니다.",
+        "- 임의 숙소 상세에서 계약 조건 확인 화면으로 이동했습니다.",
+        "- 계약 요청 화면의 결제 수단 영역에서 호스트 수락 즉시 자동 결제를 선택했습니다.",
+        "- 필수 약관 전체 동의 후 계약 요청 완료 화면과 홈 화면 복귀까지 확인했습니다."
+      ];
+    }
+
     return [
       "- 앱 재실행 후 정확한 일정 검색 결과 목록으로 진입했습니다.",
       "- 임의 숙소 상세에서 계약 조건 확인 화면으로 이동했습니다.",
@@ -144,6 +164,23 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-CONTRACT-CANCEL-REQUEST-001") {
+    return [
+      "- 홈 화면 풀 리프레시 후 계약 요청 상태 카드를 확인했습니다.",
+      "- 계약 상세 하단에서 계약 취소 버튼을 눌렀습니다.",
+      `- 취소 사유 '${result.cancel_conditions?.reason || "선택됨"}' 선택 후 계약 요청 취소 완료 상태를 확인했습니다.`
+    ];
+  }
+
+  if (result.test_id === "TC-CONTRACT-CANCEL-CONFIRMED-001") {
+    return [
+      "- 홈 화면 풀 리프레시 후 예약 확정 상태 카드를 확인했습니다.",
+      "- 계약 상세 하단에서 계약 취소 버튼과 확인 팝업을 처리했습니다.",
+      `- 호스트 전달 취소 사유 '${result.cancel_conditions?.reason || "선택됨"}' 선택 후 취소 내역 확인과 최종 취소 완료를 확인했습니다.`,
+      "- 리브애니웨어 취소 사유 전달 화면을 닫고 홈 화면 복귀까지 확인했습니다."
+    ];
+  }
+
   if (result.test_id === "TC-CONTRACT-PAYMENT-001") {
     if (result.payment_conditions?.method === "무통장 입금") {
       return [
@@ -156,7 +193,8 @@ function formatPassSummary(result) {
     return [
       "- 홈 화면 풀 리프레시 후 결제 대기 중 카드를 확인했습니다.",
       "- 계약 상세에서 신용·체크카드 결제 수단과 JCB 카드 선택을 확인했습니다.",
-      "- PG 결제 화면에서 카드번호, 만료일, 필수 동의, NEXT 버튼을 처리했습니다."
+      "- PG 결제 화면에서 카드번호, 만료일, 필수 동의, NEXT 버튼을 처리했습니다.",
+      "- 결제 완료 화면의 홈으로 버튼을 눌러 홈 화면 복귀까지 확인했습니다."
     ];
   }
 

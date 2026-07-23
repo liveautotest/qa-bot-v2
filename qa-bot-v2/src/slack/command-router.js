@@ -13,7 +13,7 @@ function parseKeyValues(parts) {
 function parseKoreanShortcut(text) {
   const normalized = text.trim().replace(/\s+/g, " ");
   const match = normalized.match(
-    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약승인|계약 승인|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장))?(?:\s+(dev|stg|staging))?$/i
+    /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|계약승인|계약 승인|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i
   );
   if (!match) return null;
 
@@ -28,6 +28,12 @@ function parseKoreanShortcut(text) {
     "유연한 일정 검색": "search-flexible",
     계약요청: "contract-request",
     "계약 요청": "contract-request",
+    계약요청취소: "contract-cancel-request",
+    "계약 요청 취소": "contract-cancel-request",
+    계약확정취소: "contract-cancel-confirmed",
+    "계약 확정 취소": "contract-cancel-confirmed",
+    예약확정취소: "contract-cancel-confirmed",
+    "예약 확정 취소": "contract-cancel-confirmed",
     계약승인: "contract-approve",
     "계약 승인": "contract-approve",
     계약결제: "contract-payment",
@@ -41,14 +47,19 @@ function parseKoreanShortcut(text) {
   const paymentMethodByShortcut = {
     일반카드: "card",
     카드: "card",
-    무통장: "bank-transfer"
+    무통장: "bank-transfer",
+    자동카드: "auto-card"
   };
+  const paymentMethod = paymentMethodByShortcut[match[3]];
+  const test = paymentMethod === "auto-card"
+    ? "contract-request"
+    : testByCommand[match[2]];
 
   return {
-    test: testByCommand[match[2]],
-    role: match[1] === "게스트" ? "guest" : "host",
+    test,
+    role: match[1] === "호스트" ? "host" : "guest",
     env: envByShortcut[String(match[4] || "stg").toLowerCase()],
-    payment_method: paymentMethodByShortcut[match[3]]
+    payment_method: paymentMethod
   };
 }
 
@@ -89,16 +100,22 @@ async function routeCommand(text, context) {
     command === "search" ||
     command === "search-flexible" ||
     command === "contract-approve" ||
+    command === "contract-cancel-confirmed" ||
+    command === "contract-cancel-request" ||
     command === "contract-payment" ||
     command === "contract-request"
   ) {
     const args = parseKeyValues(parts.slice(2));
+    const paymentMethod = args.method || args.payment_method;
+    const test = command === "contract-payment" && paymentMethod === "auto-card"
+      ? "contract-request"
+      : command;
     return runQaCommand(
       {
-        test: command,
+        test,
         env: args.env || "staging",
         role: args.role || "guest",
-        payment_method: args.method || args.payment_method
+        payment_method: paymentMethod
       },
       context
     );
