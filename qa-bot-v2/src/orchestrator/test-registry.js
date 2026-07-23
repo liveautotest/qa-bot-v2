@@ -1,7 +1,10 @@
 const { runLoginTest } = require("../tests/login.test");
 const { runLogoutTest } = require("../tests/logout.test");
 const { runFlexibleSearchTest, runSearchTest } = require("../tests/search.test");
-const { runContractApproveTest } = require("../tests/contract-approve.test");
+const {
+  runContractApproveTest,
+  runContractRejectTest
+} = require("../tests/contract-approve.test");
 const {
   runContractCancelConfirmedTest,
   runContractCancelRequestTest
@@ -15,6 +18,7 @@ const registry = {
   search: runSearchTest,
   "search-flexible": runFlexibleSearchTest,
   "contract-approve": runContractApproveTest,
+  "contract-reject": runContractRejectTest,
   "contract-cancel-confirmed": runContractCancelConfirmedTest,
   "contract-cancel-request": runContractCancelRequestTest,
   "contract-payment": runContractPaymentTest,

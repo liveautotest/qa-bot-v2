@@ -92,6 +92,41 @@ function findNode(xml, labels, options = {}) {
   return nodes.find((node) => node.attrs.clickable === "true") || nodes[0];
 }
 
+function getScreenBounds(xml) {
+  return parseNodes(xml)
+    .map((node) => node.bounds)
+    .filter(Boolean)
+    .sort((a, b) => (b.right * b.bottom) - (a.right * a.bottom))[0] || null;
+}
+
+function getBottomContractRequestButton(xml) {
+  if (!xml.includes("계약 요청하기")) return null;
+
+  const screen = getScreenBounds(xml);
+  if (!screen?.right || !screen?.bottom) return null;
+  const visibleBottom = Math.min(screen.bottom, 2496);
+
+  const button = {
+    left: Math.round(screen.right * 0.06),
+    top: Math.round(visibleBottom * 0.91),
+    right: Math.round(screen.right * 0.94),
+    bottom: Math.round(visibleBottom * 0.975)
+  };
+
+  return {
+    attrs: {
+      text: "계약 요청하기",
+      clickable: "true",
+      enabled: "true"
+    },
+    bounds: {
+      ...button,
+      x: Math.round((button.left + button.right) / 2),
+      y: Math.round((button.top + button.bottom) / 2)
+    }
+  };
+}
+
 function hasHomeSearchBar(xml) {
   return (
     xml.includes("동네 · 주변 장소로 검색") ||
@@ -152,6 +187,40 @@ function isContractDetail(xml) {
     xml.includes("계약자 정보") &&
     xml.includes("필수 약관 전체 동의")
   );
+}
+
+function getContractNumber(xml) {
+  const match = String(xml || "").match(/계약\s*번호:?\s*(\d+)/);
+  return match ? match[1] : "";
+}
+
+function getHomeRequestCardSummary(xml) {
+  const card = parseNodes(xml).find((node) => {
+    if (!node.bounds) return false;
+    const label = nodeLabel(node);
+    return (
+      label.includes("요청 중") &&
+      label.includes("8월 1일 ~ 8월 7일") &&
+      label.includes("성인 1")
+    );
+  });
+
+  if (!card) return null;
+
+  const lines = nodeLabel(card)
+    .replace(/\s*\|\s*/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const statusIndex = lines.findIndex((line) => line.includes("요청 중"));
+
+  return {
+    status: "요청 중",
+    title: lines[statusIndex + 1] || "",
+    schedule: lines.find((line) => line.includes("8월 1일 ~ 8월 7일")) || "",
+    guest: lines.find((line) => line.includes("성인 1")) || "",
+    raw: lines.join(" | ")
+  };
 }
 
 function isContractRequestScreen(xml) {
@@ -345,6 +414,10 @@ function isContractSubmitOutcome(xml) {
 }
 
 async function pressContractRequestButton(config, device, store, button, mode = "tap") {
+  if (!button?.bounds) {
+    throw new Error("Contract request button bounds were not available.");
+  }
+
   const x = button.bounds.x;
   const y = Math.min(
     button.bounds.bottom - 70,
@@ -764,6 +837,16 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
       return { terms, request, xml };
     }
 
+    const fallbackRequest = getBottomContractRequestButton(xml);
+    if (terms?.bounds && fallbackRequest?.bounds) {
+      store.appendLog(
+        "runner.log",
+        "contract-request terms are safely visible; using bottom fixed submit button fallback because XML submit bounds are clipped"
+      );
+      await saveArtifacts(config, device, store, "contract-detail-terms", xml);
+      return { terms, request: fallbackRequest, xml };
+    }
+
     if (
       xml.includes("필수 약관 전체 동의") &&
       xml.includes("계약 요청하기") &&
@@ -802,6 +885,16 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
           await saveArtifacts(config, device, store, "contract-detail-terms", xml);
           return { terms: adjustedTerms, request: adjustedRequest, xml };
         }
+
+        const adjustedFallbackRequest = getBottomContractRequestButton(xml);
+        if (adjustedTerms?.bounds && adjustedFallbackRequest?.bounds) {
+          store.appendLog(
+            "runner.log",
+            `contract-request terms became visible after reveal scroll adjustment (${startY}->${endY}); using bottom fixed submit button fallback`
+          );
+          await saveArtifacts(config, device, store, "contract-detail-terms", xml);
+          return { terms: adjustedTerms, request: adjustedFallbackRequest, xml };
+        }
       }
 
       for (let count = 0; count < 6; count += 1) {
@@ -829,6 +922,16 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
           );
           await saveArtifacts(config, device, store, "contract-detail-terms", xml);
           return { terms: liftedTerms, request: liftedRequest, xml };
+        }
+
+        const liftedFallbackRequest = getBottomContractRequestButton(xml);
+        if (liftedTerms?.bounds && liftedFallbackRequest?.bounds) {
+          store.appendLog(
+            "runner.log",
+            `contract-request terms lifted above bottom action after extra scroll (${count + 1}); using bottom fixed submit button fallback`
+          );
+          await saveArtifacts(config, device, store, "contract-detail-terms", xml);
+          return { terms: liftedTerms, request: liftedFallbackRequest, xml };
         }
       }
 
@@ -1072,6 +1175,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
   xml = await waitForUi(config, device, isContractSubmitOutcome, 20000);
   await saveArtifacts(config, device, store, "contract-request-after-submit", xml);
   xml = await continueContractPeriodIfNeeded(config, device, store, steps, xml);
+  const submittedContractNumber = getContractNumber(xml);
 
   if (
     isContractRequestScreen(xml) &&
@@ -1244,6 +1348,12 @@ async function submitContractRequest(config, device, store, steps, contractDetai
       ]
     );
   }
+
+  return {
+    contractNumber: submittedContractNumber || getContractNumber(xml),
+    requestSummary: getHomeRequestCardSummary(xml),
+    finalXml: xml
+  };
 }
 
 async function runContractRequestTest({ request, config, store }) {
@@ -1333,7 +1443,7 @@ async function runContractRequestTest({ request, config, store }) {
 
     const detailXml = await openFirstListing(config, device, store, steps);
     const contractDetailXml = await tapContractCondition(config, device, store, steps, detailXml);
-    await submitContractRequest(config, device, store, steps, contractDetailXml, { paymentMethod });
+    const submittedContract = await submitContractRequest(config, device, store, steps, contractDetailXml, { paymentMethod });
     addStep(steps, "계약 요청 완료 후 홈 화면 확인");
 
     return {
@@ -1353,6 +1463,10 @@ async function runContractRequestTest({ request, config, store }) {
         infant_count: 0,
         pet_count: 0,
         payment_method: paymentMethod === "auto-card" ? "호스트 수락 즉시 자동 결제" : "호스트 승인 후 별도 결제"
+      },
+      contract_request: {
+        contract_number: submittedContract.contractNumber || "",
+        match_summary: submittedContract.requestSummary || null
       },
       artifacts: {
         screenshots: [],

@@ -47,6 +47,7 @@ async function runTest(request, config) {
       "search-flexible": "TC-SEARCH-002",
       "contract-request": "TC-CONTRACT-001",
       "contract-approve": "TC-CONTRACT-APPROVE-001",
+      "contract-reject": "TC-CONTRACT-REJECT-001",
       "contract-cancel-confirmed": "TC-CONTRACT-CANCEL-CONFIRMED-001",
       "contract-cancel-request": "TC-CONTRACT-CANCEL-REQUEST-001",
       "contract-payment": "TC-CONTRACT-PAYMENT-001"
@@ -58,6 +59,7 @@ async function runTest(request, config) {
       "search-flexible": "유연한 일정 검색",
       "contract-request": "계약 요청",
       "contract-approve": "계약 승인",
+      "contract-reject": "계약 요청 거절",
       "contract-cancel-confirmed": "계약 확정 취소",
       "contract-cancel-request": "계약 요청 취소",
       "contract-payment": "계약 결제"

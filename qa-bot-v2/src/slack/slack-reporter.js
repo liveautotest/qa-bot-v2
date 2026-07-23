@@ -33,6 +33,8 @@ function formatHelp() {
     "!호스트 로그아웃 dev",
     "!호스트 계약 승인 stg",
     "!호스트 계약 승인 dev",
+    "!호스트 계약 요청 거절 stg",
+    "!호스트 계약 요청 거절 dev",
     "",
     "상세 명령어",
     "!qa help",
@@ -49,7 +51,8 @@ function formatHelp() {
     "!qa contract-payment env=staging role=guest method=card",
     "!qa contract-payment env=staging role=guest method=auto-card",
     "!qa contract-payment env=staging role=guest method=bank-transfer",
-    "!qa contract-approve env=staging role=host"
+    "!qa contract-approve env=staging role=host",
+    "!qa contract-reject env=staging role=host"
   ].join("\n");
 }
 
@@ -164,6 +167,15 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-CONTRACT-REJECT-001") {
+    return [
+      "- 호스트 계약 관리 목록에서 게스트 홈 카드의 숙소명/일정과 일치하는 계약 요청 건을 확인했습니다.",
+      "- 계약 요청 상세 화면에서 거절 버튼을 눌렀습니다.",
+      "- 게스트에게 전달할 거절 사유를 선택하고 계약 요청 거절 완료 상태를 확인했습니다.",
+      "- 완료 화면에서 계약 내역 가기를 누른 뒤 상단 뒤로가기로 계약 관리 목록까지 복귀합니다."
+    ];
+  }
+
   if (result.test_id === "TC-CONTRACT-CANCEL-REQUEST-001") {
     return [
       "- 홈 화면 풀 리프레시 후 계약 요청 상태 카드를 확인했습니다.",
@@ -274,10 +286,57 @@ function formatResult(result) {
     lines.push(...contractConditions);
   }
 
+  if (result.contract_request && result.contract_request.contract_number) {
+    lines.push("");
+    lines.push("계약 요청:");
+    lines.push(`- 계약 번호: ${result.contract_request.contract_number}`);
+  }
+
+  if (result.contract_request && result.contract_request.match_summary) {
+    lines.push("");
+    lines.push("계약 요청 카드 기준:");
+    if (result.contract_request.match_summary.title) {
+      lines.push(`- 숙소: ${result.contract_request.match_summary.title}`);
+    }
+    if (result.contract_request.match_summary.schedule) {
+      lines.push(`- 일정: ${result.contract_request.match_summary.schedule}`);
+    }
+    if (result.contract_request.match_summary.guest) {
+      lines.push(`- 인원: ${result.contract_request.match_summary.guest}`);
+    }
+  }
+
   if (result.approved_contract && result.approved_contract.contract_number) {
     lines.push("");
     lines.push("승인 계약:");
     lines.push(`- 계약 번호: ${result.approved_contract.contract_number}`);
+  }
+
+  if (result.rejected_contract && result.rejected_contract.contract_number) {
+    lines.push("");
+    lines.push("거절 계약:");
+    lines.push(`- 계약 번호: ${result.rejected_contract.contract_number}`);
+  }
+
+  if (result.rejected_contract && result.rejected_contract.match_summary) {
+    if (!result.rejected_contract.contract_number) {
+      lines.push("");
+      lines.push("거절 계약:");
+    }
+    if (result.rejected_contract.match_summary.title) {
+      lines.push(`- 매칭 숙소: ${result.rejected_contract.match_summary.title}`);
+    }
+    if (result.rejected_contract.match_summary.schedule) {
+      lines.push(`- 매칭 일정: ${result.rejected_contract.match_summary.schedule}`);
+    }
+  }
+
+  if (result.rejected_contract && result.rejected_contract.reason) {
+    if (!result.rejected_contract.contract_number && !result.rejected_contract.match_summary) {
+      lines.push("");
+      lines.push("거절 계약:");
+    }
+    lines.push(`- 거절 사유: ${result.rejected_contract.reason}`);
   }
 
   if (result.payment_conditions) {

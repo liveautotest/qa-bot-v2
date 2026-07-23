@@ -111,7 +111,11 @@ function isHostContractList(xml) {
 }
 
 function isContractRequestDetail(xml) {
-  return xml.includes("계약 번호:") && xml.includes("수락해주세요") && xml.includes("계약 수락");
+  return (
+    xml.includes("계약 번호:") &&
+    xml.includes("수락해주세요") &&
+    (xml.includes("계약 수락") || xml.includes("거절"))
+  );
 }
 
 function hasAcceptConfirmDialog(xml) {
@@ -142,21 +146,150 @@ function isContractAccepted(xml) {
 }
 
 function getContractNumber(xml) {
-  const match = xml.match(/계약 번호:\s*(\d+)/);
+  const match = String(xml || "").match(/계약\s*번호:?\s*(\d+)/);
   return match ? match[1] : "";
 }
 
-function findRequestCard(xml) {
-  return parseNodes(xml).find((node) => {
+function normalizeText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function getScheduleVariants(schedule) {
+  const variants = new Set();
+  const normalized = normalizeText(schedule);
+  if (normalized) variants.add(normalized);
+
+  const koreanRange = normalized.match(/(\d{1,2})월\s*(\d{1,2})일\s*~\s*(\d{1,2})월\s*(\d{1,2})일/);
+  if (koreanRange) {
+    const [, startMonth, startDay, endMonth, endDay] = koreanRange;
+    const start = `2026.${startMonth.padStart(2, "0")}.${startDay.padStart(2, "0")}`;
+    const end = `2026.${endMonth.padStart(2, "0")}.${endDay.padStart(2, "0")}`;
+    variants.add(`${start}~${end}`);
+    variants.add(`${start} ~ ${end}`);
+  }
+
+  return Array.from(variants);
+}
+
+function summaryMatches(label, summary) {
+  if (!summary) return false;
+  const normalizedLabel = normalizeText(label);
+  const title = normalizeText(summary.title);
+  const scheduleVariants = getScheduleVariants(summary.schedule);
+
+  return (
+    Boolean(title) &&
+    scheduleVariants.length > 0 &&
+    normalizedLabel.includes(title) &&
+    scheduleVariants.some((schedule) => normalizedLabel.includes(schedule))
+  );
+}
+
+function getHomeRequestCardSummary(xml) {
+  const card = parseNodes(xml).find((node) => {
+    if (!node.bounds) return false;
+    const label = labelOf(node);
+    return (
+      label.includes("요청 중") &&
+      label.includes("8월 1일 ~ 8월 7일") &&
+      label.includes("성인 1")
+    );
+  });
+
+  if (!card) return null;
+
+  const lines = labelOf(card)
+    .replace(/\s*\|\s*/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const statusIndex = lines.findIndex((line) => line.includes("요청 중"));
+
+  return {
+    status: "요청 중",
+    title: lines[statusIndex + 1] || "",
+    schedule: lines.find((line) => line.includes("8월 1일 ~ 8월 7일")) || "",
+    guest: lines.find((line) => line.includes("성인 1")) || "",
+    raw: lines.join(" | ")
+  };
+}
+
+function findRequestCard(xml, targetContractNumber = "", matchSummary = null, options = {}) {
+  const nodes = parseNodes(xml);
+  const matchedByNumber = nodes.find((node) => {
     if (!node.bounds || node.attrs.clickable !== "true") return false;
     const label = labelOf(node);
+    const contractNumber = getContractNumber(label);
     return (
       label.includes("계약 요청") &&
       label.includes("계약 번호:") &&
+      (!targetContractNumber || contractNumber === String(targetContractNumber)) &&
       node.bounds.top >= 600 &&
       node.bounds.top < 2200
     );
   });
+
+  if (matchedByNumber || targetContractNumber) return matchedByNumber;
+
+  const matchedBySummary = nodes.find((node) => {
+    if (!node.bounds || node.attrs.clickable !== "true") return false;
+    const label = labelOf(node);
+    return (
+      label.includes("계약 요청") &&
+      summaryMatches(label, matchSummary) &&
+      node.bounds.top >= 600 &&
+      node.bounds.top < 2200
+    );
+  });
+
+  if (matchedBySummary || (matchSummary && options.requireSummaryMatch)) return matchedBySummary;
+
+  return nodes.find((node) => {
+    if (!node.bounds || node.attrs.clickable !== "true") return false;
+    const label = labelOf(node);
+    return (
+      label.includes("계약 요청") &&
+      node.bounds.top >= 600 &&
+      node.bounds.top < 2200
+    );
+  });
+}
+
+function findLatestGuestContractRequestSummary(reportBaseDir, env) {
+  if (!reportBaseDir || !fs.existsSync(reportBaseDir)) return null;
+
+  const results = fs.readdirSync(reportBaseDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.includes("contract-request"))
+    .map((entry) => {
+      const resultPath = path.join(reportBaseDir, entry.name, "result.json");
+      if (!fs.existsSync(resultPath)) return null;
+      const stat = fs.statSync(resultPath);
+      return { resultPath, mtimeMs: stat.mtimeMs };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  for (const item of results) {
+    try {
+      const result = JSON.parse(fs.readFileSync(item.resultPath, "utf8"));
+      if (result.status !== "pass") continue;
+      if (env && result.env && result.env !== env) continue;
+      if (result.role && result.role !== "guest") continue;
+
+      const summary = result.contract_request?.match_summary;
+      if (summary?.title && summary?.schedule) return summary;
+
+      const finalXmlPath = path.join(path.dirname(item.resultPath), "logs", "contract-request-final.xml");
+      if (fs.existsSync(finalXmlPath)) {
+        const recoveredSummary = getHomeRequestCardSummary(fs.readFileSync(finalXmlPath, "utf8"));
+        if (recoveredSummary?.title && recoveredSummary?.schedule) return recoveredSummary;
+      }
+    } catch {
+      // Ignore malformed historical reports.
+    }
+  }
+
+  return null;
 }
 
 function findAcceptButton(xml, { dialogOnly = false } = {}) {
@@ -232,17 +365,25 @@ async function openHostContractList(config, device, store, steps) {
   return xml;
 }
 
-async function openLatestContractRequest(config, device, store, steps, xml) {
-  let requestCard = findRequestCard(xml);
+async function openContractRequest(config, device, store, steps, xml, options = {}) {
+  const targetContractNumber = options.contractNumber || "";
+  const matchSummary = options.matchSummary || null;
+  const requireSummaryMatch = options.requireSummaryMatch === true;
+  let requestCard = findRequestCard(xml, targetContractNumber, matchSummary, { requireSummaryMatch });
 
   if (!requestCard) {
     const requestFilter = findNode(xml, "계약 요청", { visibleOnly: true });
     if (requestFilter?.bounds) {
       await tap(config, device, requestFilter.bounds.x, requestFilter.bounds.y);
       addStep(steps, "계약 요청 필터 선택");
-      xml = await waitForUi(config, device, (nextXml) => Boolean(findRequestCard(nextXml)), 8000);
+      xml = await waitForUi(
+        config,
+        device,
+        (nextXml) => Boolean(findRequestCard(nextXml, targetContractNumber, matchSummary, { requireSummaryMatch })),
+        8000
+      );
       saveXml(store, "host-contract-request-list", xml);
-      requestCard = findRequestCard(xml);
+      requestCard = findRequestCard(xml, targetContractNumber, matchSummary, { requireSummaryMatch });
     }
   }
 
@@ -252,8 +393,12 @@ async function openLatestContractRequest(config, device, store, steps, xml) {
       "승인할 계약 요청 건을 찾지 못했습니다.",
       steps,
       [
-        "호스트 계약 관리 목록에서 '계약 요청' 상태와 '계약 번호'가 있는 카드를 찾습니다.",
-        "현재 승인 가능한 요청 건이 없거나, 목록 정렬/필터 상태가 예상과 다를 수 있습니다.",
+        targetContractNumber
+          ? `호스트 계약 관리 목록에서 계약 번호 ${targetContractNumber}인 계약 요청 카드를 찾습니다.`
+          : matchSummary
+            ? `호스트 계약 관리 목록에서 숙소명 '${matchSummary.title}', 일정 '${matchSummary.schedule}'인 계약 요청 카드를 먼저 찾습니다.`
+            : "호스트 계약 관리 목록에서 가장 위에 보이는 '계약 요청' 상태 카드를 찾습니다.",
+        "현재 처리 가능한 요청 건이 없거나, 목록 정렬/필터 상태가 예상과 다를 수 있습니다.",
         "리포트의 contract-request-card-not-found.png 화면을 확인해주세요."
       ]
     );
@@ -261,7 +406,10 @@ async function openLatestContractRequest(config, device, store, steps, xml) {
 
   const contractNumber = getContractNumber(labelOf(requestCard));
   await tap(config, device, requestCard.bounds.x, requestCard.bounds.y);
-  addStep(steps, "계약 요청 건 상세 진입", "pass", contractNumber ? `계약 번호 ${contractNumber}` : undefined);
+  const matchedMessage = matchSummary?.title
+    ? `${matchSummary.title} / ${matchSummary.schedule}`
+    : contractNumber ? `계약 번호 ${contractNumber}` : "최신 계약 요청건";
+  addStep(steps, "계약 요청 건 상세 진입", "pass", matchedMessage);
 
   xml = await waitForUi(config, device, isContractRequestDetail, 12000);
   saveXml(store, "contract-approve-detail", xml);
@@ -279,7 +427,215 @@ async function openLatestContractRequest(config, device, store, steps, xml) {
     );
   }
 
-  return { xml, contractNumber: getContractNumber(xml) || contractNumber };
+  const detailContractNumber = getContractNumber(xml) || contractNumber;
+
+  return { xml, contractNumber: detailContractNumber };
+}
+
+function findRejectButton(xml) {
+  const matches = parseNodes(xml).filter((node) => {
+    if (!node.bounds || node.attrs.clickable !== "true") return false;
+    if (!labelOf(node).includes("거절")) return false;
+    if (node.bounds.bottom <= 0 || node.bounds.top >= 2496) return false;
+    return true;
+  });
+
+  return matches.sort((a, b) => b.bounds.top - a.bounds.top)[0] || null;
+}
+
+function isRejectReasonScreen(xml) {
+  return (
+    xml.includes("게스트에게 계약 요청 거절 사유를 알려주세요") ||
+    xml.includes("계약 요청 거절 사유") ||
+    (xml.includes("거절 사유") && xml.includes("거절"))
+  );
+}
+
+function isContractRejected(xml) {
+  return (
+    xml.includes("게스트에게 거절 사유를 보냈습니다") ||
+    xml.includes("거절되었습니다") ||
+    xml.includes("거절됐습니다") ||
+    xml.includes("계약 거절 완료") ||
+    (isHostContractList(xml) && !xml.includes("계약 요청 상세"))
+  );
+}
+
+async function goToContractHistoryIfPresent(config, device, store, steps, xml) {
+  const historyButton = findNode(xml, "계약 내역 가기", { visibleOnly: true });
+  if (!historyButton?.bounds) return xml;
+
+  await tap(config, device, historyButton.bounds.x, historyButton.bounds.y);
+  addStep(steps, "거절 완료 화면 계약 내역 가기 선택");
+
+  let nextXml = await waitForUi(
+    config,
+    device,
+    (candidateXml) =>
+      isHostContractList(candidateXml) ||
+      (
+        !candidateXml.includes("게스트에게 거절 사유를 보냈습니다") &&
+        candidateXml.includes("계약")
+      ) ||
+      isHostModeShell(candidateXml),
+    12000
+  );
+  saveXml(store, "contract-reject-history", nextXml);
+
+  if (!isHostContractList(nextXml)) {
+    const backButton = parseNodes(nextXml).find((node) => {
+      if (!node.bounds || node.attrs.clickable !== "true") return false;
+      return node.bounds.left <= 180 && node.bounds.top >= 80 && node.bounds.top <= 260;
+    });
+
+    if (backButton?.bounds) {
+      await tap(config, device, backButton.bounds.x, backButton.bounds.y);
+      addStep(steps, "계약 내역 상단 뒤로가기 선택");
+      nextXml = await waitForUi(config, device, isHostContractList, 12000);
+      saveXml(store, "contract-reject-history-back", nextXml);
+    }
+  }
+
+  if (!isHostContractList(nextXml)) {
+    await saveFailureArtifacts(config, device, store, "contract-reject-history-not-found", nextXml);
+    fail(
+      "계약 내역에서 뒤로가기 후 호스트 계약 관리 목록을 확인하지 못했습니다.",
+      steps,
+      [
+        "거절 완료 화면의 '계약 내역 가기' 버튼을 누른 뒤 상단 뒤로가기 버튼으로 계약 관리 목록에 복귀해야 합니다.",
+        "리포트의 contract-reject-history-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  return nextXml;
+}
+
+function chooseRejectReason(xml) {
+  const excluded = ["기타", "거절 사유를 선택", "선택해주세요"];
+  const candidates = [];
+
+  for (const node of parseNodes(xml)) {
+    if (!node.bounds || node.attrs.enabled !== "true") continue;
+    if (node.bounds.bottom <= 94 || node.bounds.top >= 2496) continue;
+
+    const label = labelOf(node).replace(/\s+/g, " ").trim();
+    if (!label || label.length > 80) continue;
+    if (excluded.some((text) => label.includes(text))) continue;
+
+    const isReasonOption =
+      label.startsWith("죄송합니다.") ||
+      node.attrs.clickable === "true" ||
+      node.attrs.class?.includes("TextView") ||
+      node.attrs.class?.includes("Button");
+
+    if (isReasonOption) {
+      if (!candidates.some((candidate) => candidate.label === label)) {
+        candidates.push({ label, node });
+      }
+    }
+  }
+
+  return candidates.slice(0, 4)[Math.floor(Math.random() * Math.min(candidates.length, 4))] || null;
+}
+
+async function selectRejectReasonAndSubmit(config, device, store, steps, initialXml) {
+  let xml = isRejectReasonScreen(initialXml)
+    ? initialXml
+    : await waitForUi(config, device, isRejectReasonScreen, 10000);
+  saveXml(store, "contract-reject-reason-start", xml);
+
+  if (!isRejectReasonScreen(xml)) {
+    await saveFailureArtifacts(config, device, store, "contract-reject-reason-not-found", xml);
+    fail(
+      "게스트에게 전달할 계약 요청 거절 사유 화면을 확인하지 못했습니다.",
+      steps,
+      [
+        "계약 상세에서 거절 버튼을 누르면 '게스트에게 계약 요청 거절 사유를 알려주세요' 화면이 보여야 합니다.",
+        "리포트의 contract-reject-reason-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  const dropdown = findNode(xml, "선택", { visibleOnly: true }) || findNode(xml, "사유", { visibleOnly: true });
+  if (dropdown?.bounds) {
+    await tap(config, device, dropdown.bounds.x, dropdown.bounds.y);
+    addStep(steps, "계약 요청 거절 사유 드롭박스 선택");
+    xml = await waitForUi(config, device, (nextXml) => chooseRejectReason(nextXml), 5000);
+    saveXml(store, "contract-reject-reason-options", xml);
+  }
+
+  const reason = chooseRejectReason(xml);
+  if (!reason?.node?.bounds) {
+    await saveFailureArtifacts(config, device, store, "contract-reject-reason-option-not-found", xml);
+    fail(
+      "계약 요청 거절 사유 항목을 찾지 못했습니다.",
+      steps,
+      [
+        "드롭박스에서 기타를 제외한 4개 항목 중 하나를 선택해야 합니다.",
+        "리포트의 contract-reject-reason-option-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tap(config, device, reason.node.bounds.x, reason.node.bounds.y);
+  addStep(steps, "계약 요청 거절 사유 선택", "pass", reason.label);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  xml = await dumpUi(config, device);
+  saveXml(store, "contract-reject-reason-selected", xml);
+
+  const rejectButton = findRejectButton(xml);
+  if (!rejectButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, "contract-reject-submit-not-found", xml);
+    fail(
+      "계약 요청 거절 버튼을 찾지 못했습니다.",
+      steps,
+      [
+        "거절 사유를 선택하면 하단 거절 버튼이 활성화되어야 합니다.",
+        "리포트의 contract-reject-submit-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tap(config, device, rejectButton.bounds.x, rejectButton.bounds.y);
+  addStep(steps, "계약 요청 거절 버튼 선택");
+
+  xml = await waitForUi(config, device, isContractRejected, 12000);
+  saveXml(store, "contract-reject-final", xml);
+  if (!isContractRejected(xml)) {
+    await saveFailureArtifacts(config, device, store, "contract-reject-final", xml);
+    fail(
+      "계약 요청 거절 완료 상태를 확인하지 못했습니다.",
+      steps,
+      [
+        "거절 버튼을 눌렀지만 거절 완료 상태 또는 호스트 계약 목록 복귀 상태가 확인되지 않았습니다.",
+        "리포트의 contract-reject-final.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  xml = await goToContractHistoryIfPresent(config, device, store, steps, xml);
+
+  return { xml, reason: reason.label };
+}
+
+async function tapRejectAndConfirm(config, device, store, steps, xml) {
+  const rejectButton = findRejectButton(xml);
+  if (!rejectButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, "contract-reject-button-not-found", xml);
+    fail(
+      "계약 상세 화면에서 거절 버튼을 찾지 못했습니다.",
+      steps,
+      [
+        "호스트 계약 요청 상세 화면 하단에 거절 버튼이 보여야 합니다.",
+        "리포트의 contract-reject-button-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tap(config, device, rejectButton.bounds.x, rejectButton.bounds.y);
+  addStep(steps, "계약 요청 상세 거절 버튼 선택");
+  return selectRejectReasonAndSubmit(config, device, store, steps, xml);
 }
 
 async function tapAcceptAndConfirm(config, device, store, steps, xml) {
@@ -387,7 +743,7 @@ async function runContractApproveTest({ request, config, store }) {
     await launchApp(config, device, appPackage, steps);
 
     let xml = await openHostContractList(config, device, store, steps);
-    const detail = await openLatestContractRequest(config, device, store, steps, xml);
+    const detail = await openContractRequest(config, device, store, steps, xml);
     xml = await tapAcceptAndConfirm(config, device, store, steps, detail.xml);
 
     addStep(steps, "계약 승인 완료 확인");
@@ -414,6 +770,85 @@ async function runContractApproveTest({ request, config, store }) {
   });
 }
 
+async function runContractRejectTest({ request, config, store }) {
+  const role = request.role || "host";
+  const env = request.env || "staging";
+  const device = config.devices.host || "";
+  const appPackage = config.androidPackages[env];
+  const steps = [];
+
+  if (role !== "host") {
+    throw new Error("계약 요청 거절은 host role에서만 실행할 수 있습니다.");
+  }
+  if (!device) throw new Error("Missing device id for role: host");
+  if (!appPackage) throw new Error(`Unknown Android package for env: ${env}`);
+
+  return withDeviceLock(device, async () => {
+    addStep(steps, "환경 설정 확인");
+    await keyEvent(config, device, 224);
+    await runAdb(config, device, ["shell", "wm", "dismiss-keyguard"]).catch(() => {});
+    addStep(steps, "단말 깨우기 및 잠금 해제 시도");
+
+    await launchApp(config, device, appPackage, steps);
+
+    const matchSummary = findLatestGuestContractRequestSummary(config.reportBaseDir, env);
+    if (matchSummary?.title && matchSummary?.schedule) {
+      addStep(
+        steps,
+        "게스트 계약 요청 카드 기준 확인",
+        "pass",
+        `${matchSummary.title} / ${matchSummary.schedule}`
+      );
+    } else {
+      fail(
+        "거절할 게스트 계약 요청 카드 기준을 찾지 못했습니다.",
+        steps,
+        [
+          "호스트 계약 요청 거절은 게스트 홈 카드의 숙소명과 일정을 기준으로 호스트 계약 탭의 요청 건을 매칭합니다.",
+          `먼저 최신 코드로 !게스트 계약 요청 ${env === "dev" ? "dev" : "stg"} 명령어를 PASS 시켜주세요.`,
+          "게스트 계약 요청 PASS 리포트에 계약 요청 카드 기준이 저장되어야 거절 대상 계약을 안전하게 선택할 수 있습니다."
+        ]
+      );
+    }
+
+    let xml = await openHostContractList(config, device, store, steps);
+    const detail = await openContractRequest(config, device, store, steps, xml, {
+      matchSummary,
+      requireSummaryMatch: true
+    });
+    const rejected = await tapRejectAndConfirm(config, device, store, steps, detail.xml);
+
+    addStep(steps, "계약 요청 거절 완료 확인");
+
+    return {
+      test_id: "TC-CONTRACT-REJECT-001",
+      name: "host 계약 요청 거절",
+      env,
+      status: "pass",
+      device,
+      steps,
+      rejected_contract: {
+        contract_number: detail.contractNumber || "",
+        match_summary: matchSummary || null,
+        reason: rejected.reason
+      },
+      artifacts: {
+        screenshots: [],
+        logs: [
+          path.join(store.logsDir, "host-contract-list.xml"),
+          path.join(store.logsDir, "host-contract-request-list.xml"),
+          path.join(store.logsDir, "contract-approve-detail.xml"),
+          path.join(store.logsDir, "contract-reject-reason-start.xml"),
+          path.join(store.logsDir, "contract-reject-final.xml"),
+          path.join(store.logsDir, "contract-reject-history.xml"),
+          path.join(store.logsDir, "contract-reject-history-back.xml")
+        ].filter((filePath) => fs.existsSync(filePath))
+      }
+    };
+  });
+}
+
 module.exports = {
-  runContractApproveTest
+  runContractApproveTest,
+  runContractRejectTest
 };

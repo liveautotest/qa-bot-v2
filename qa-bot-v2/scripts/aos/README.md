@@ -20,6 +20,7 @@
 | `!호스트 로그인` | `login.host.yaml` | `src/tests/login.test.js` |
 | `!호스트 로그아웃` | `logout.host.yaml` | `src/tests/logout.test.js` |
 | `!호스트 계약 승인` | `contract-approve.host.yaml` | `src/tests/contract-approve.test.js` |
+| `!호스트 계약 요청 거절` | `contract-reject.host.yaml` | `src/tests/contract-approve.test.js` |
 
 ## 작성 규칙
 

@@ -49,6 +49,7 @@ CLI 실행 예시:
 !호스트 로그인 stg
 !호스트 로그아웃 stg
 !호스트 계약 승인 stg
+!호스트 계약 요청 거절 stg
 ```
 
 `dev` 환경 예시:
@@ -57,6 +58,7 @@ CLI 실행 예시:
 !게스트 계약 요청 dev
 !게스트 계약 결제 무통장 dev
 !호스트 계약 승인 dev
+!호스트 계약 요청 거절 dev
 ```
 
 상세 명령어도 지원합니다.
@@ -73,6 +75,7 @@ CLI 실행 예시:
 !qa contract-payment env=staging role=guest method=card
 !qa contract-payment env=staging role=guest method=bank-transfer
 !qa contract-approve env=staging role=host
+!qa contract-reject env=staging role=host
 ```
 
 ## 구현된 시나리오
@@ -86,6 +89,7 @@ CLI 실행 예시:
 | `TC-CONTRACT-001` | `!게스트 계약 요청` | 정확한 일정 검색 후 첫 번째 숙소 계약 요청 |
 | `TC-CONTRACT-001` | `!게스트 계약 결제 자동카드` | 계약 요청 화면에서 호스트 수락 즉시 자동 결제 선택 |
 | `TC-CONTRACT-APPROVE-001` | `!호스트 계약 승인` | 호스트 계약 탭에서 요청 건 수락 |
+| `TC-CONTRACT-REJECT-001` | `!호스트 계약 요청 거절` | 게스트 홈 카드의 숙소명/일정과 매칭되는 요청 건 거절 |
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 일반카드` | JCB 카드 테스트 결제 후 홈 복귀 |
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 무통장` | 현금영수증, 환불 계좌, 무통장 결제 완료 후 홈 복귀 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | `!게스트 계약 요청 취소` | 요청 상태 카드에서 계약 요청 취소 |
