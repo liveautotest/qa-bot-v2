@@ -48,6 +48,16 @@ function loadConfig() {
       dev: env.ANDROID_DEV_PACKAGE || "com.live1month.live1month.dev",
       prod: env.ANDROID_PROD_PACKAGE || "com.live1month.live1month"
     },
+    appBuild: {
+      enabled: env.APP_BUILD_CHECK_ENABLED === "true",
+      autoInstallLatestStaging:
+        env.AUTO_INSTALL_LATEST_STAGING === "true" || env.AUTO_INSTALL_LATEST_APP === "true",
+      firebaseProjectNumber: env.FIREBASE_PROJECT_NUMBER || "",
+      firebaseStagingAppId: env.FIREBASE_STAGING_APP_ID || "",
+      firebaseDevAppId: env.FIREBASE_DEV_APP_ID || "",
+      firebaseServiceAccountPath: env.FIREBASE_SERVICE_ACCOUNT_PATH || "",
+      downloadDir: path.resolve(projectRoot, env.APP_BUILD_DOWNLOAD_DIR || ".tmp/app-builds")
+    },
     accounts: {
       guest: {
         email: env.GUEST_EMAIL || "",

@@ -2,15 +2,31 @@ function formatHelp() {
   return [
     "사용 가능한 QA 명령어",
     "",
+    "환경 선택",
+    "- 명령어 뒤에 dev 또는 stg를 붙일 수 있습니다.",
+    "- 생략하면 stg로 실행됩니다.",
+    "",
     "자주 쓰는 명령어",
-    "!게스트 로그인",
-    "!게스트 로그아웃",
-    "!게스트 집검색",
-    "!게스트 정확한일정 검색",
-    "!게스트 유연한일정 검색",
-    "!게스트 계약 요청",
-    "!호스트 로그인",
-    "!호스트 로그아웃",
+    "!게스트 로그인 stg",
+    "!게스트 로그인 dev",
+    "!게스트 로그아웃 stg",
+    "!게스트 로그아웃 dev",
+    "!게스트 정확한일정 검색 stg",
+    "!게스트 정확한일정 검색 dev",
+    "!게스트 유연한일정 검색 stg",
+    "!게스트 유연한일정 검색 dev",
+    "!게스트 계약 요청 stg",
+    "!게스트 계약 요청 dev",
+    "!게스트 계약 결제 카드 stg",
+    "!게스트 계약 결제 카드 dev",
+    "!게스트 계약 결제 무통장 stg",
+    "!게스트 계약 결제 무통장 dev",
+    "!호스트 로그인 stg",
+    "!호스트 로그인 dev",
+    "!호스트 로그아웃 stg",
+    "!호스트 로그아웃 dev",
+    "!호스트 계약 승인 stg",
+    "!호스트 계약 승인 dev",
     "",
     "상세 명령어",
     "!qa help",
@@ -20,7 +36,10 @@ function formatHelp() {
     "!qa logout env=staging role=host",
     "!qa search env=staging role=guest",
     "!qa search-flexible env=staging role=guest",
-    "!qa contract-request env=staging role=guest"
+    "!qa contract-request env=staging role=guest",
+    "!qa contract-payment env=staging role=guest method=card",
+    "!qa contract-payment env=staging role=guest method=bank-transfer",
+    "!qa contract-approve env=staging role=host"
   ].join("\n");
 }
 
@@ -117,7 +136,66 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-CONTRACT-APPROVE-001") {
+    return [
+      "- 호스트 계약 관리 목록에서 계약 요청 건을 확인했습니다.",
+      "- 계약 요청 상세 화면에서 계약 수락 버튼을 눌렀습니다.",
+      "- 승인 후 계약 진행/결제 대기 상태를 확인했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-CONTRACT-PAYMENT-001") {
+    if (result.payment_conditions?.method === "무통장 입금") {
+      return [
+        "- 홈 화면 풀 리프레시 후 결제 대기 중 카드를 확인했습니다.",
+        "- 계약 상세에서 무통장 입금 결제 수단을 선택했습니다.",
+        "- 현금영수증 개인 발급 요청과 환불/보증금 반환 계좌 입력을 처리했습니다."
+      ];
+    }
+
+    return [
+      "- 홈 화면 풀 리프레시 후 결제 대기 중 카드를 확인했습니다.",
+      "- 계약 상세에서 신용·체크카드 결제 수단과 JCB 카드 선택을 확인했습니다.",
+      "- PG 결제 화면에서 카드번호, 만료일, 필수 동의, NEXT 버튼을 처리했습니다."
+    ];
+  }
+
   return [];
+}
+
+function formatAppBuild(build) {
+  if (!build || build.status === "skipped") return [];
+
+  const lines = ["앱 빌드 확인:"];
+  if (build.installed_before) {
+    lines.push(
+      `- 단말 설치 버전: ${build.installed_before.displayVersion || "unknown"} (${build.installed_before.buildVersion || "unknown"})`
+    );
+  }
+  if (build.latest) {
+    lines.push(
+      `- Firebase 최신 버전: ${build.latest.displayVersion || "unknown"} (${build.latest.buildVersion || "unknown"})`
+    );
+  }
+
+  const actionMessages = {
+    already_latest: "최신 빌드라 설치 없이 테스트 진행",
+    installed_latest: "최신 스테이징 APK 설치 완료",
+    blocked_outdated: "최신 빌드가 아니라 테스트 시작 전 중단"
+  };
+  if (build.action) {
+    lines.push(`- 조치: ${actionMessages[build.action] || build.action}`);
+  }
+  if (build.installed_after) {
+    lines.push(
+      `- 설치 후 버전: ${build.installed_after.displayVersion || "unknown"} (${build.installed_after.buildVersion || "unknown"})`
+    );
+  }
+  if (build.latest && build.latest.firebaseConsoleUri) {
+    lines.push(`- Firebase: ${build.latest.firebaseConsoleUri}`);
+  }
+
+  return lines;
 }
 
 function formatResult(result) {
@@ -138,6 +216,12 @@ function formatResult(result) {
     lines.push(...passSummary);
   }
 
+  const appBuild = formatAppBuild(result.app_build);
+  if (appBuild.length > 0) {
+    lines.push("");
+    lines.push(...appBuild);
+  }
+
   const searchConditions = formatSearchConditions(result.search_conditions);
   if (searchConditions.length > 0) {
     lines.push("");
@@ -150,6 +234,41 @@ function formatResult(result) {
     lines.push("");
     lines.push("계약 요청 조건:");
     lines.push(...contractConditions);
+  }
+
+  if (result.approved_contract && result.approved_contract.contract_number) {
+    lines.push("");
+    lines.push("승인 계약:");
+    lines.push(`- 계약 번호: ${result.approved_contract.contract_number}`);
+  }
+
+  if (result.payment_conditions) {
+    lines.push("");
+    lines.push("결제 조건:");
+    if (result.payment_conditions.method) {
+      lines.push(`- 결제 방식: ${result.payment_conditions.method}`);
+    }
+    if (result.payment_conditions.card_brand) {
+      lines.push(`- 카드 브랜드: ${result.payment_conditions.card_brand}`);
+    }
+    if (result.payment_conditions.card_number) {
+      lines.push(`- 카드 번호: ${result.payment_conditions.card_number}`);
+    }
+    if (result.payment_conditions.expiry) {
+      lines.push(`- 만료일: ${result.payment_conditions.expiry}`);
+    }
+    if (result.payment_conditions.cash_receipt_type) {
+      lines.push(`- 현금영수증: ${result.payment_conditions.cash_receipt_type}`);
+    }
+    if (result.payment_conditions.cash_receipt_phone) {
+      lines.push(`- 현금영수증 휴대폰: ${result.payment_conditions.cash_receipt_phone}`);
+    }
+    if (result.payment_conditions.refund_bank) {
+      lines.push(`- 환불/보증금 반환 은행: ${result.payment_conditions.refund_bank}`);
+    }
+    if (result.payment_conditions.refund_account) {
+      lines.push(`- 환불/보증금 반환 계좌: ${result.payment_conditions.refund_account}`);
+    }
   }
 
   if (result.app_warnings && result.app_warnings.length > 0) {

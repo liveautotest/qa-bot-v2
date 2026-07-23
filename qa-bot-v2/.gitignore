@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.secrets/
 
 # Dependencies
 node_modules/
@@ -17,3 +18,4 @@ reports/
 
 # Runtime
 .device-locks/
+.tmp/

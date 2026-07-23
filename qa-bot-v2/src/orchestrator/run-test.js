@@ -1,5 +1,6 @@
 const { getTest } = require("./test-registry");
 const { createRunStore } = require("./run-store");
+const { ensureLatestAppBuild } = require("../infra/app-build-check");
 
 async function runTest(request, config) {
   const test = getTest(request.test);
@@ -9,8 +10,15 @@ async function runTest(request, config) {
 
   const store = createRunStore(config.reportBaseDir, request);
   const startedAt = Date.now();
+  let appBuild = null;
 
   try {
+    appBuild = await ensureLatestAppBuild({
+      request: store.request,
+      config,
+      store
+    });
+
     const result = await test({
       request: store.request,
       config,
@@ -19,6 +27,7 @@ async function runTest(request, config) {
 
     const finalResult = {
       ...result,
+      app_build: appBuild,
       run_id: store.runId,
       duration_ms: Date.now() - startedAt,
       artifacts: {
@@ -36,14 +45,18 @@ async function runTest(request, config) {
       logout: "TC-LOGOUT-001",
       search: "TC-SEARCH-001",
       "search-flexible": "TC-SEARCH-002",
-      "contract-request": "TC-CONTRACT-001"
+      "contract-request": "TC-CONTRACT-001",
+      "contract-approve": "TC-CONTRACT-APPROVE-001",
+      "contract-payment": "TC-CONTRACT-PAYMENT-001"
     };
     const testNames = {
       login: "로그인",
       logout: "로그아웃",
       search: "집 검색",
       "search-flexible": "유연한 일정 검색",
-      "contract-request": "계약 요청"
+      "contract-request": "계약 요청",
+      "contract-approve": "계약 승인",
+      "contract-payment": "계약 결제"
     };
     const finalResult = {
       run_id: store.runId,
@@ -57,6 +70,7 @@ async function runTest(request, config) {
       error: error.message,
       error_details: error.details || [],
       error_stack: error.stack,
+      app_build: error.app_build || appBuild,
       possible_causes: ["테스트 코드 예외", "환경 설정 누락", "디바이스 상태 문제"],
       steps: error.steps || [],
       artifacts: {

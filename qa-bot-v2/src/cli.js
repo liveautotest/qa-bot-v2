@@ -26,6 +26,7 @@ async function main() {
     test: testName,
     env: args.env || "staging",
     role: args.role || "guest",
+    payment_method: args.method || args.payment_method,
     requested_by: "local-cli",
     source: "cli"
   };

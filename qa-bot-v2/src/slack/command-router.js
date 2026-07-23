@@ -13,7 +13,7 @@ function parseKeyValues(parts) {
 function parseKoreanShortcut(text) {
   const normalized = text.trim().replace(/\s+/g, " ");
   const match = normalized.match(
-    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약승인|계약 승인|계약결제|계약 결제)(?:\s+(dev|stg|staging))?$/i
+    /^!(게스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약승인|계약 승인|계약결제|계약 결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?$/i
   );
   if (!match) return null;
 
@@ -38,20 +38,26 @@ function parseKoreanShortcut(text) {
     stg: "staging",
     staging: "staging"
   };
+  const paymentMethodByShortcut = {
+    카드: "card",
+    무통장: "bank-transfer"
+  };
 
   return {
     test: testByCommand[match[2]],
     role: match[1] === "게스트" ? "guest" : "host",
-    env: envByShortcut[String(match[3] || "stg").toLowerCase()]
+    env: envByShortcut[String(match[4] || "stg").toLowerCase()],
+    payment_method: paymentMethodByShortcut[match[3]]
   };
 }
 
-async function runQaCommand({ test, env, role }, context) {
+async function runQaCommand({ test, env, role, payment_method: paymentMethod }, context) {
   const result = await runTest(
     {
       test,
       env,
       role,
+      payment_method: paymentMethod,
       requested_by: context.user,
       slack_channel: context.channel,
       thread_ts: context.threadTs,
@@ -90,7 +96,8 @@ async function routeCommand(text, context) {
       {
         test: command,
         env: args.env || "staging",
-        role: args.role || "guest"
+        role: args.role || "guest",
+        payment_method: args.method || args.payment_method
       },
       context
     );
