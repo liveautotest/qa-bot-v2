@@ -29,6 +29,7 @@ CLI 실행 예시:
 ```bash
 /opt/homebrew/bin/node src/cli.js login --env=staging --role=guest
 /opt/homebrew/bin/node src/cli.js contract-payment --env=dev --role=guest --payment_method=bank-transfer
+/opt/homebrew/bin/node src/cli.js schedule-change --reservation_id=146183 --offset=일주일후
 ```
 
 ## Slack 명령어
@@ -52,6 +53,12 @@ CLI 실행 예시:
 !게스트 계약 결제 자동카드 stg
 !게스트 계약 결제 무통장 stg
 !무통장 입금 승인
+!146183 계약 변경 일주일 전
+!146183 계약 변경 2주일전
+!146183 계약 변경 한달전
+!146183 계약 변경 일주일 후
+!146183 계약 변경 2주 후
+!146183 계약 변경 한달 후
 !호스트 로그인 stg
 !호스트 로그아웃 stg
 !호스트 계약 승인 stg
@@ -89,6 +96,7 @@ CLI 실행 예시:
 !qa contract-payment env=staging role=guest method=bank-transfer
 !qa contract-approve env=staging role=host
 !qa contract-reject env=staging role=host
+!qa schedule-change reservation_id=146183 offset=일주일후
 !qa toss-deposit-approve
 ```
 
@@ -110,6 +118,7 @@ CLI 실행 예시:
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 일반카드` | JCB 카드 테스트 결제 후 홈 복귀 |
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 무통장` | 현금영수증, 환불 계좌, 무통장 결제 완료 후 홈 복귀. PASS 시 `!무통장 입금 승인`을 자동 연결 실행 |
 | `TC-TOSS-DEPOSIT-APPROVE-001` | `!무통장 입금 승인` | 토스 테스트 결제내역에서 최근 무통장 입금대기 건 입금처리 |
+| `TC-SCHEDULE-CHANGE-001` | `!146183 계약 변경 일주일 후` | 현재 날짜 기준으로 변경 기간을 계산하고 계약 일정 변경 API 호출 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | `!게스트 계약 요청 취소` | 요청 상태 카드에서 계약 요청 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | `!게스트 계약 확정 취소` | 확정 계약 취소, 취소 내역 확인, 완료 팝업, 홈 복귀 |
 
@@ -137,9 +146,15 @@ TOSS_ADMIN_EMAIL=...
 TOSS_ADMIN_PASSWORD=...
 TOSS_ADMIN_HEADLESS=true
 TOSS_ADMIN_KEEP_OPEN_ON_FAIL=false
+
+QA_API_BASE_URL=https://staging-api-gateway.liveanywhere.me
+QA_API_AUTH_HEADER=Bearer ...
+QA_API_TOKEN=...
+# 또는 QA_API_COOKIE=...
 ```
 
 기본 환경은 `staging`입니다.
+계약 일정 변경 명령은 앱 실행 환경과 무관한 API 명령이므로 `dev`/`stg`를 붙이지 않습니다.
 
 ## Firebase App Distribution 연동
 

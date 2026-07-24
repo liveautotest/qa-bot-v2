@@ -21,6 +21,13 @@ function addStep(steps, name, status = "pass", message) {
   steps.push(step);
 }
 
+function fail(message, steps, details = []) {
+  const error = new Error(message);
+  error.steps = steps;
+  error.details = details;
+  throw error;
+}
+
 function parseBounds(bounds) {
   const match = String(bounds || "").match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
   if (!match) return null;
@@ -237,10 +244,30 @@ function hasLoginFailure(xml) {
     "비밀번호가 일치",
     "가입되지 않은",
     "존재하지 않는",
-    "잘못된"
+    "잘못된",
+    "인증",
+    "만료",
+    "오류",
+    "실패했습니다",
+    "Authentication",
+    "Unauthorized"
   ];
 
   return failureTexts.some((text) => xml.includes(text));
+}
+
+function getLoginFailureDetails(xml) {
+  const details = [];
+  if (hasLoginFailure(xml)) {
+    details.push("로그인 실패/인증 오류로 보이는 문구가 화면 XML에 감지되었습니다.");
+  } else if (isStillOnLoginForm(xml)) {
+    details.push("로그인 버튼을 눌렀지만 앱이 로그인 화면에 그대로 머물렀습니다.");
+    details.push("화면 XML과 스크린샷에는 명확한 에러 문구가 노출되지 않았습니다.");
+  }
+  details.push("입력된 이메일/비밀번호가 dev 환경에서 유효한지 확인해주세요.");
+  details.push("dev 서버 로그인 API 또는 토큰 발급이 정상인지 확인해주세요.");
+  details.push("리포트의 final.png와 logs/after-submit.xml을 확인해주세요.");
+  return details;
 }
 
 function isStillOnLoginForm(xml) {
@@ -743,6 +770,25 @@ async function runLoginTest({ request, config, store }) {
       accountSecrets
     );
 
+    if (!isLoggedInHome(xml) && !hasLoginFailure(xml) && isLoginSubmitReady(xml)) {
+      await submitLogin(config, device, xml, steps);
+      addStep(steps, "로그인 제출 재시도", "pass", "로그인 화면 유지로 최신 버튼 좌표 재탭");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      xml = await waitForUi(
+        config,
+        device,
+        (nextXml) =>
+          isLoggedInHome(nextXml) ||
+          hasLoginFailure(nextXml),
+        15000
+      );
+      writeXmlArtifact(
+        path.join(store.logsDir, "after-submit-retry.xml"),
+        xml,
+        accountSecrets
+      );
+    }
+
     if (hasLoginFailure(xml) || !isLoggedInHome(xml)) {
       const finalArtifacts = await saveArtifacts(
         config,
@@ -751,7 +797,11 @@ async function runLoginTest({ request, config, store }) {
         "final",
         accountSecrets
       );
-      throw new Error("Login submit did not leave the login screen. Check logs/after-submit.xml.");
+      fail(
+        "로그인 제출 후에도 로그인 완료 화면으로 이동하지 않았습니다.",
+        steps,
+        getLoginFailureDetails(xml)
+      );
     }
 
     if (role === "host") {

@@ -14,6 +14,7 @@
     "run:contract-cancel-confirmed": "node src/cli.js contract-cancel-confirmed",
     "run:contract-approve": "node src/cli.js contract-approve",
     "run:contract-payment": "node src/cli.js contract-payment",
+    "run:schedule-change": "node src/cli.js schedule-change",
     "run:toss-deposit-approve": "node src/cli.js toss-deposit-approve"
   },
   "dependencies": {

@@ -5,6 +5,8 @@ const KOREAN_SHORTCUT_PATTERN =
   /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
+const SCHEDULE_CHANGE_PATTERN =
+  /^!(\d+)\s+계약\s*변경\s+(일주일\s*전|2주일\s*전|2주\s*전|한달\s*전|1달\s*전|일주일\s*후|2주일\s*후|2주\s*후|한달\s*후|1달\s*후)$/i;
 const BASIC_VALIDATION_PATTERN =
   /^!기본검증\s+(일반결제|일반카드|카드|무통장\s*결제|무통장결제|무통장|자동결제|자동\s*결제|자동카드)(?:\s+(dev|stg|staging))?$/i;
 
@@ -104,6 +106,20 @@ function parseBasicValidation(text) {
   };
 }
 
+function parseScheduleChange(text) {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  const match = normalized.match(SCHEDULE_CHANGE_PATTERN);
+  if (!match) return null;
+
+  return {
+    test: "schedule-change",
+    env: "api",
+    role: "api",
+    reservation_id: match[1],
+    offset_label: match[2]
+  };
+}
+
 function roleForShortcut(test, requestedRoleLabel) {
   if (test === "contract-approve" || test === "contract-reject") return "host";
   if (
@@ -118,6 +134,7 @@ function roleForShortcut(test, requestedRoleLabel) {
 }
 
 function defaultRoleForTest(test) {
+  if (test === "schedule-change") return "api";
   if (test === "toss-deposit-approve") return "admin";
   return test === "contract-approve" || test === "contract-reject" ? "host" : "guest";
 }
@@ -168,13 +185,16 @@ async function runPrerequisiteLogin({ test, env }, context) {
   );
 }
 
-async function runSingleQaCommand({ test, env, role, payment_method: paymentMethod }, context) {
+async function runSingleQaCommand(command, context) {
+  const { test, env, role, payment_method: paymentMethod } = command;
   const result = await runTest(
     {
       test,
       env,
       role,
       payment_method: paymentMethod,
+      reservation_id: command.reservation_id,
+      offset_label: command.offset_label || command.offset,
       requested_by: context.user,
       slack_channel: context.channel,
       thread_ts: context.threadTs,
@@ -214,8 +234,8 @@ async function runQaCommandWithPrerequisite(command, context) {
   };
 }
 
-async function runQaCommand({ test, env, role, payment_method: paymentMethod }, context) {
-  const command = { test, env, role, payment_method: paymentMethod };
+async function runQaCommand(command, context) {
+  const { test, env, role, payment_method: paymentMethod } = command;
   const { result, formatted: formattedResult } = await runQaCommandWithPrerequisite(command, context);
 
   if (shouldAutoApproveHostContract({ test, paymentMethod }, result)) {
@@ -369,6 +389,11 @@ async function routeCommand(text, context) {
     return runBasicValidation(basicValidation, context);
   }
 
+  const scheduleChange = parseScheduleChange(text);
+  if (scheduleChange) {
+    return runQaCommand(scheduleChange, context);
+  }
+
   if (TOSS_DEPOSIT_APPROVE_PATTERN.test(text.trim())) {
     return runQaCommand(
       {
@@ -404,6 +429,7 @@ async function routeCommand(text, context) {
     command === "contract-payment" ||
     command === "contract-request" ||
     command === "basic-validation" ||
+    command === "schedule-change" ||
     command === "toss-deposit-approve"
   ) {
     const args = parseKeyValues(parts.slice(2));
@@ -424,9 +450,11 @@ async function routeCommand(text, context) {
     return runQaCommand(
       {
         test,
-        env: args.env || (test === "toss-deposit-approve" ? "toss" : "staging"),
+        env: args.env || (test === "toss-deposit-approve" ? "toss" : test === "schedule-change" ? "api" : "staging"),
         role: args.role || defaultRoleForTest(test),
-        payment_method: paymentMethod
+        payment_method: paymentMethod,
+        reservation_id: args.reservation_id || args.reservation || args.id,
+        offset_label: args.offset || args.offset_label
       },
       context
     );
@@ -442,6 +470,7 @@ async function routeCommand(text, context) {
 module.exports = {
   BASIC_VALIDATION_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
+  SCHEDULE_CHANGE_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand
 };

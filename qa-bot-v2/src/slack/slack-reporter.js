@@ -35,6 +35,12 @@ function formatHelp() {
     "!게스트 계약 결제 무통장 stg",
     "!게스트 계약 결제 무통장 dev",
     "!무통장 입금 승인 (단독 실행용, 무통장 결제 PASS 시에는 자동 실행)",
+    "!146183 계약 변경 일주일 전",
+    "!146183 계약 변경 2주일전",
+    "!146183 계약 변경 한달전",
+    "!146183 계약 변경 일주일 후",
+    "!146183 계약 변경 2주 후",
+    "!146183 계약 변경 한달 후",
     "!호스트 로그인 stg",
     "!호스트 로그인 dev",
     "!호스트 로그아웃 stg",
@@ -64,6 +70,7 @@ function formatHelp() {
     "!qa contract-payment env=staging role=guest method=bank-transfer (PASS 시 무통장 입금 승인 자동 실행)",
     "!qa contract-approve env=staging role=host",
     "!qa contract-reject env=staging role=host",
+    "!qa schedule-change reservation_id=146183 offset=일주일후",
     "!qa toss-deposit-approve"
   ].join("\n");
 }
@@ -227,6 +234,14 @@ function formatPassSummary(result) {
       "- 최근 무통장 결제 PASS 결과에서 금액/숙소명/계약번호 기준을 확인했습니다.",
       "- 토스 테스트 결제내역에서 입금대기 상태와 입금처리 버튼이 있는 행을 매칭했습니다.",
       "- 입금처리 버튼을 눌러 테스트 무통장 입금을 승인했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-SCHEDULE-CHANGE-001") {
+    return [
+      "- 현재 날짜 기준으로 변경할 계약 기간을 계산했습니다.",
+      "- 예약 일정 변경 API를 호출했습니다.",
+      "- API 응답이 성공 상태인지 확인했습니다. 앱 새로고침 후 계약 기간 반영 여부를 확인할 수 있습니다."
     ];
   }
 
@@ -409,6 +424,17 @@ function formatResult(result) {
     if (result.toss_deposit.contract_number_suffix) {
       lines.push(`- 계약번호 끝자리: ${result.toss_deposit.contract_number_suffix}`);
     }
+  }
+
+  if (result.schedule_change) {
+    lines.push("");
+    lines.push("계약 일정 변경:");
+    lines.push(`- 예약 번호: ${result.schedule_change.reservation_id}`);
+    lines.push(`- 변경 기준: ${result.schedule_change.offset}`);
+    lines.push(`- 시작일: ${result.schedule_change.start_date}`);
+    lines.push(`- 종료일: ${result.schedule_change.end_date}`);
+    lines.push(`- API: POST ${result.schedule_change.endpoint}`);
+    lines.push(`- HTTP 상태: ${result.schedule_change.status_code}`);
   }
 
   if (result.app_warnings && result.app_warnings.length > 0) {

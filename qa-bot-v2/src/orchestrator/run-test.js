@@ -51,6 +51,7 @@ async function runTest(request, config) {
       "contract-cancel-confirmed": "TC-CONTRACT-CANCEL-CONFIRMED-001",
       "contract-cancel-request": "TC-CONTRACT-CANCEL-REQUEST-001",
       "contract-payment": "TC-CONTRACT-PAYMENT-001",
+      "schedule-change": "TC-SCHEDULE-CHANGE-001",
       "toss-deposit-approve": "TC-TOSS-DEPOSIT-APPROVE-001"
     };
     const testNames = {
@@ -64,6 +65,7 @@ async function runTest(request, config) {
       "contract-cancel-confirmed": "계약 확정 취소",
       "contract-cancel-request": "계약 요청 취소",
       "contract-payment": "계약 결제",
+      "schedule-change": "계약 일정 변경",
       "toss-deposit-approve": "무통장 입금 승인"
     };
     const finalResult = {
@@ -74,7 +76,9 @@ async function runTest(request, config) {
       status: "fail",
       device: request.test === "toss-deposit-approve"
         ? "browser"
-        : config.devices && config.devices[role] ? config.devices[role] : "unknown",
+        : request.test === "schedule-change"
+          ? "api"
+          : config.devices && config.devices[role] ? config.devices[role] : "unknown",
       duration_ms: Date.now() - startedAt,
       failed_step: "runner",
       error: error.message,

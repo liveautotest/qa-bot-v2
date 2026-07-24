@@ -68,6 +68,12 @@ function loadConfig() {
       profileDir: env.TOSS_ADMIN_PROFILE_DIR || ".tmp/toss-admin-profile",
       keepOpenOnFail: env.TOSS_ADMIN_KEEP_OPEN_ON_FAIL === "true"
     },
+    qaApi: {
+      baseUrl: env.QA_API_BASE_URL || "",
+      authHeader: env.QA_API_AUTH_HEADER || "",
+      token: env.QA_API_TOKEN || "",
+      cookie: env.QA_API_COOKIE || ""
+    },
     accounts: {
       guest: {
         email: env.GUEST_EMAIL || "",
