@@ -356,9 +356,51 @@ function hasPaymentMethodSection(xml) {
 function hasVisibleCardPaymentMethodSection(xml) {
   return Boolean(
     findNode(xml, "신용·체크카드 결제 수단 선택됨", { visible: true }) &&
-      findNode(xml, "더보기 버튼", { visible: true, clickable: true, enabled: true }) &&
       findNode(xml, "결제하기", { visible: true, clickable: true, enabled: true })
   );
+}
+
+function findMoreCardButton(xml, { visible = true } = {}) {
+  return findNode(xml, "더보기 버튼", {
+    visible,
+    clickable: true,
+    enabled: true
+  });
+}
+
+function isSafelyTappablePaymentButton(node) {
+  if (!node?.bounds || !isVisibleNode(node)) return false;
+  return node.bounds.top >= 260 && node.bounds.bottom <= 2140;
+}
+
+async function scrollMoreCardButtonIntoView(config, device, store, xml) {
+  let currentXml = xml;
+
+  for (let count = 0; count < 8; count += 1) {
+    const visibleMore = findMoreCardButton(currentXml, { visible: true });
+    if (isSafelyTappablePaymentButton(visibleMore)) {
+      return { xml: currentXml, node: visibleMore };
+    }
+
+    const clippedMore = findMoreCardButton(currentXml, { visible: false });
+    const target = visibleMore || clippedMore;
+    if (target?.bounds) {
+      store.appendLog(
+        "runner.log",
+        `more card button not safely tappable at [${target.bounds.left},${target.bounds.top}][${target.bounds.right},${target.bounds.bottom}], scrolling (${count + 1})`
+      );
+    }
+
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2200", "540", "1680", "180"]);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    currentXml = await dumpUiStable(config, device);
+  }
+
+  const finalMore = findMoreCardButton(currentXml, { visible: true });
+  return {
+    xml: currentXml,
+    node: isSafelyTappablePaymentButton(finalMore) ? finalMore : null
+  };
 }
 
 function hasVisiblePaymentMethodSection(xml) {
@@ -445,26 +487,38 @@ function hasVisibleJcbCardOption(xml) {
   return Boolean(findJcbCardOption(xml, { visible: true }));
 }
 
+function isSafelyTappableCardOption(node) {
+  if (!node?.bounds || !isVisibleNode(node)) return false;
+  return node.bounds.bottom < 2140;
+}
+
 async function scrollJcbCardIntoView(config, device, store, xml) {
   let currentXml = xml;
 
-  for (let count = 0; count < 6; count += 1) {
+  for (let count = 0; count < 8; count += 1) {
     const visibleJcb = findJcbCardOption(currentXml, { visible: true });
-    if (visibleJcb?.bounds) return { xml: currentXml, node: visibleJcb };
+    if (isSafelyTappableCardOption(visibleJcb)) {
+      return { xml: currentXml, node: visibleJcb };
+    }
 
     const clippedJcb = findJcbCardOption(currentXml, { visible: false });
-    if (!clippedJcb?.bounds) return { xml: currentXml, node: null };
+    const scrollTarget = visibleJcb || clippedJcb;
+    if (!scrollTarget?.bounds) return { xml: currentXml, node: null };
 
     store.appendLog(
       "runner.log",
-      `JCB card option clipped at [${clippedJcb.bounds.left},${clippedJcb.bounds.top}][${clippedJcb.bounds.right},${clippedJcb.bounds.bottom}], scrolling into view (${count + 1})`
+      `JCB card option not safely tappable at [${scrollTarget.bounds.left},${scrollTarget.bounds.top}][${scrollTarget.bounds.right},${scrollTarget.bounds.bottom}], scrolling above sticky payment footer (${count + 1})`
     );
-    await runAdb(config, device, ["shell", "input", "swipe", "540", "2250", "540", "1800", "180"]);
-    await new Promise((resolve) => setTimeout(resolve, 180));
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2220", "540", "1580", "220"]);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     currentXml = await dumpUiStable(config, device);
   }
 
-  return { xml: currentXml, node: findJcbCardOption(currentXml, { visible: true }) };
+  const finalJcb = findJcbCardOption(currentXml, { visible: true });
+  return {
+    xml: currentXml,
+    node: isSafelyTappableCardOption(finalJcb) ? finalJcb : null
+  };
 }
 
 function isPgPaymentScreen(xml) {
@@ -855,7 +909,7 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
         "리포트의 payment-method-not-found.png 화면을 확인해주세요."
       ]
       : [
-        "상세 화면을 아래로 스크롤했지만 '결제 방법', '신용·체크카드 결제 수단 선택됨', '더보기 버튼'이 확인되지 않았습니다.",
+        "상세 화면을 아래로 스크롤했지만 '결제 방법'과 신용·체크카드 선택 상태가 확인되지 않았습니다.",
         "리포트의 payment-method-not-found.png 화면을 확인해주세요."
       ]
   );
@@ -923,21 +977,20 @@ async function chooseJcbAndSubmit(config, device, store, steps, xml) {
     );
   }
 
-  let moreButton = findNode(xml, "더보기 버튼", {
-    visible: true,
-    clickable: true,
-    enabled: true
-  });
-  if (moreButton?.bounds?.y > 2050) {
-    await runAdb(config, device, ["shell", "input", "swipe", "540", "2150", "540", "1760", "180"]);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    xml = await dumpUiStable(config, device);
-    saveXml(store, "payment-method-before-more", xml);
-    moreButton = findNode(xml, "더보기 버튼", {
-      visible: true,
-      clickable: true,
-      enabled: true
-    });
+  const moreResult = await scrollMoreCardButtonIntoView(config, device, store, xml);
+  xml = moreResult.xml;
+  saveXml(store, "payment-method-before-more", xml);
+  const moreButton = moreResult.node;
+  if (!moreButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, "card-more-button-not-visible", xml);
+    fail(
+      "신용·체크카드 더보기 버튼을 안전하게 누를 수 있는 위치로 가져오지 못했습니다.",
+      steps,
+      [
+        "결제 방법 영역은 확인했지만 더보기 버튼이 하단 결제하기 고정 영역에 가려졌습니다.",
+        "리포트의 card-more-button-not-visible.png 화면을 확인해주세요."
+      ]
+    );
   }
   await tapNode(config, device, moreButton, "더보기 버튼", steps);
   addStep(steps, "결제 카드 더보기 선택");

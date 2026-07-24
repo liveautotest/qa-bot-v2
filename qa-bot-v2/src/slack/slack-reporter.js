@@ -240,8 +240,9 @@ function formatPassSummary(result) {
   if (result.test_id === "TC-SCHEDULE-CHANGE-001") {
     return [
       "- 현재 날짜 기준으로 변경할 계약 기간을 계산했습니다.",
-      "- 예약 일정 변경 API를 호출했습니다.",
-      "- API 응답이 성공 상태인지 확인했습니다. 앱 새로고침 후 계약 기간 반영 여부를 확인할 수 있습니다."
+      "- 날짜만 변경하는 예약 일정 변경 API를 호출했습니다.",
+      "- API 응답이 성공 상태인지 확인했습니다. 앱 새로고침 후 계약 기간 반영 여부를 확인할 수 있습니다.",
+      "- 이 명령은 세부가격/총결제금액 재계산 검증은 하지 않습니다."
     ];
   }
 
@@ -434,6 +435,11 @@ function formatResult(result) {
     lines.push(`- 시작일: ${result.schedule_change.start_date}`);
     lines.push(`- 종료일: ${result.schedule_change.end_date}`);
     lines.push(`- API: POST ${result.schedule_change.endpoint}`);
+    if (result.schedule_change.applies_price_recalculation) {
+      lines.push("- 반영 범위: 계약 변경 내역/세부가격/총결제금액 재계산 대상");
+    } else {
+      lines.push("- 반영 범위: 계약 기간 날짜 변경만 확인, 금액 재계산 없음");
+    }
     lines.push(`- HTTP 상태: ${result.schedule_change.status_code}`);
   }
 

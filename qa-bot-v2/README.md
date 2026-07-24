@@ -118,7 +118,7 @@ CLI 실행 예시:
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 일반카드` | JCB 카드 테스트 결제 후 홈 복귀 |
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 무통장` | 현금영수증, 환불 계좌, 무통장 결제 완료 후 홈 복귀. PASS 시 `!무통장 입금 승인`을 자동 연결 실행 |
 | `TC-TOSS-DEPOSIT-APPROVE-001` | `!무통장 입금 승인` | 토스 테스트 결제내역에서 최근 무통장 입금대기 건 입금처리 |
-| `TC-SCHEDULE-CHANGE-001` | `!146183 계약 변경 일주일 후` | 현재 날짜 기준으로 변경 기간을 계산하고 계약 일정 변경 API 호출 |
+| `TC-SCHEDULE-CHANGE-001` | `!146183 계약 변경 일주일 후` | 현재 날짜 기준으로 변경 기간을 계산하고 날짜만 변경하는 계약 일정 변경 API 호출 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | `!게스트 계약 요청 취소` | 요청 상태 카드에서 계약 요청 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | `!게스트 계약 확정 취소` | 확정 계약 취소, 취소 내역 확인, 완료 팝업, 홈 복귀 |
 
@@ -155,6 +155,8 @@ QA_API_TOKEN=...
 
 기본 환경은 `staging`입니다.
 계약 일정 변경 명령은 앱 실행 환경과 무관한 API 명령이므로 `dev`/`stg`를 붙이지 않습니다.
+`POST /v1/reservations/{reservationId}/unusually-reschedule`을 호출하며, 계약 기간 날짜만 변경합니다.
+세부가격/총결제금액 재계산까지 포함하는 콘솔형 일정 변경은 별도 검증 대상으로 분리합니다.
 
 ## Firebase App Distribution 연동
 

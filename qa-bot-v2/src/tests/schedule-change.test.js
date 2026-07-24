@@ -145,13 +145,22 @@ function requestJson(url, { method, headers, body }) {
     req.setTimeout(30000, () => {
       req.destroy(new Error("API request timed out after 30000ms"));
     });
-    req.write(body);
+    if (body) req.write(body);
     req.end();
   });
 }
 
 function safeWriteJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+}
+
+function getResponseMessage(response) {
+  return (
+    response.body?.body?.message ||
+    response.body?.message ||
+    response.rawBody ||
+    ""
+  );
 }
 
 async function runScheduleChangeTest({ request, config, store }) {
@@ -202,11 +211,7 @@ async function runScheduleChangeTest({ request, config, store }) {
   addStep(steps, "계약 일정 변경 API 호출", "pass", `HTTP ${response.statusCode}`);
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    const responseMessage =
-      response.body?.body?.message ||
-      response.body?.message ||
-      response.rawBody ||
-      "";
+    const responseMessage = getResponseMessage(response);
     const details = [
       "리포트의 logs/schedule-change-request.json 요청값을 확인해주세요.",
       "리포트의 logs/schedule-change-response.json 응답값을 확인해주세요."
@@ -240,6 +245,7 @@ async function runScheduleChangeTest({ request, config, store }) {
       start_date: period.startDate,
       end_date: period.endDate,
       endpoint,
+      applies_price_recalculation: false,
       status_code: response.statusCode
     },
     artifacts: {

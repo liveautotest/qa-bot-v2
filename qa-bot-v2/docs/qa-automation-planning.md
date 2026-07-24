@@ -201,7 +201,7 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 !qa toss-deposit-approve
 ```
 
-계약 일정 변경 명령은 앱 단말 환경과 무관한 API 명령이므로 `dev`/`stg`를 붙이지 않는다.
+계약 일정 변경 명령은 앱 단말 환경과 무관한 API 명령이므로 `dev`/`stg`를 붙이지 않는다. 현재 구현은 계약 기간 날짜만 변경하며, 세부가격/총결제금액 재계산까지 포함하는 콘솔형 일정 변경은 별도 검증 대상으로 분리한다.
 
 ---
 
@@ -223,7 +223,7 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 | `TC-CONTRACT-PAYMENT-001` | 일반카드 계약 결제 | guest | JCB 테스트 카드 결제 |
 | `TC-CONTRACT-PAYMENT-001` | 무통장 계약 결제 | guest | 현금영수증, 환불 계좌, 무통장 결제 |
 | `TC-TOSS-DEPOSIT-APPROVE-001` | 토스 무통장 입금 승인 | admin | 토스 테스트 결제내역에서 입금대기 건 입금처리 |
-| `TC-SCHEDULE-CHANGE-001` | 계약 일정 변경 | api | 현재 날짜 기준 변경 기간 계산 후 `unusually-reschedule` API 호출 |
+| `TC-SCHEDULE-CHANGE-001` | 계약 일정 변경 | api | 날짜만 변경하는 `unusually-reschedule` API 호출 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | 계약 요청 취소 | guest | 요청 상태 계약 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | 계약 확정 취소 | guest | 확정 계약 취소 및 홈 복귀 |
 
@@ -797,6 +797,6 @@ ADB 단말 확인:
 
 `qa-bot-v2`는 Slack 명령어로 LiveAnywhere Android 앱의 핵심 게스트/호스트 시나리오를 실행하는 QA 자동화 봇이다.
 
-현재 로그인, 로그아웃, 정확한 일정 검색, 유연한 일정 검색, 계약 요청, 자동카드 계약 요청, 호스트 계약 승인, 호스트 계약 요청 거절, 일반카드 결제, 무통장 결제, Toss 무통장 입금 승인, 계약 일정 변경 API, 계약 요청 취소, 계약 확정 취소, 기본검증 일반결제/무통장 결제/자동결제 1사이클까지 구현되어 있다.
+현재 로그인, 로그아웃, 정확한 일정 검색, 유연한 일정 검색, 계약 요청, 자동카드 계약 요청, 호스트 계약 승인, 호스트 계약 요청 거절, 일반카드 결제, 무통장 결제, Toss 무통장 입금 승인, 날짜-only 계약 일정 변경 API, 계약 요청 취소, 계약 확정 취소, 기본검증 일반결제/무통장 결제/자동결제 1사이클까지 구현되어 있다.
 
 앞으로는 TargetSdk 36 화면 진단, 리뷰/쿠폰/알림/채팅 등 주변 시나리오, iOS/Web 자동화로 확장한다.
