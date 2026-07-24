@@ -38,6 +38,9 @@ CLI 실행 예시:
 세션이 풀려 있으면 자동 로그인 후 원래 동작을 이어서 진행합니다.
 
 ```text
+!기본검증 일반결제 stg
+!기본검증 무통장 결제 stg
+!기본검증 자동결제 stg
 !게스트 로그인 stg
 !게스트 로그아웃 stg
 !게스트 정확한일정 검색 stg
@@ -58,6 +61,9 @@ CLI 실행 예시:
 `dev` 환경 예시:
 
 ```text
+!기본검증 일반결제 dev
+!기본검증 무통장 결제 dev
+!기본검증 자동결제 dev
 !게스트 계약 요청 dev
 !게스트 계약 결제 무통장 dev
 !무통장 입금 승인
@@ -68,6 +74,9 @@ CLI 실행 예시:
 상세 명령어도 지원합니다.
 
 ```text
+!qa basic-validation env=staging method=card
+!qa basic-validation env=staging method=bank-transfer
+!qa basic-validation env=staging method=auto-card
 !qa login env=staging role=guest
 !qa logout env=staging role=guest
 !qa search env=staging role=guest
@@ -87,6 +96,9 @@ CLI 실행 예시:
 
 | 테스트 ID | 명령어 | 기준 |
 | --- | --- | --- |
+| `FLOW-BASIC-CARD-001` | `!기본검증 일반결제` | 게스트 로그인, 계약 요청, 호스트 승인, 게스트 일반결제 1사이클 |
+| `FLOW-BASIC-BANK-001` | `!기본검증 무통장 결제` | 게스트 로그인, 계약 요청, 호스트 승인, 게스트 무통장 결제, Toss 입금 승인 1사이클 |
+| `FLOW-BASIC-AUTO-CARD-001` | `!기본검증 자동결제` | 게스트 로그인, 자동카드 계약 요청, 호스트 승인 1사이클 |
 | `TC-LOGIN-001` | `!게스트 로그인`, `!호스트 로그인` | 게스트는 홈 화면 진입, 호스트는 호스트모드 계약 탭 진입 |
 | `TC-LOGOUT-001` | `!게스트 로그아웃`, `!호스트 로그아웃` | 내 정보 화면의 로그아웃 버튼과 확인 팝업 처리 |
 | `TC-SEARCH-001` | `!게스트 정확한일정 검색` | 국내, 8월 1일-8월 7일, 어린이/유아/반려동물 조건 검색 |

@@ -5,6 +5,8 @@ const KOREAN_SHORTCUT_PATTERN =
   /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
+const BASIC_VALIDATION_PATTERN =
+  /^!기본검증\s+(일반결제|일반카드|카드|무통장\s*결제|무통장결제|무통장|자동결제|자동\s*결제|자동카드)(?:\s+(dev|stg|staging))?$/i;
 
 function parseKeyValues(parts) {
   const values = {};
@@ -59,9 +61,7 @@ function parseKoreanShortcut(text) {
   const test = paymentMethod === "auto-card"
     ? "contract-request"
     : testByCommand[match[2]];
-  const role = test === "contract-approve" || test === "contract-reject"
-    ? "host"
-    : match[1] === "호스트" ? "host" : "guest";
+  const role = roleForShortcut(test, match[1]);
 
   return {
     test,
@@ -69,6 +69,48 @@ function parseKoreanShortcut(text) {
     env: envByShortcut[String(match[4] || "stg").toLowerCase()],
     payment_method: paymentMethod
   };
+}
+
+function parseBasicValidation(text) {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  const match = normalized.match(BASIC_VALIDATION_PATTERN);
+  if (!match) return null;
+
+  const envByShortcut = {
+    dev: "dev",
+    stg: "staging",
+    staging: "staging"
+  };
+
+  const methodByShortcut = {
+    일반결제: "card",
+    일반카드: "card",
+    카드: "card",
+    "무통장 결제": "bank-transfer",
+    무통장결제: "bank-transfer",
+    무통장: "bank-transfer",
+    자동결제: "auto-card",
+    "자동 결제": "auto-card",
+    자동카드: "auto-card"
+  };
+
+  return {
+    env: envByShortcut[String(match[2] || "stg").toLowerCase()],
+    payment_method: methodByShortcut[match[1].replace(/\s+/g, " ").trim()] || "card"
+  };
+}
+
+function roleForShortcut(test, requestedRoleLabel) {
+  if (test === "contract-approve" || test === "contract-reject") return "host";
+  if (
+    test === "contract-request" ||
+    test === "contract-payment" ||
+    test === "contract-cancel-request" ||
+    test === "contract-cancel-confirmed"
+  ) {
+    return "guest";
+  }
+  return requestedRoleLabel === "호스트" ? "host" : "guest";
 }
 
 function defaultRoleForTest(test) {
@@ -215,7 +257,114 @@ async function runQaCommand({ test, env, role, payment_method: paymentMethod }, 
   ].join("\n");
 }
 
+function appendFlowSection(sections, title, result) {
+  sections.push([
+    `## ${title}`,
+    formatResult(result)
+  ].join("\n"));
+}
+
+function basicValidationLabel(paymentMethod) {
+  if (paymentMethod === "bank-transfer") return "무통장 결제";
+  if (paymentMethod === "auto-card") return "자동결제";
+  return "일반결제";
+}
+
+async function runBasicValidation({ env, payment_method: paymentMethod }, context) {
+  const flowLabel = basicValidationLabel(paymentMethod);
+  const isAutoCard = paymentMethod === "auto-card";
+  const requestPaymentMethod = isAutoCard ? "auto-card" : undefined;
+  const sections = [
+    `[기본검증] ${flowLabel} 1사이클 (${env})`,
+    isAutoCard
+      ? "로그인 > 정확한 일정 검색/집 상세 진입/자동카드 계약 요청 > 호스트 승인 순서로 실행합니다."
+      : `로그인 > 정확한 일정 검색/집 상세 진입/계약 요청 > 호스트 승인 > 게스트 ${flowLabel} 순서로 실행합니다.`
+  ];
+
+  const guestLogin = await runSingleQaCommand(
+    {
+      test: "login",
+      env,
+      role: "guest"
+    },
+    context
+  );
+  appendFlowSection(sections, "1. 게스트 로그인", guestLogin);
+  if (guestLogin.status !== "pass") return sections.join("\n\n");
+
+  const contractRequest = await runSingleQaCommand(
+    {
+      test: "contract-request",
+      env,
+      role: "guest",
+      payment_method: requestPaymentMethod
+    },
+    context
+  );
+  appendFlowSection(
+    sections,
+    isAutoCard ? "2. 집 검색/상세 진입/자동카드 계약 요청" : "2. 집 검색/상세 진입/계약 요청",
+    contractRequest
+  );
+  if (contractRequest.status !== "pass") return sections.join("\n\n");
+
+  const { result: approveResult, formatted: formattedApproveResult } = await runQaCommandWithPrerequisite(
+    {
+      test: "contract-approve",
+      env,
+      role: "host"
+    },
+    context
+  );
+  sections.push([
+    "## 3. 호스트 계약 승인",
+    formattedApproveResult
+  ].join("\n"));
+  if (approveResult.status !== "pass") return sections.join("\n\n");
+
+  if (isAutoCard) {
+    sections.push("[기본검증 PASS] 자동결제 계약 요청부터 호스트 승인까지 1사이클이 완료되었습니다.");
+    return sections.join("\n\n");
+  }
+
+  const { result: paymentResult, formatted: formattedPaymentResult } = await runQaCommandWithPrerequisite(
+    {
+      test: "contract-payment",
+      env,
+      role: "guest",
+      payment_method: paymentMethod
+    },
+    context
+  );
+  sections.push([
+    `## 4. 게스트 ${flowLabel}`,
+    formattedPaymentResult
+  ].join("\n"));
+  if (paymentResult.status !== "pass") return sections.join("\n\n");
+
+  if (paymentMethod === "bank-transfer") {
+    const tossResult = await runSingleQaCommand(
+      {
+        test: "toss-deposit-approve",
+        env: "toss",
+        role: "admin"
+      },
+      context
+    );
+    appendFlowSection(sections, "5. 무통장 입금 승인", tossResult);
+    if (tossResult.status !== "pass") return sections.join("\n\n");
+  }
+
+  sections.push(`[기본검증 PASS] ${flowLabel} 계약 요청부터 결제까지 1사이클이 완료되었습니다.`);
+  return sections.join("\n\n");
+}
+
 async function routeCommand(text, context) {
+  const basicValidation = parseBasicValidation(text);
+  if (basicValidation) {
+    return runBasicValidation(basicValidation, context);
+  }
+
   if (TOSS_DEPOSIT_APPROVE_PATTERN.test(text.trim())) {
     return runQaCommand(
       {
@@ -250,10 +399,21 @@ async function routeCommand(text, context) {
     command === "contract-cancel-request" ||
     command === "contract-payment" ||
     command === "contract-request" ||
+    command === "basic-validation" ||
     command === "toss-deposit-approve"
   ) {
     const args = parseKeyValues(parts.slice(2));
     const paymentMethod = args.method || args.payment_method;
+    if (command === "basic-validation") {
+      return runBasicValidation(
+        {
+          env: args.env || "staging",
+          payment_method: paymentMethod || "card"
+        },
+        context
+      );
+    }
+
     const test = command === "contract-payment" && paymentMethod === "auto-card"
       ? "contract-request"
       : command;
@@ -276,6 +436,7 @@ async function routeCommand(text, context) {
 }
 
 module.exports = {
+  BASIC_VALIDATION_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand

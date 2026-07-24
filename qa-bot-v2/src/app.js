@@ -1,6 +1,7 @@
 const { App } = require("@slack/bolt");
 const { loadConfig } = require("./config");
 const {
+  BASIC_VALIDATION_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand
@@ -45,6 +46,10 @@ async function main() {
   }
 
   app.message(/^!qa\b/i, async ({ message, say }) => {
+    await handleQaMessage(message, say);
+  });
+
+  app.message(BASIC_VALIDATION_PATTERN, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
 
