@@ -441,6 +441,10 @@ function findJcbCardOption(xml, { visible = true } = {}) {
   });
 }
 
+function hasVisibleJcbCardOption(xml) {
+  return Boolean(findJcbCardOption(xml, { visible: true }));
+}
+
 async function scrollJcbCardIntoView(config, device, store, xml) {
   let currentXml = xml;
 
@@ -919,18 +923,34 @@ async function chooseJcbAndSubmit(config, device, store, steps, xml) {
     );
   }
 
-  const moreButton = findNode(xml, "더보기 버튼", {
+  let moreButton = findNode(xml, "더보기 버튼", {
     visible: true,
     clickable: true,
     enabled: true
   });
+  if (moreButton?.bounds?.y > 2050) {
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2150", "540", "1760", "180"]);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    xml = await dumpUiStable(config, device);
+    saveXml(store, "payment-method-before-more", xml);
+    moreButton = findNode(xml, "더보기 버튼", {
+      visible: true,
+      clickable: true,
+      enabled: true
+    });
+  }
   await tapNode(config, device, moreButton, "더보기 버튼", steps);
   addStep(steps, "결제 카드 더보기 선택");
 
-  xml = await waitForUi(config, device, (nextXml) => nextXml.includes("JCB 카드"), 8000);
+  xml = await waitForUi(
+    config,
+    device,
+    (nextXml) => hasVisibleJcbCardOption(nextXml) || hasJcbSelected(nextXml) || isPgPaymentScreen(nextXml),
+    8000
+  );
   saveXml(store, "payment-method-expanded", xml);
 
-  if (!hasJcbSelected(xml)) {
+  if (!hasJcbSelected(xml) && !isPgPaymentScreen(xml)) {
     const jcbResult = await scrollJcbCardIntoView(config, device, store, xml);
     xml = jcbResult.xml;
     saveXml(store, "payment-method-jcb-visible", xml);
