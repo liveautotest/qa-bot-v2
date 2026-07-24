@@ -6,11 +6,14 @@
 
 | Slack 명령어 | 스크립트 | 실행 코드 |
 | --- | --- | --- |
+| `!기본검증 일반결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
+| `!기본검증 무통장 결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
+| `!기본검증 자동결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
 | `!게스트 로그인` | `login.guest.yaml` | `src/tests/login.test.js` |
 | `!게스트 로그아웃` | `logout.guest.yaml` | `src/tests/logout.test.js` |
 | `!게스트 집검색` | `search.guest.yaml` | `src/tests/search.test.js` |
-| `!게스트 정확한일정 검색` | `search.guest.yaml` | `src/tests/search.test.js` |
-| `!게스트 유연한일정 검색` | `search-flexible.guest.yaml` | `src/tests/search.test.js` |
+| `!게스트 검색 정확한일정` | `search.guest.yaml` | `src/tests/search.test.js` |
+| `!게스트 검색 유연한일정` | `search-flexible.guest.yaml` | `src/tests/search.test.js` |
 | `!게스트 계약 요청` | `contract-request.guest.yaml` | `src/tests/contract-request.test.js` |
 | `!게스트 계약 결제 자동카드` | `contract-request.guest.yaml` | `src/tests/contract-request.test.js` |
 | `!게스트 계약 결제 일반카드` | `contract-payment.guest.yaml` | `src/tests/contract-payment.test.js` |
@@ -42,6 +45,22 @@
 3. Slack 명령어는 YAML의 `runner.test`에 맞는 테스트를 실행한다.
 4. 실패하면 YAML의 `validations`와 실제 리포트를 비교해 스크립트를 보강한다.
 
+## 기본검증 조합 시나리오
+
+기본검증은 단일 YAML 하나가 아니라 기존 스크립트를 순서대로 연결하는 스모크 플로우다.
+
+| 명령어 | 연결 순서 |
+| --- | --- |
+| `!기본검증 일반결제` | `login.guest` -> `contract-request.guest` -> `contract-approve.host` -> `contract-payment.guest(method=card)` |
+| `!기본검증 무통장 결제` | `login.guest` -> `contract-request.guest` -> `contract-approve.host` -> `contract-payment.guest(method=bank-transfer)` -> `toss-deposit-approve.web` |
+| `!기본검증 자동결제` | `login.guest` -> `contract-request.guest(method=auto-card)` -> `contract-approve.host` |
+
+운영 기준:
+
+- 중간 단계가 FAIL이면 이후 단계는 실행하지 않는다.
+- 계약 요청/승인/결제/취소 계열은 필요한 게스트/호스트 로그인 상태를 먼저 확인하고, 풀려 있으면 자동 로그인 후 이어서 진행한다.
+- 기본검증 내부에서는 계약 요청의 자동 승인 연결을 우회해 호스트 승인을 한 번만 실행한다.
+
 ## 환경 선택
 
 모든 한국어 단축 명령어는 뒤에 `dev` 또는 `stg`를 붙여 실행 환경을 선택한다.
@@ -49,6 +68,9 @@
 ```text
 !게스트 계약 요청 dev
 !게스트 계약 요청 stg
+!기본검증 일반결제 dev
+!기본검증 무통장 결제 dev
+!기본검증 자동결제 dev
 !호스트 계약 승인 dev
 !호스트 계약 승인 stg
 ```

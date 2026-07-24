@@ -2,7 +2,7 @@ const { runTest } = require("../orchestrator/run-test");
 const { formatHelp, formatResult } = require("./slack-reporter");
 
 const KOREAN_SHORTCUT_PATTERN =
-  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
+  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const BASIC_VALIDATION_PATTERN =
@@ -27,8 +27,12 @@ function parseKoreanShortcut(text) {
     로그아웃: "logout",
     집검색: "search",
     "집 검색": "search",
+    "검색 정확한일정": "search",
+    "검색 정확한 일정": "search",
     "정확한일정 검색": "search",
     "정확한 일정 검색": "search",
+    "검색 유연한일정": "search-flexible",
+    "검색 유연한 일정": "search-flexible",
     "유연한일정 검색": "search-flexible",
     "유연한 일정 검색": "search-flexible",
     계약요청: "contract-request",
