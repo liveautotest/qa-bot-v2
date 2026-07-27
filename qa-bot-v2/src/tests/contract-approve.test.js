@@ -162,10 +162,14 @@ function getScheduleVariants(schedule) {
   const koreanRange = normalized.match(/(\d{1,2})월\s*(\d{1,2})일\s*~\s*(\d{1,2})월\s*(\d{1,2})일/);
   if (koreanRange) {
     const [, startMonth, startDay, endMonth, endDay] = koreanRange;
-    const start = `2026.${startMonth.padStart(2, "0")}.${startDay.padStart(2, "0")}`;
-    const end = `2026.${endMonth.padStart(2, "0")}.${endDay.padStart(2, "0")}`;
-    variants.add(`${start}~${end}`);
-    variants.add(`${start} ~ ${end}`);
+    const dotStart = `2026.${startMonth.padStart(2, "0")}.${startDay.padStart(2, "0")}`;
+    const dotEnd = `2026.${endMonth.padStart(2, "0")}.${endDay.padStart(2, "0")}`;
+    const hyphenStart = `2026-${startMonth.padStart(2, "0")}-${startDay.padStart(2, "0")}`;
+    const hyphenEnd = `2026-${endMonth.padStart(2, "0")}-${endDay.padStart(2, "0")}`;
+    variants.add(`${dotStart}~${dotEnd}`);
+    variants.add(`${dotStart} ~ ${dotEnd}`);
+    variants.add(`${hyphenStart}~${hyphenEnd}`);
+    variants.add(`${hyphenStart} ~ ${hyphenEnd}`);
   }
 
   return Array.from(variants);
@@ -255,6 +259,26 @@ function findRequestCard(xml, targetContractNumber = "", matchSummary = null, op
   });
 }
 
+function findHostHomeRequestCard(xml, matchSummary = null) {
+  const nodes = parseNodes(xml);
+  const statusPattern = /(수락이\s*필요한\s*계약|수락해\s*주세요|수락\s*대기|계약\s*요청|요청\s*중)/;
+  const candidates = nodes.filter((node) => {
+    if (!node.bounds || node.attrs.clickable !== "true") return false;
+    const label = labelOf(node);
+    return (
+      statusPattern.test(label) &&
+      node.bounds.top >= 240 &&
+      node.bounds.top < 2100
+    );
+  });
+
+  const matchingSummaryCard = candidates.find((node) => summaryMatches(labelOf(node), matchSummary));
+
+  if (matchingSummaryCard) return matchingSummaryCard;
+  if (matchSummary) return null;
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 function findLatestGuestContractRequestSummary(reportBaseDir, env) {
   if (!reportBaseDir || !fs.existsSync(reportBaseDir)) return null;
 
@@ -308,7 +332,7 @@ function findAcceptButton(xml, { dialogOnly = false } = {}) {
 async function launchApp(config, device, appPackage, steps) {
   await runAdb(config, device, ["shell", "am", "force-stop", appPackage]);
   addStep(steps, "앱 완전 종료");
-  await new Promise((resolve) => setTimeout(resolve, 700));
+  await new Promise((resolve) => setTimeout(resolve, 450));
   await runAdb(config, device, [
     "shell",
     "monkey",
@@ -319,6 +343,17 @@ async function launchApp(config, device, appPackage, steps) {
     "1"
   ]);
   addStep(steps, "앱 재실행");
+}
+
+async function prepareHostContractList(config, device, appPackage, store, steps, options = {}) {
+  if (options.skipFreshLaunch) {
+    store.appendLog("runner.log", "contract-approve launches host app fresh because host home has no pull refresh");
+    await launchApp(config, device, appPackage, steps);
+    addStep(steps, "호스트 홈 최신 상태 확인을 위해 앱 재실행");
+    return;
+  }
+
+  await launchApp(config, device, appPackage, steps);
 }
 
 async function openHostContractList(config, device, store, steps) {
@@ -344,7 +379,7 @@ async function openHostContractList(config, device, store, steps) {
       fail("호스트모드 하단 계약 탭을 찾지 못했습니다.", steps);
     }
 
-    await tap(config, device, contractTab.bounds.x, contractTab.bounds.y);
+    await tap(config, device, contractTab.bounds.x, Math.max(2360, contractTab.bounds.top - 70));
     addStep(steps, "호스트 계약 탭 진입");
     xml = await waitForUi(config, device, isHostContractList, 12000);
   }
@@ -363,6 +398,46 @@ async function openHostContractList(config, device, store, steps) {
   }
 
   return xml;
+}
+
+async function openContractRequestFromHostHome(config, device, store, steps, options = {}) {
+  const matchSummary = options.matchSummary || null;
+  let xml = await waitForUi(
+    config,
+    device,
+    (candidateXml) =>
+      Boolean(findHostHomeRequestCard(candidateXml, matchSummary)) ||
+      isHostContractList(candidateXml) ||
+      (!matchSummary && isHostModeShell(candidateXml)),
+    12000
+  );
+  saveXml(store, "host-home-before-direct-approve", xml);
+
+  if (!isHostModeShell(xml) || isHostContractList(xml)) return null;
+
+  const requestCard = findHostHomeRequestCard(xml, matchSummary);
+  if (!requestCard?.bounds) return null;
+
+  await tap(config, device, requestCard.bounds.x, requestCard.bounds.y);
+  const matchedMessage = matchSummary?.title
+    ? `${matchSummary.title} / ${matchSummary.schedule}`
+    : "호스트 홈 수락 대기 카드";
+  addStep(steps, "호스트 홈 수락 대기 카드 상세 진입", "pass", matchedMessage);
+
+  xml = await waitForUi(config, device, isContractRequestDetail, 12000);
+  saveXml(store, "contract-approve-detail", xml);
+
+  if (isContractRequestDetail(xml)) {
+    return {
+      xml,
+      contractNumber: getContractNumber(xml)
+    };
+  }
+
+  store.appendLog("runner.log", "host home request card did not open approve detail; falling back to contract tab");
+  await keyEvent(config, device, 4).catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  return null;
 }
 
 async function openContractRequest(config, device, store, steps, xml, options = {}) {
@@ -727,6 +802,7 @@ async function runContractApproveTest({ request, config, store }) {
   const device = config.devices.host || "";
   const appPackage = config.androidPackages[env];
   const steps = [];
+  const skipFreshLaunch = request.skip_fresh_launch === true;
 
   if (role !== "host") {
     throw new Error("계약 승인은 host role에서만 실행할 수 있습니다.");
@@ -740,10 +816,17 @@ async function runContractApproveTest({ request, config, store }) {
     await runAdb(config, device, ["shell", "wm", "dismiss-keyguard"]).catch(() => {});
     addStep(steps, "단말 깨우기 및 잠금 해제 시도");
 
-    await launchApp(config, device, appPackage, steps);
+    await prepareHostContractList(config, device, appPackage, store, steps, {
+      skipFreshLaunch
+    });
 
-    let xml = await openHostContractList(config, device, store, steps);
-    const detail = await openContractRequest(config, device, store, steps, xml);
+    const matchSummary = findLatestGuestContractRequestSummary(config.reportBaseDir, env);
+    const directDetail = await openContractRequestFromHostHome(config, device, store, steps, {
+      matchSummary
+    });
+
+    let xml = directDetail ? directDetail.xml : await openHostContractList(config, device, store, steps);
+    const detail = directDetail || await openContractRequest(config, device, store, steps, xml);
     xml = await tapAcceptAndConfirm(config, device, store, steps, detail.xml);
 
     addStep(steps, "계약 승인 완료 확인");

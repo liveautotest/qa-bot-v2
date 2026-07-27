@@ -257,20 +257,38 @@ async function hideKeyboard(config, device) {
   return xml;
 }
 
+async function isKeyguardShowing(config, device, store) {
+  try {
+    const output = await runAdb(config, device, ["shell", "dumpsys", "window"]);
+    return /mDreamingLockscreen=true|mShowingLockscreen=true|isStatusBarKeyguard=true/.test(output);
+  } catch (error) {
+    store.appendLog("runner.log", `keyguard state check failed: ${error.message}`);
+    return false;
+  }
+}
+
 async function wakeAndUnlock(config, device, steps, store) {
   await keyEvent(config, device, 224);
+  const wasLocked = await isKeyguardShowing(config, device, store);
   await runAdb(config, device, ["shell", "wm", "dismiss-keyguard"]).catch((error) => {
     store.appendLog("runner.log", `dismiss-keyguard failed: ${error.message}`);
   });
-  await runAdb(config, device, ["shell", "input", "swipe", "540", "2200", "540", "600", "300"]);
-  await new Promise((resolve) => setTimeout(resolve, 700));
+
+  if (wasLocked && (await isKeyguardShowing(config, device, store))) {
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2200", "540", "600", "300"]);
+    store.appendLog("runner.log", "wakeAndUnlock sent unlock swipe because keyguard was still visible");
+  } else {
+    store.appendLog("runner.log", "wakeAndUnlock skipped unlock swipe because device was already usable");
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, wasLocked ? 500 : 250));
   addStep(steps, "단말 깨우기 및 잠금 해제 시도");
 }
 
 async function launchFresh(config, device, appPackage, steps) {
   await runAdb(config, device, ["shell", "am", "force-stop", appPackage]);
   addStep(steps, "앱 완전 종료");
-  await new Promise((resolve) => setTimeout(resolve, 700));
+  await new Promise((resolve) => setTimeout(resolve, 450));
   await runAdb(config, device, [
     "shell",
     "monkey",
@@ -281,6 +299,27 @@ async function launchFresh(config, device, appPackage, steps) {
     "1"
   ]);
   addStep(steps, "앱 재실행");
+}
+
+async function prepareHomeForContractPayment(config, device, appPackage, store, steps, options = {}) {
+  if (options.skipFreshLaunch) {
+    let xml = await waitForUi(
+      config,
+      device,
+      (nextXml) => nextXml.includes("동네") || hasPaymentWaitingCard(nextXml),
+      3000
+    );
+    saveXml(store, "payment-home-before-reuse", xml);
+    if (xml.includes("동네") || hasPaymentWaitingCard(xml)) {
+      addStep(steps, "기본검증 기존 홈 화면 재사용");
+      return;
+    }
+
+    store.appendLog("runner.log", "contract-payment could not reuse current screen; launching app fresh");
+    addStep(steps, "기존 화면 재사용 불가, 앱 재실행으로 복구");
+  }
+
+  await launchFresh(config, device, appPackage, steps);
 }
 
 function hasPaymentWaitingCard(xml) {
@@ -803,11 +842,14 @@ async function openPaymentDetailFromHome(config, device, store, steps) {
   saveXml(store, "payment-home-before-refresh", xml);
 
   if (!hasPaymentWaitingCard(xml)) {
-    await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    addStep(steps, "홈 화면 풀 리프레시");
+    for (let attempt = 1; attempt <= 3 && !hasPaymentWaitingCard(xml); attempt += 1) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      addStep(steps, `홈 화면 풀 리프레시 ${attempt}회`);
 
-    xml = await waitForUi(config, device, hasPaymentWaitingCard, 6500);
+      xml = await waitForUi(config, device, hasPaymentWaitingCard, 7500);
+      saveXml(store, `payment-home-after-refresh-${attempt}`, xml);
+    }
   } else {
     addStep(steps, "홈 화면 결제 카드 즉시 확인", "pass", "리프레시 없이 카드가 이미 보이는 상태");
   }
@@ -1673,6 +1715,7 @@ async function runContractPaymentTest({ request, config, store }) {
   const role = request.role || "guest";
   const env = request.env || "staging";
   const paymentMethod = request.payment_method || "card";
+  const skipFreshLaunch = request.skip_fresh_launch === true;
   const device = config.devices.guest || "";
   const appPackage = config.androidPackages[env];
   const steps = [];
@@ -1687,7 +1730,9 @@ async function runContractPaymentTest({ request, config, store }) {
   return withDeviceLock(device, async () => {
     addStep(steps, "환경 설정 확인");
     await wakeAndUnlock(config, device, steps, store);
-    await launchFresh(config, device, appPackage, steps);
+    await prepareHomeForContractPayment(config, device, appPackage, store, steps, {
+      skipFreshLaunch
+    });
 
     let xml = await openPaymentDetailFromHome(config, device, store, steps);
     xml = await scrollToPaymentMethod(config, device, store, steps, paymentMethod);

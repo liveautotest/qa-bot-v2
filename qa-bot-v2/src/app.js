@@ -15,6 +15,18 @@ process.on("uncaughtException", (error) => {
   process.exitCode = 1;
 });
 
+function shouldPostProgressMessage(text = "") {
+  const normalized = String(text).trim().replace(/\s+/g, " ");
+  return !(/^!qa$/i.test(normalized) || /^!qa help$/i.test(normalized));
+}
+
+function formatProgressMessage(text = "") {
+  return [
+    "테스트 진행 중입니다.",
+    "완료되면 이 스레드에 결과를 남길게요."
+  ].join("\n");
+}
+
 async function main() {
   const config = loadConfig();
 
@@ -33,16 +45,24 @@ async function main() {
   });
 
   async function handleQaMessage(message, say) {
+    const threadTs = message.thread_ts || message.ts;
+    if (shouldPostProgressMessage(message.text)) {
+      await say({
+        text: formatProgressMessage(message.text),
+        thread_ts: threadTs
+      });
+    }
+
     const response = await routeCommand(message.text, {
       config,
       user: message.user,
       channel: message.channel,
-      threadTs: message.thread_ts || message.ts
+      threadTs
     });
 
     await say({
       text: response,
-      thread_ts: message.thread_ts || message.ts
+      thread_ts: threadTs
     });
   }
 
@@ -77,7 +97,15 @@ async function main() {
   console.log("qa-bot-v2 is running in Socket Mode.");
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.stack || error.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  formatProgressMessage,
+  main,
+  shouldPostProgressMessage
+};

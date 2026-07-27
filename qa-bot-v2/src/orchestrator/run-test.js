@@ -13,11 +13,16 @@ async function runTest(request, config) {
   let appBuild = null;
 
   try {
-    appBuild = await ensureLatestAppBuild({
-      request: store.request,
-      config,
-      store
-    });
+    appBuild = store.request.skip_app_build_check
+      ? {
+        status: "skipped",
+        reason: "Skipped by parent flow after a prior app build check."
+      }
+      : await ensureLatestAppBuild({
+        request: store.request,
+        config,
+        store
+      });
 
     const result = await test({
       request: store.request,

@@ -215,11 +215,26 @@ async function waitForUi(config, device, predicate, timeoutMs = 5000) {
 
 async function wakeAndUnlock(config, device, steps, store) {
   await keyEvent(config, device, 224);
+  let wasLocked = false;
+  try {
+    const windowState = await runAdb(config, device, ["shell", "dumpsys", "window"]);
+    wasLocked = /mDreamingLockscreen=true|mShowingLockscreen=true|isStatusBarKeyguard=true/.test(windowState);
+  } catch (error) {
+    store.appendLog("runner.log", `keyguard state check failed: ${error.message}`);
+  }
+
   await runAdb(config, device, ["shell", "wm", "dismiss-keyguard"]).catch((error) => {
     store.appendLog("runner.log", `dismiss-keyguard failed: ${error.message}`);
   });
-  await runAdb(config, device, ["shell", "input", "swipe", "540", "2200", "540", "600", "300"]);
-  await new Promise((resolve) => setTimeout(resolve, 700));
+
+  if (wasLocked) {
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2200", "540", "600", "300"]);
+    store.appendLog("runner.log", "wakeAndUnlock sent unlock swipe because keyguard was visible");
+  } else {
+    store.appendLog("runner.log", "wakeAndUnlock skipped unlock swipe because device was already usable");
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, wasLocked ? 500 : 250));
   addStep(steps, "단말 깨우기 및 잠금 해제 시도");
 }
 
@@ -546,7 +561,7 @@ async function launchApp(config, device, appPackage, steps) {
   await runAdb(config, device, ["shell", "am", "force-stop", appPackage]);
   addStep(steps, "앱 완전 종료");
 
-  await new Promise((resolve) => setTimeout(resolve, 700));
+  await new Promise((resolve) => setTimeout(resolve, 450));
 
   addStep(steps, "앱 재실행");
   await runAdb(config, device, [

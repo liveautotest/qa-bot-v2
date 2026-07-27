@@ -195,6 +195,8 @@ async function runSingleQaCommand(command, context) {
       payment_method: paymentMethod,
       reservation_id: command.reservation_id,
       offset_label: command.offset_label || command.offset,
+      skip_fresh_launch: command.skip_fresh_launch,
+      skip_app_build_check: command.skip_app_build_check,
       requested_by: context.user,
       slack_channel: context.channel,
       thread_ts: context.threadTs,
@@ -288,6 +290,57 @@ function appendFlowSection(sections, title, result) {
   ].join("\n"));
 }
 
+function looksLikeLoginSessionFailure(result) {
+  const message = String(result?.error || "");
+  return (
+    message.includes("호스트모드") ||
+    message.includes("로그인") ||
+    message.includes("login") ||
+    message.includes("세션") ||
+    message.includes("홈 화면")
+  );
+}
+
+async function runSingleQaCommandWithLazyLogin(command, context) {
+  let result = await runSingleQaCommand(command, context);
+  const loginRole = requiredLoginRoleForTest(command.test);
+
+  if (result.status === "pass" || !loginRole || !looksLikeLoginSessionFailure(result)) {
+    return { result, formatted: formatResult(result) };
+  }
+
+  const loginResult = await runSingleQaCommand(
+    {
+      test: "login",
+      env: command.env,
+      role: loginRole,
+      skip_app_build_check: command.skip_app_build_check
+    },
+    context
+  );
+
+  if (loginResult.status !== "pass") {
+    return {
+      result: loginResult,
+      formatted: [
+        "[세션 복구 실패] 로그인 재시도",
+        formatResult(loginResult)
+      ].join("\n")
+    };
+  }
+
+  result = await runSingleQaCommand(command, context);
+  return {
+    result,
+    formatted: [
+      `[세션 복구] ${loginRole} 로그인 후 재시도`,
+      loginResult.session_reused ? "- 기존 로그인 세션 재사용" : "- 로그인 세션 복구 완료",
+      "",
+      formatResult(result)
+    ].join("\n")
+  };
+}
+
 function basicValidationLabel(paymentMethod) {
   if (paymentMethod === "bank-transfer") return "무통장 결제";
   if (paymentMethod === "auto-card") return "자동결제";
@@ -321,7 +374,9 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
       test: "contract-request",
       env,
       role: "guest",
-      payment_method: requestPaymentMethod
+      payment_method: requestPaymentMethod,
+      skip_fresh_launch: true,
+      skip_app_build_check: true
     },
     context
   );
@@ -332,11 +387,13 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
   );
   if (contractRequest.status !== "pass") return sections.join("\n\n");
 
-  const { result: approveResult, formatted: formattedApproveResult } = await runQaCommandWithPrerequisite(
+  const { result: approveResult, formatted: formattedApproveResult } = await runSingleQaCommandWithLazyLogin(
     {
       test: "contract-approve",
       env,
-      role: "host"
+      role: "host",
+      skip_fresh_launch: true,
+      skip_app_build_check: true
     },
     context
   );
@@ -351,18 +408,20 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
     return sections.join("\n\n");
   }
 
-  const { result: paymentResult, formatted: formattedPaymentResult } = await runQaCommandWithPrerequisite(
+  const paymentResult = await runSingleQaCommand(
     {
       test: "contract-payment",
       env,
       role: "guest",
-      payment_method: paymentMethod
+      payment_method: paymentMethod,
+      skip_fresh_launch: true,
+      skip_app_build_check: true
     },
     context
   );
   sections.push([
     `## 4. 게스트 ${flowLabel}`,
-    formattedPaymentResult
+    formatResult(paymentResult)
   ].join("\n"));
   if (paymentResult.status !== "pass") return sections.join("\n\n");
 

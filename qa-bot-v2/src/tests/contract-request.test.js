@@ -371,20 +371,38 @@ async function saveFailureArtifacts(config, device, store, name, xml) {
   return saveArtifacts(config, device, store, name, xml, { screenshot: true });
 }
 
+async function isKeyguardShowing(config, device, store) {
+  try {
+    const output = await runAdb(config, device, ["shell", "dumpsys", "window"]);
+    return /mDreamingLockscreen=true|mShowingLockscreen=true|isStatusBarKeyguard=true/.test(output);
+  } catch (error) {
+    store.appendLog("runner.log", `keyguard state check failed: ${error.message}`);
+    return false;
+  }
+}
+
 async function wakeAndUnlock(config, device, steps, store) {
   await keyEvent(config, device, 224);
+  const wasLocked = await isKeyguardShowing(config, device, store);
   await runAdb(config, device, ["shell", "wm", "dismiss-keyguard"]).catch((error) => {
     store.appendLog("runner.log", `dismiss-keyguard failed: ${error.message}`);
   });
-  await runAdb(config, device, ["shell", "input", "swipe", "540", "2200", "540", "600", "300"]);
-  await new Promise((resolve) => setTimeout(resolve, 700));
+
+  if (wasLocked && (await isKeyguardShowing(config, device, store))) {
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2200", "540", "600", "300"]);
+    store.appendLog("runner.log", "wakeAndUnlock sent unlock swipe because keyguard was still visible");
+  } else {
+    store.appendLog("runner.log", "wakeAndUnlock skipped unlock swipe because device was already usable");
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, wasLocked ? 500 : 250));
   addStep(steps, "단말 깨우기 및 잠금 해제 시도");
 }
 
 async function launchFresh(config, device, appPackage, steps) {
   await runAdb(config, device, ["shell", "am", "force-stop", appPackage]);
   addStep(steps, "앱 완전 종료");
-  await new Promise((resolve) => setTimeout(resolve, 700));
+  await new Promise((resolve) => setTimeout(resolve, 450));
   await runAdb(config, device, [
     "shell",
     "monkey",
@@ -395,6 +413,23 @@ async function launchFresh(config, device, appPackage, steps) {
     "1"
   ]);
   addStep(steps, "앱 재실행");
+}
+
+async function prepareHomeForContractRequest(config, device, appPackage, store, steps, options = {}) {
+  if (options.skipFreshLaunch) {
+    let xml = await waitForUi(config, device, hasHomeSearchBar, 3000);
+    await saveArtifacts(config, device, store, "search-home-before-reuse", xml);
+    if (hasHomeSearchBar(xml)) {
+      addStep(steps, "기본검증 기존 홈 화면 재사용");
+      return xml;
+    }
+
+    store.appendLog("runner.log", "contract-request could not reuse current screen; launching app fresh");
+    addStep(steps, "기존 화면 재사용 불가, 앱 재실행으로 복구");
+  }
+
+  await launchFresh(config, device, appPackage, steps);
+  return waitForUi(config, device, hasHomeSearchBar, 10000);
 }
 
 async function tapNode(config, device, node, label, steps) {
@@ -496,8 +531,10 @@ async function tapSearchBar(config, device, xml, steps) {
     );
   }
 
-  await tap(config, device, searchBar.bounds.x, searchBar.bounds.y);
-  addStep(steps, "홈 검색바 탭");
+  const fastX = searchBar.bounds.x;
+  const fastY = Math.max(260, Math.min(searchBar.bounds.y, 560));
+  await tap(config, device, fastX, fastY);
+  addStep(steps, "홈 검색바 탭", "pass", "검색바 확인 후 즉시 탭");
 }
 
 async function selectDomesticRegion(config, device, xml, steps) {
@@ -532,7 +569,7 @@ async function ensureAugustVisible(config, device, xml, steps) {
       "shell", "input", "swipe", "540", "1900", "540", "1100", "500"
     ]);
     addStep(steps, "달력 스크롤", "pass", "2026년 8월 탐색");
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await new Promise((resolve) => setTimeout(resolve, 450));
     currentXml = await dumpUiStable(config, device);
   }
   return currentXml;
@@ -554,7 +591,7 @@ async function selectExactDates(config, device, xml, store, steps) {
   const exact = findNode(xml, "정확한 일정", { clickable: true });
   await tapNode(config, device, exact, "정확한 일정 탭", steps);
   addStep(steps, "정확한 일정 선택");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 220));
 
   xml = await dumpUiStable(config, device);
   xml = await ensureAugustVisible(config, device, xml, steps);
@@ -575,10 +612,10 @@ async function selectExactDates(config, device, xml, store, steps) {
 
   await tap(config, device, startDate.bounds.x, startDate.bounds.y);
   addStep(steps, "체크인 날짜 선택", "pass", "2026-08-01");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 220));
   await tap(config, device, endDate.bounds.x, endDate.bounds.y);
   addStep(steps, "체크아웃 날짜 선택", "pass", "2026-08-07");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 250));
 
   xml = await dumpUiStable(config, device);
   await saveArtifacts(config, device, store, "calendar-after-select", xml);
@@ -637,6 +674,76 @@ function findFirstListing(xml) {
       label.includes("₩")
     );
   });
+}
+
+async function selectNewestSort(config, device, store, steps, xml) {
+  if (xml.includes("신규 집 순")) {
+    addStep(steps, "검색 결과 정렬 확인", "pass", "신규 집 순");
+    return xml;
+  }
+
+  const sortButton = findNode(xml, ["리브 추천 순", "리브 추천순"], {
+    clickable: true,
+    visible: true
+  });
+  if (!sortButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, "search-sort-button-not-found", xml);
+    fail(
+      "검색 결과 화면에서 정렬 필터를 찾지 못했습니다.",
+      steps,
+      [
+        "계약 요청은 검색 결과를 '신규 집 순'으로 정렬한 뒤 첫 번째 숙소를 선택합니다.",
+        "리포트의 search-sort-button-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tapNode(config, device, sortButton, "리브 추천 순 정렬 필터", steps);
+  addStep(steps, "검색 결과 정렬 필터 선택", "pass", "리브 추천 순");
+
+  let sortXml = await waitForUi(config, device, (nextXml) => nextXml.includes("신규 집 순"), 6000);
+  await saveArtifacts(config, device, store, "search-sort-options", sortXml);
+  const newest = findNode(sortXml, "신규 집 순", {
+    clickable: true,
+    enabled: true,
+    visible: true
+  });
+  if (!newest?.bounds) {
+    await saveFailureArtifacts(config, device, store, "search-newest-sort-not-found", sortXml);
+    fail(
+      "검색 결과 정렬 옵션에서 신규 집 순을 찾지 못했습니다.",
+      steps,
+      [
+        "정렬 필터를 열었지만 '신규 집 순' 옵션이 실제 탭 가능한 좌표로 확인되지 않았습니다.",
+        "리포트의 search-newest-sort-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tapNode(config, device, newest, "신규 집 순 정렬 옵션", steps);
+  addStep(steps, "검색 결과 신규 집 순 정렬 선택");
+
+  const resultXml = await waitForUi(
+    config,
+    device,
+    (nextXml) => isContractSearchResults(nextXml) && nextXml.includes("신규 집 순"),
+    8000
+  );
+  await saveArtifacts(config, device, store, "search-results-newest-sort", resultXml);
+  if (!isContractSearchResults(resultXml) || !resultXml.includes("신규 집 순")) {
+    await saveFailureArtifacts(config, device, store, "search-newest-sort-not-applied", resultXml);
+    fail(
+      "검색 결과 신규 집 순 정렬 적용을 확인하지 못했습니다.",
+      steps,
+      [
+        "신규 집 순을 선택한 뒤 검색 결과 화면의 정렬 라벨이 '신규 집 순'으로 바뀌어야 합니다.",
+        "리포트의 search-newest-sort-not-applied.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  addStep(steps, "검색 결과 신규 집 순 정렬 확인");
+  return resultXml;
 }
 
 async function openFirstListing(config, device, store, steps) {
@@ -820,6 +927,17 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
     );
   }
 
+  if (!xml.includes("필수 약관 전체 동의")) {
+    for (let count = 0; count < 2; count += 1) {
+      await runAdb(config, device, [
+        "shell", "input", "swipe", "540", "2260", "540", "380", "260"
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    xml = await dumpUiStable(config, device);
+    addStep(steps, "계약 상세 하단으로 빠르게 스크롤");
+  }
+
   for (let batch = 0; batch < 4; batch += 1) {
     const terms = findNode(xml, "필수 약관 전체 동의", {
       clickable: true,
@@ -951,12 +1069,10 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
       );
     }
 
-    for (let count = 0; count < 3; count += 1) {
-      await runAdb(config, device, [
-        "shell", "input", "swipe", "540", "2220", "540", "340", "450"
-      ]);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await runAdb(config, device, [
+      "shell", "input", "swipe", "540", "2240", "540", "340", "280"
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 150));
     xml = await dumpUiStable(config, device);
   }
 
@@ -1360,6 +1476,7 @@ async function runContractRequestTest({ request, config, store }) {
   const role = request.role || "guest";
   const env = request.env || "staging";
   const paymentMethod = request.payment_method || "manual";
+  const skipFreshLaunch = request.skip_fresh_launch === true;
   const device = config.devices[role] || "";
   const appPackage = config.androidPackages[env];
   const steps = [];
@@ -1373,10 +1490,10 @@ async function runContractRequestTest({ request, config, store }) {
   return withDeviceLock(device, async () => {
     addStep(steps, "환경 설정 확인");
     await wakeAndUnlock(config, device, steps, store);
-    await launchFresh(config, device, appPackage, steps);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    let xml = await waitForUi(config, device, hasHomeSearchBar, 10000);
+    let xml = await prepareHomeForContractRequest(config, device, appPackage, store, steps, {
+      skipFreshLaunch
+    });
     await saveArtifacts(config, device, store, "search-home", xml);
     if (!hasHomeSearchBar(xml)) {
       await saveFailureArtifacts(config, device, store, "search-home", xml);
@@ -1441,6 +1558,7 @@ async function runContractRequestTest({ request, config, store }) {
     }
     addStep(steps, "계약 요청용 검색 결과 목록 확인");
 
+    xml = await selectNewestSort(config, device, store, steps, xml);
     const detailXml = await openFirstListing(config, device, store, steps);
     const contractDetailXml = await tapContractCondition(config, device, store, steps, detailXml);
     const submittedContract = await submitContractRequest(config, device, store, steps, contractDetailXml, { paymentMethod });
