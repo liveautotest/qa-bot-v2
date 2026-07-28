@@ -8,6 +8,7 @@ const {
   routeCommand
 } = require("./slack/command-router");
 const { formatHelp } = require("./slack/slack-reporter");
+const { uploadPdfReports } = require("./slack/pdf-report");
 
 process.on("uncaughtException", (error) => {
   console.error("qa-bot-v2 crashed while connecting to Slack.");
@@ -64,6 +65,26 @@ async function main() {
       text: response,
       thread_ts: threadTs
     });
+
+    try {
+      await uploadPdfReports({
+        client: app.client,
+        config,
+        channel: message.channel,
+        threadTs,
+        responseText: response
+      });
+    } catch (error) {
+      console.error("Failed to upload PDF report:", error.stack || error.message);
+      const message = String(error.message || "");
+      const helpText = message.includes("missing_scope")
+        ? "PDF 리포트 첨부에 실패했습니다: Slack 앱 권한에 files:write가 필요합니다. Slack 앱 OAuth Scopes에 files:write 추가 후 앱을 다시 설치해주세요."
+        : `PDF 리포트 첨부에 실패했습니다: ${message}`;
+      await say({
+        text: helpText,
+        thread_ts: threadTs
+      });
+    }
   }
 
   app.message(/^!qa\b/i, async ({ message, say }) => {

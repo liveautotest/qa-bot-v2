@@ -153,6 +153,8 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 !게스트 계약 요청 취소 dev
 !게스트 계약 확정 취소 stg
 !게스트 계약 확정 취소 dev
+!게스트 연장요청 stg
+!게스트 연장요청 dev
 !게스트 계약 결제 일반카드 stg
 !게스트 계약 결제 일반카드 dev
 !게스트 계약 결제 자동카드 stg

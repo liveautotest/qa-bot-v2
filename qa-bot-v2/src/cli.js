@@ -18,7 +18,7 @@ async function main() {
   const args = parseArgs(rest);
 
   if (!testName) {
-    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-approve|contract-reject|contract-payment|schedule-change|toss-deposit-approve> --env=staging --role=guest");
+    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-approve|contract-reject|contract-payment|schedule-change|toss-deposit-approve> --env=staging --role=guest");
   }
 
   const config = loadConfig();

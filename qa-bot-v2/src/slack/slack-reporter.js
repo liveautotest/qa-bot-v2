@@ -28,6 +28,8 @@ function formatHelp() {
     "!게스트 계약 요청 취소 dev",
     "!게스트 계약 확정 취소 stg",
     "!게스트 계약 확정 취소 dev",
+    "!게스트 연장요청 stg",
+    "!게스트 연장요청 dev",
     "!게스트 계약 결제 일반카드 stg",
     "!게스트 계약 결제 일반카드 dev",
     "!게스트 계약 결제 자동카드 stg (PASS 시 호스트 계약 승인 자동 실행)",
@@ -65,6 +67,7 @@ function formatHelp() {
     "!qa contract-request env=staging role=guest method=auto-card",
     "!qa contract-cancel-request env=staging role=guest",
     "!qa contract-cancel-confirmed env=staging role=guest",
+    "!qa contract-extension env=staging role=guest",
     "!qa contract-payment env=staging role=guest method=card",
     "!qa contract-payment env=staging role=guest method=auto-card",
     "!qa contract-payment env=staging role=guest method=bank-transfer (PASS 시 무통장 입금 승인 자동 실행)",
@@ -212,6 +215,15 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-CONTRACT-EXTENSION-001") {
+    return [
+      "- 홈 화면에서 계약 확정 상태 카드를 선택해 계약 상세로 진입했습니다.",
+      "- 계약 상세에서 계약 연장 요청 버튼을 눌렀습니다.",
+      "- 연장 퇴실일을 1박부터 180박 범위에서 랜덤 선택하고 확인했습니다.",
+      "- 계약 연장 상세의 날짜/연장 박수와 주의사항 동의 후 연장 요청 완료 팝업까지 확인했습니다."
+    ];
+  }
+
   if (result.test_id === "TC-CONTRACT-PAYMENT-001") {
     if (result.payment_conditions?.method === "무통장 입금") {
       return [
@@ -284,22 +296,99 @@ function formatAppBuild(build) {
   return lines;
 }
 
+function formatResultConditionSummary(result) {
+  const lines = [];
+
+  if (result.contract_request?.match_summary) {
+    const { title, schedule, guest } = result.contract_request.match_summary;
+    if (title) lines.push(`- 숙소: ${title}`);
+    if (schedule) lines.push(`- 일정: ${schedule}`);
+    if (guest) lines.push(`- 인원: ${guest}`);
+  }
+
+  if (result.approved_contract?.contract_number) {
+    lines.push(`- 승인 계약 번호: ${result.approved_contract.contract_number}`);
+  }
+
+  if (result.rejected_contract?.contract_number) {
+    lines.push(`- 거절 계약 번호: ${result.rejected_contract.contract_number}`);
+  }
+  if (result.rejected_contract?.reason) {
+    lines.push(`- 거절 사유: ${result.rejected_contract.reason}`);
+  }
+
+  if (result.payment_conditions?.method) {
+    lines.push(`- 결제 방식: ${result.payment_conditions.method}`);
+  }
+  if (result.payment_conditions?.card_brand) {
+    lines.push(`- 카드: ${result.payment_conditions.card_brand}`);
+  }
+  if (result.payment_conditions?.refund_bank || result.payment_conditions?.refund_account) {
+    lines.push(
+      `- 환불 계좌: ${[
+        result.payment_conditions.refund_bank,
+        result.payment_conditions.refund_account
+      ].filter(Boolean).join(" ")}`
+    );
+  }
+
+  if (result.contract_extension) {
+    if (result.contract_extension.target_checkout_date) {
+      lines.push(`- 희망 퇴실일: ${result.contract_extension.target_checkout_date}`);
+    }
+    if (result.contract_extension.extension_nights) {
+      lines.push(`- 연장 박수: ${result.contract_extension.extension_nights}박`);
+    }
+  }
+
+  if (result.schedule_change) {
+    lines.push(`- 예약 번호: ${result.schedule_change.reservation_id}`);
+    lines.push(`- 변경 기간: ${result.schedule_change.start_date} ~ ${result.schedule_change.end_date}`);
+    lines.push(
+      result.schedule_change.applies_price_recalculation
+        ? "- 반영 범위: 날짜/금액 재계산"
+        : "- 반영 범위: 날짜 변경만, 금액 재계산 없음"
+    );
+  }
+
+  if (result.toss_deposit) {
+    if (result.toss_deposit.amount) lines.push(`- 금액: ${result.toss_deposit.amount}`);
+    if (result.toss_deposit.buyer_name) lines.push(`- 구매자: ${result.toss_deposit.buyer_name}`);
+    if (result.toss_deposit.product_name) lines.push(`- 상품: ${result.toss_deposit.product_name}`);
+  }
+
+  return lines.slice(0, 6);
+}
+
+function formatLastProgress(steps = []) {
+  if (!steps.length) return [];
+  const recent = steps.slice(-4);
+  return recent.map((step) => {
+    const message = step.message ? ` (${step.message})` : "";
+    return `- ${step.name}${message}`;
+  });
+}
+
+function formatCompactDetails(details = []) {
+  return details
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((detail) => `- ${detail}`);
+}
+
 function formatResult(result) {
   const icon = result.status === "pass" ? "PASS" : "FAIL";
   const lines = [
     `[${icon}] [${result.test_id}] ${result.name}`,
-    "",
-    `run_id: ${result.run_id}`,
-    `환경: ${result.env}`,
-    `디바이스: ${result.device || "unknown"}`,
-    `소요시간: ${result.duration_ms}ms`
+    `환경: ${result.env} / 디바이스: ${result.device || "unknown"} / ${result.duration_ms}ms`,
+    `run_id: ${result.run_id}`
   ];
 
   const passSummary = formatPassSummary(result);
   if (passSummary.length > 0) {
     lines.push("");
-    lines.push("검증 요약:");
-    lines.push(...passSummary);
+    lines.push("요약:");
+    lines.push(...passSummary.slice(0, 3));
   }
 
   const appBuild = formatAppBuild(result.app_build);
@@ -308,139 +397,15 @@ function formatResult(result) {
     lines.push(...appBuild);
   }
 
-  const searchConditions = formatSearchConditions(result.search_conditions);
-  if (searchConditions.length > 0) {
+  const conditionSummary = [
+    ...formatSearchConditions(result.search_conditions).slice(0, 5),
+    ...formatSearchConditions(result.contract_conditions).slice(0, 5),
+    ...formatResultConditionSummary(result)
+  ].slice(0, 8);
+  if (conditionSummary.length > 0) {
     lines.push("");
-    lines.push("검색 조건:");
-    lines.push(...searchConditions);
-  }
-
-  const contractConditions = formatSearchConditions(result.contract_conditions);
-  if (contractConditions.length > 0) {
-    lines.push("");
-    lines.push("계약 요청 조건:");
-    lines.push(...contractConditions);
-  }
-
-  if (result.contract_request && result.contract_request.contract_number) {
-    lines.push("");
-    lines.push("계약 요청:");
-    lines.push(`- 계약 번호: ${result.contract_request.contract_number}`);
-  }
-
-  if (result.contract_request && result.contract_request.match_summary) {
-    lines.push("");
-    lines.push("계약 요청 카드 기준:");
-    if (result.contract_request.match_summary.title) {
-      lines.push(`- 숙소: ${result.contract_request.match_summary.title}`);
-    }
-    if (result.contract_request.match_summary.schedule) {
-      lines.push(`- 일정: ${result.contract_request.match_summary.schedule}`);
-    }
-    if (result.contract_request.match_summary.guest) {
-      lines.push(`- 인원: ${result.contract_request.match_summary.guest}`);
-    }
-  }
-
-  if (result.approved_contract && result.approved_contract.contract_number) {
-    lines.push("");
-    lines.push("승인 계약:");
-    lines.push(`- 계약 번호: ${result.approved_contract.contract_number}`);
-  }
-
-  if (result.rejected_contract && result.rejected_contract.contract_number) {
-    lines.push("");
-    lines.push("거절 계약:");
-    lines.push(`- 계약 번호: ${result.rejected_contract.contract_number}`);
-  }
-
-  if (result.rejected_contract && result.rejected_contract.match_summary) {
-    if (!result.rejected_contract.contract_number) {
-      lines.push("");
-      lines.push("거절 계약:");
-    }
-    if (result.rejected_contract.match_summary.title) {
-      lines.push(`- 매칭 숙소: ${result.rejected_contract.match_summary.title}`);
-    }
-    if (result.rejected_contract.match_summary.schedule) {
-      lines.push(`- 매칭 일정: ${result.rejected_contract.match_summary.schedule}`);
-    }
-  }
-
-  if (result.rejected_contract && result.rejected_contract.reason) {
-    if (!result.rejected_contract.contract_number && !result.rejected_contract.match_summary) {
-      lines.push("");
-      lines.push("거절 계약:");
-    }
-    lines.push(`- 거절 사유: ${result.rejected_contract.reason}`);
-  }
-
-  if (result.payment_conditions) {
-    lines.push("");
-    lines.push("결제 조건:");
-    if (result.payment_conditions.method) {
-      lines.push(`- 결제 방식: ${result.payment_conditions.method}`);
-    }
-    if (result.payment_conditions.card_brand) {
-      lines.push(`- 카드 브랜드: ${result.payment_conditions.card_brand}`);
-    }
-    if (result.payment_conditions.card_number) {
-      lines.push(`- 카드 번호: ${result.payment_conditions.card_number}`);
-    }
-    if (result.payment_conditions.expiry) {
-      lines.push(`- 만료일: ${result.payment_conditions.expiry}`);
-    }
-    if (result.payment_conditions.cash_receipt_type) {
-      lines.push(`- 현금영수증: ${result.payment_conditions.cash_receipt_type}`);
-    }
-    if (result.payment_conditions.cash_receipt_phone) {
-      lines.push(`- 현금영수증 휴대폰: ${result.payment_conditions.cash_receipt_phone}`);
-    }
-    if (result.payment_conditions.refund_bank) {
-      lines.push(`- 환불/보증금 반환 은행: ${result.payment_conditions.refund_bank}`);
-    }
-    if (result.payment_conditions.refund_account) {
-      lines.push(`- 환불/보증금 반환 계좌: ${result.payment_conditions.refund_account}`);
-    }
-  }
-
-  if (result.toss_deposit) {
-    lines.push("");
-    lines.push("무통장 입금 승인:");
-    if (result.toss_deposit.source_payment_run_id) {
-      lines.push(`- 기준 결제 run_id: ${result.toss_deposit.source_payment_run_id}`);
-    }
-    if (result.toss_deposit.mid) {
-      lines.push(`- MID: ${result.toss_deposit.mid}`);
-    }
-    if (result.toss_deposit.amount) {
-      lines.push(`- 금액: ${result.toss_deposit.amount}`);
-    }
-    if (result.toss_deposit.buyer_name) {
-      lines.push(`- 구매자: ${result.toss_deposit.buyer_name}`);
-    }
-    if (result.toss_deposit.product_name) {
-      lines.push(`- 상품: ${result.toss_deposit.product_name}`);
-    }
-    if (result.toss_deposit.contract_number_suffix) {
-      lines.push(`- 계약번호 끝자리: ${result.toss_deposit.contract_number_suffix}`);
-    }
-  }
-
-  if (result.schedule_change) {
-    lines.push("");
-    lines.push("계약 일정 변경:");
-    lines.push(`- 예약 번호: ${result.schedule_change.reservation_id}`);
-    lines.push(`- 변경 기준: ${result.schedule_change.offset}`);
-    lines.push(`- 시작일: ${result.schedule_change.start_date}`);
-    lines.push(`- 종료일: ${result.schedule_change.end_date}`);
-    lines.push(`- API: POST ${result.schedule_change.endpoint}`);
-    if (result.schedule_change.applies_price_recalculation) {
-      lines.push("- 반영 범위: 계약 변경 내역/세부가격/총결제금액 재계산 대상");
-    } else {
-      lines.push("- 반영 범위: 계약 기간 날짜 변경만 확인, 금액 재계산 없음");
-    }
-    lines.push(`- HTTP 상태: ${result.schedule_change.status_code}`);
+    lines.push("조건:");
+    lines.push(...conditionSummary);
   }
 
   if (result.app_warnings && result.app_warnings.length > 0) {
@@ -468,23 +433,21 @@ function formatResult(result) {
   }
 
   if (result.status === "fail") {
-    lines.push(`실패 단계: ${result.failed_step || "unknown"}`);
-    lines.push(`에러: ${result.error || "unknown"}`);
-    if (result.error_details && result.error_details.length > 0) {
-      lines.push("확인할 내용:");
-      for (const detail of result.error_details) {
-        lines.push(`- ${detail}`);
-      }
-    }
-  }
-
-  const stepSummary = formatStepSummary(result.steps, {
-    compact: result.status === "pass"
-  });
-  if (stepSummary.length > 0) {
     lines.push("");
-    lines.push("실행 단계:");
-    lines.push(...stepSummary);
+    lines.push("실패:");
+    lines.push(`- ${result.error || "unknown"}`);
+    const progress = formatLastProgress(result.steps);
+    if (progress.length > 0) {
+      lines.push("");
+      lines.push("마지막 진행:");
+      lines.push(...progress);
+    }
+    const details = formatCompactDetails(result.error_details);
+    if (details.length > 0) {
+      lines.push("");
+      lines.push("확인:");
+      lines.push(...details);
+    }
   }
 
   if (result.security_checks && result.security_checks.length > 0) {
@@ -502,6 +465,7 @@ function formatResult(result) {
   }
 
   if (result.artifacts && result.artifacts.report_dir) {
+    lines.push("");
     lines.push(`리포트: ${result.artifacts.report_dir}`);
   }
 

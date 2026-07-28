@@ -10,6 +10,7 @@ const {
   runContractCancelRequestTest
 } = require("../tests/contract-cancel-request.test");
 const { runContractPaymentTest } = require("../tests/contract-payment.test");
+const { runContractExtensionTest } = require("../tests/contract-extension.test");
 const { runContractRequestTest } = require("../tests/contract-request.test");
 const { runScheduleChangeTest } = require("../tests/schedule-change.test");
 const { runTossDepositApproveTest } = require("../tests/toss-deposit-approve.test");
@@ -23,6 +24,7 @@ const registry = {
   "contract-reject": runContractRejectTest,
   "contract-cancel-confirmed": runContractCancelConfirmedTest,
   "contract-cancel-request": runContractCancelRequestTest,
+  "contract-extension": runContractExtensionTest,
   "contract-payment": runContractPaymentTest,
   "contract-request": runContractRequestTest,
   "schedule-change": runScheduleChangeTest,

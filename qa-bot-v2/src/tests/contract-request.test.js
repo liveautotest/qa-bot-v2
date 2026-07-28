@@ -243,6 +243,17 @@ function hasContractRequestError(xml) {
   ].some((text) => xml.includes(text));
 }
 
+function extractContractRequestError(xml) {
+  const texts = [
+    "반려동물 정보를 채워야 계약 요청을 할 수 있어요",
+    "일시적인 오류로 요청하지 못 했습니다. 잠시 후 다시 시도해 주세요.",
+    "일시적인 오류가 발생했습니다",
+    "오류가 발생했습니다",
+    "다시 시도"
+  ];
+  return texts.find((text) => xml.includes(text)) || "";
+}
+
 function hasTermsAgreementWarning(xml) {
   return xml.includes("약관을 전체 동의해 주세요");
 }
@@ -429,7 +440,17 @@ async function prepareHomeForContractRequest(config, device, appPackage, store, 
   }
 
   await launchFresh(config, device, appPackage, steps);
-  return waitForUi(config, device, hasHomeSearchBar, 10000);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  await tap(config, device, 540, 360);
+  let xml = await waitForUi(config, device, isSearchConditionScreen, 2600);
+  if (isSearchConditionScreen(xml)) {
+    addStep(steps, "홈 검색바 빠른 진입", "pass", "앱 재실행 후 예상 검색바 좌표 탭");
+    return xml;
+  }
+
+  store.appendLog("runner.log", "contract-request fast home search tap did not open search condition; falling back to XML search");
+  xml = await waitForUi(config, device, hasHomeSearchBar, 6500);
+  return xml;
 }
 
 async function tapNode(config, device, node, label, steps) {
@@ -1393,12 +1414,18 @@ async function submitContractRequest(config, device, store, steps, contractDetai
   }
 
   if (hasContractRequestError(xml) && !isContractComplete(xml)) {
+    const appError = extractContractRequestError(xml);
     await saveFailureArtifacts(config, device, store, "contract-request-after-submit", xml);
     fail(
-      "계약 요청 완료 화면으로 이동하지 못했습니다.",
+      appError
+        ? `계약 요청 실패: 앱 오류 메시지 노출 - ${appError}`
+        : "계약 요청 완료 화면으로 이동하지 못했습니다.",
       steps,
       [
-        "계약 요청 후 앱 오류 또는 필수 정보 누락 메시지가 노출되었습니다.",
+        appError
+          ? `앱 화면에 노출된 오류: ${appError}`
+          : "계약 요청 후 앱 오류 또는 필수 정보 누락 메시지가 노출되었습니다.",
+        "버튼 탭은 완료됐지만 서버/앱 처리 결과가 실패로 돌아온 상태입니다.",
         "리포트의 contract-request-after-submit.png 화면을 확인해주세요."
       ]
     );
@@ -1421,6 +1448,13 @@ async function submitContractRequest(config, device, store, steps, contractDetai
   if (home?.bounds) {
     await tapNode(config, device, home, "홈으로 버튼", steps);
     addStep(steps, "완료 화면 홈으로 버튼 탭");
+  } else if (!isContractRequestScreen(xml) && !hasContractRequestError(xml)) {
+    store.appendLog(
+      "runner.log",
+      "contract-request complete screen did not expose text/buttons in XML; tapping fixed bottom-left home button area"
+    );
+    await tap(config, device, 150, 2380);
+    addStep(steps, "완료 화면 홈으로 버튼 탭", "XML 텍스트 미노출 fallback");
   } else {
     await saveFailureArtifacts(config, device, store, "contract-request-after-submit", xml);
     fail(
@@ -1495,7 +1529,7 @@ async function runContractRequestTest({ request, config, store }) {
       skipFreshLaunch
     });
     await saveArtifacts(config, device, store, "search-home", xml);
-    if (!hasHomeSearchBar(xml)) {
+    if (!hasHomeSearchBar(xml) && !isSearchConditionScreen(xml)) {
       await saveFailureArtifacts(config, device, store, "search-home", xml);
       if (isLoginStartScreen(xml)) {
         fail(
@@ -1519,8 +1553,10 @@ async function runContractRequestTest({ request, config, store }) {
       );
     }
 
-    await tapSearchBar(config, device, xml, steps);
-    xml = await waitForUi(config, device, isSearchConditionScreen, 8000);
+    if (!isSearchConditionScreen(xml)) {
+      await tapSearchBar(config, device, xml, steps);
+      xml = await waitForUi(config, device, isSearchConditionScreen, 8000);
+    }
     await saveArtifacts(config, device, store, "search-condition", xml);
     if (!isSearchConditionScreen(xml)) {
       await saveFailureArtifacts(config, device, store, "search-condition", xml);

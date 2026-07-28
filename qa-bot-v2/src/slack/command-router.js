@@ -2,7 +2,7 @@ const { runTest } = require("../orchestrator/run-test");
 const { formatHelp, formatResult } = require("./slack-reporter");
 
 const KOREAN_SHORTCUT_PATTERN =
-  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
+  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const SCHEDULE_CHANGE_PATTERN =
@@ -45,6 +45,10 @@ function parseKoreanShortcut(text) {
     "계약 확정 취소": "contract-cancel-confirmed",
     예약확정취소: "contract-cancel-confirmed",
     "예약 확정 취소": "contract-cancel-confirmed",
+    연장요청: "contract-extension",
+    "연장 요청": "contract-extension",
+    계약연장: "contract-extension",
+    "계약 연장": "contract-extension",
     계약승인: "contract-approve",
     "계약 승인": "contract-approve",
     계약요청거절: "contract-reject",
@@ -160,7 +164,8 @@ function requiredLoginRoleForTest(test) {
     "contract-request",
     "contract-payment",
     "contract-cancel-request",
-    "contract-cancel-confirmed"
+    "contract-cancel-confirmed",
+    "contract-extension"
   ];
   if (guestRequired.includes(test)) return "guest";
   if (test === "contract-approve" || test === "contract-reject") return "host";
@@ -283,11 +288,32 @@ async function runQaCommand(command, context) {
   ].join("\n");
 }
 
+function reportLine(result) {
+  return result?.artifacts?.report_dir ? `리포트: ${result.artifacts.report_dir}` : "";
+}
+
+function compactFlowSection(title, result) {
+  const status = String(result.status || "unknown").toUpperCase();
+  const lines = [
+    `${status === "PASS" ? "[PASS]" : "[FAIL]"} ${title}`,
+    `- run_id: ${result.run_id || "-"} / ${result.duration_ms || 0}ms`
+  ];
+
+  if (result.status === "fail") {
+    lines.push(`- 실패: ${result.error || "unknown"}`);
+    const lastStep = (result.steps || []).slice(-1)[0];
+    if (lastStep) {
+      lines.push(`- 마지막 진행: ${lastStep.name}${lastStep.message ? ` (${lastStep.message})` : ""}`);
+    }
+  }
+
+  const report = reportLine(result);
+  if (report) lines.push(report);
+  return lines.join("\n");
+}
+
 function appendFlowSection(sections, title, result) {
-  sections.push([
-    `## ${title}`,
-    formatResult(result)
-  ].join("\n"));
+  sections.push(compactFlowSection(title, result));
 }
 
 function looksLikeLoginSessionFailure(result) {
@@ -397,10 +423,7 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
     },
     context
   );
-  sections.push([
-    "## 3. 호스트 계약 승인",
-    formattedApproveResult
-  ].join("\n"));
+  sections.push(compactFlowSection("3. 호스트 계약 승인", approveResult));
   if (approveResult.status !== "pass") return sections.join("\n\n");
 
   if (isAutoCard) {
@@ -419,10 +442,7 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
     },
     context
   );
-  sections.push([
-    `## 4. 게스트 ${flowLabel}`,
-    formatResult(paymentResult)
-  ].join("\n"));
+  sections.push(compactFlowSection(`4. 게스트 ${flowLabel}`, paymentResult));
   if (paymentResult.status !== "pass") return sections.join("\n\n");
 
   if (paymentMethod === "bank-transfer") {
@@ -485,6 +505,7 @@ async function routeCommand(text, context) {
     command === "contract-reject" ||
     command === "contract-cancel-confirmed" ||
     command === "contract-cancel-request" ||
+    command === "contract-extension" ||
     command === "contract-payment" ||
     command === "contract-request" ||
     command === "basic-validation" ||

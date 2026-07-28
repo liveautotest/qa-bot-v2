@@ -91,13 +91,13 @@ async function saveFailureArtifacts(config, device, store, name, xml) {
   return { xmlPath, screenshotPath };
 }
 
-async function waitForUi(config, device, predicate, timeoutMs = 12000) {
+async function waitForUi(config, device, predicate, timeoutMs = 12000, intervalMs = 500) {
   const startedAt = Date.now();
   let xml = "";
   while (Date.now() - startedAt < timeoutMs) {
     xml = await dumpUi(config, device);
     if (predicate(xml)) return xml;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   return xml;
 }
@@ -347,10 +347,15 @@ async function launchApp(config, device, appPackage, steps) {
 
 async function prepareHostContractList(config, device, appPackage, store, steps, options = {}) {
   if (options.skipFreshLaunch) {
-    store.appendLog("runner.log", "contract-approve launches host app fresh because host home has no pull refresh");
-    await launchApp(config, device, appPackage, steps);
-    addStep(steps, "호스트 홈 최신 상태 확인을 위해 앱 재실행");
-    return;
+    const xml = await waitForUi(config, device, isHostModeShell, 2500, 150);
+    saveXml(store, "host-before-reuse", xml);
+    if (isHostModeShell(xml)) {
+      addStep(steps, "기존 호스트 화면 재사용");
+      return;
+    }
+
+    store.appendLog("runner.log", "contract-approve could not reuse host screen; launching app fresh");
+    addStep(steps, "기존 호스트 화면 재사용 불가, 앱 재실행으로 복구");
   }
 
   await launchApp(config, device, appPackage, steps);
@@ -409,7 +414,8 @@ async function openContractRequestFromHostHome(config, device, store, steps, opt
       Boolean(findHostHomeRequestCard(candidateXml, matchSummary)) ||
       isHostContractList(candidateXml) ||
       (!matchSummary && isHostModeShell(candidateXml)),
-    12000
+    7000,
+    150
   );
   saveXml(store, "host-home-before-direct-approve", xml);
 
@@ -424,7 +430,7 @@ async function openContractRequestFromHostHome(config, device, store, steps, opt
     : "호스트 홈 수락 대기 카드";
   addStep(steps, "호스트 홈 수락 대기 카드 상세 진입", "pass", matchedMessage);
 
-  xml = await waitForUi(config, device, isContractRequestDetail, 12000);
+  xml = await waitForUi(config, device, isContractRequestDetail, 9000, 180);
   saveXml(store, "contract-approve-detail", xml);
 
   if (isContractRequestDetail(xml)) {
@@ -872,7 +878,14 @@ async function runContractRejectTest({ request, config, store }) {
     await runAdb(config, device, ["shell", "wm", "dismiss-keyguard"]).catch(() => {});
     addStep(steps, "단말 깨우기 및 잠금 해제 시도");
 
-    await launchApp(config, device, appPackage, steps);
+    let xml = await waitForUi(config, device, isHostModeShell, 2500, 150);
+    saveXml(store, "host-reject-before-reuse", xml);
+    if (isHostModeShell(xml)) {
+      addStep(steps, "기존 호스트 화면 재사용");
+    } else {
+      addStep(steps, "기존 호스트 화면 재사용 불가, 앱 재실행으로 복구");
+      await launchApp(config, device, appPackage, steps);
+    }
 
     const matchSummary = findLatestGuestContractRequestSummary(config.reportBaseDir, env);
     if (matchSummary?.title && matchSummary?.schedule) {
@@ -894,7 +907,7 @@ async function runContractRejectTest({ request, config, store }) {
       );
     }
 
-    let xml = await openHostContractList(config, device, store, steps);
+    xml = await openHostContractList(config, device, store, steps);
     const detail = await openContractRequest(config, device, store, steps, xml, {
       matchSummary,
       requireSummaryMatch: true
