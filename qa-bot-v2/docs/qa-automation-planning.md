@@ -176,6 +176,8 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 !호스트 계약 승인 dev
 !호스트 계약 요청 거절 stg
 !호스트 계약 요청 거절 dev
+!호스트 연장수락 stg
+!호스트 연장수락 dev
 ```
 
 ### 5.2 상세 명령어

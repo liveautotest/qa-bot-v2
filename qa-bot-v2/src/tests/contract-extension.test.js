@@ -182,10 +182,7 @@ function isContractDetail(xml) {
 }
 
 function isExtensionGuidePopup(xml) {
-  return (
-    xml.includes("계약 연장 요청 안내") ||
-    (xml.includes("계약 연장") && xml.includes("안내") && xml.includes("확인"))
-  );
+  return xml.includes("계약 연장 요청 안내");
 }
 
 function isExtensionCalendar(xml) {
@@ -313,6 +310,12 @@ function daysBetween(startDate, endDate) {
 
 function getVisibleExtensionDateCandidates(xml, baseCheckout) {
   const nodes = parseNodes(xml);
+  const bottomActionTop = nodes
+    .filter((node) => node.bounds && nodeLabel(node).includes("확인"))
+    .map((node) => node.bounds.top)
+    .filter((top) => top > 1800)
+    .sort((a, b) => a - b)[0] || 2060;
+  const maxCandidateBottom = Math.min(1980, bottomActionTop - 20);
   const monthNodes = nodes
     .map((node) => {
       const match = nodeLabel(node).match(/(\d{4})년\s*(\d{1,2})월/);
@@ -339,6 +342,7 @@ function getVisibleExtensionDateCandidates(xml, baseCheckout) {
       if (!node.bounds || node.attrs.clickable !== "true" || node.attrs.enabled !== "true") continue;
       if (!isVisibleNode(node)) continue;
       if (node.bounds.top < monthTop || node.bounds.bottom > monthBottom) continue;
+      if (node.bounds.bottom > maxCandidateBottom) continue;
 
       const label = nodeLabel(node).trim();
       if (!/^\d{1,2}$/.test(label)) continue;
@@ -439,8 +443,9 @@ async function openConfirmedContractDetailFromHome(config, device, store, steps,
 
 async function tapExtensionRequestButton(config, device, store, steps, initialXml) {
   let xml = initialXml;
-  for (let count = 0; count < 7; count += 1) {
-    const button = findNode(xml, ["계약 연장 요청", "연장 요청"], {
+  for (let count = 0; count < 12; count += 1) {
+    saveXml(store, `extension-request-search-${count + 1}`, xml);
+    const button = findNode(xml, "계약 연장 요청", {
       visible: true,
       clickable: true,
       enabled: true
@@ -449,16 +454,19 @@ async function tapExtensionRequestButton(config, device, store, steps, initialXm
       saveXml(store, "extension-request-button", xml);
       await tapNode(config, device, button, "계약 연장 요청 버튼", steps);
       addStep(steps, "계약 상세 계약 연장 요청 버튼 선택");
-      return waitForUi(
+      const nextXml = await waitForUi(
         config,
         device,
         (nextXml) => isExtensionGuidePopup(nextXml) || isExtensionCalendar(nextXml),
-        10000
+        4000
       );
+      if (isExtensionGuidePopup(nextXml) || isExtensionCalendar(nextXml)) return nextXml;
+      saveXml(store, `extension-request-tap-no-transition-${count + 1}`, nextXml);
+      xml = nextXml;
     }
 
-    await runAdb(config, device, ["shell", "input", "swipe", "540", "2050", "540", "980", "220"]);
-    await new Promise((resolve) => setTimeout(resolve, 160));
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "1920", "540", "1320", "180"]);
+    await new Promise((resolve) => setTimeout(resolve, 140));
     xml = await dumpUi(config, device);
   }
 
@@ -804,6 +812,43 @@ async function confirmCompletePopup(config, device, store, steps, initialXml) {
   }
 }
 
+async function relaunchAndVerifyHome(config, device, appPackage, store, steps) {
+  await launchFresh(config, device, appPackage, steps);
+  const xml = await waitForUi(
+    config,
+    device,
+    (nextXml) => hasHomeSearchBar(nextXml) || hasConfirmedContractCard(nextXml) || isLoginStartScreen(nextXml),
+    12000
+  );
+  saveXml(store, "extension-home-after-relaunch", xml);
+
+  if (isLoginStartScreen(xml)) {
+    await saveFailureArtifacts(config, device, store, "extension-home-after-relaunch-login-required", xml);
+    fail(
+      "연장 요청 완료 후 앱을 재실행했지만 게스트 홈이 아닌 로그인 화면이 노출되었습니다.",
+      steps,
+      [
+        "연장 요청 완료 후에는 로그인 세션이 유지된 홈 화면으로 진입해야 합니다.",
+        "리포트의 extension-home-after-relaunch-login-required.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  if (!hasHomeSearchBar(xml) && !hasConfirmedContractCard(xml)) {
+    await saveFailureArtifacts(config, device, store, "extension-home-after-relaunch-not-found", xml);
+    fail(
+      "연장 요청 완료 후 앱 재실행 시 홈 화면을 확인하지 못했습니다.",
+      steps,
+      [
+        "완료 팝업 확인 후 앱을 재실행해 홈 화면 진입까지 확인합니다.",
+        "리포트의 extension-home-after-relaunch-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  addStep(steps, "연장 요청 완료 후 앱 재실행 및 홈 화면 확인");
+}
+
 async function runContractExtensionTest({ request, config, store }) {
   const role = request.role || "guest";
   const env = request.env || "staging";
@@ -826,6 +871,7 @@ async function runContractExtensionTest({ request, config, store }) {
     const extensionInfo = await selectRandomExtensionCheckout(config, device, store, steps, xml, detail.checkoutDate);
     xml = await agreeRulesAndSubmit(config, device, store, steps, extensionInfo.xml, extensionInfo);
     await confirmCompletePopup(config, device, store, steps, xml);
+    await relaunchAndVerifyHome(config, device, appPackage, store, steps);
 
     return {
       test_id: "TC-CONTRACT-EXTENSION-001",
@@ -846,7 +892,8 @@ async function runContractExtensionTest({ request, config, store }) {
           path.join(store.logsDir, "extension-calendar-selected.xml"),
           path.join(store.logsDir, "extension-detail-start.xml"),
           path.join(store.logsDir, "extension-complete-popup.xml"),
-          path.join(store.logsDir, "extension-complete-after-confirm.xml")
+          path.join(store.logsDir, "extension-complete-after-confirm.xml"),
+          path.join(store.logsDir, "extension-home-after-relaunch.xml")
         ].filter((filePath) => fs.existsSync(filePath)),
         report_dir: store.reportDir
       }

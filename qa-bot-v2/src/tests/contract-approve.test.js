@@ -261,6 +261,15 @@ function findRequestCard(xml, targetContractNumber = "", matchSummary = null, op
 
 function findHostHomeRequestCard(xml, matchSummary = null) {
   const nodes = parseNodes(xml);
+  if (matchSummary) {
+    const matchedSummaryCard = nodes.find((node) => {
+      if (!node.bounds || node.attrs.clickable !== "true") return false;
+      if (node.bounds.top < 240 || node.bounds.top >= 2100) return false;
+      return summaryMatches(labelOf(node), matchSummary);
+    });
+    if (matchedSummaryCard) return matchedSummaryCard;
+  }
+
   const statusPattern = /(수락이\s*필요한\s*계약|수락해\s*주세요|수락\s*대기|계약\s*요청|요청\s*중)/;
   const candidates = nodes.filter((node) => {
     if (!node.bounds || node.attrs.clickable !== "true") return false;
@@ -410,39 +419,68 @@ async function openContractRequestFromHostHome(config, device, store, steps, opt
   let xml = await waitForUi(
     config,
     device,
-    (candidateXml) =>
-      Boolean(findHostHomeRequestCard(candidateXml, matchSummary)) ||
-      isHostContractList(candidateXml) ||
-      (!matchSummary && isHostModeShell(candidateXml)),
+    (candidateXml) => isHostModeShell(candidateXml),
     7000,
     150
   );
   saveXml(store, "host-home-before-direct-approve", xml);
 
-  if (!isHostModeShell(xml) || isHostContractList(xml)) return null;
+  if (!isHostModeShell(xml)) return null;
 
-  const requestCard = findHostHomeRequestCard(xml, matchSummary);
+  let requestCard = findHostHomeRequestCard(xml, matchSummary);
+  if (!requestCard?.bounds) {
+    const homeTab = findBottomTab(xml, "홈");
+    if (homeTab?.bounds) {
+      await tap(config, device, homeTab.bounds.x, homeTab.bounds.y);
+      addStep(steps, "호스트 홈 탭 진입");
+      xml = await waitForUi(
+        config,
+        device,
+        (candidateXml) => Boolean(findHostHomeRequestCard(candidateXml, matchSummary)),
+        5000,
+        150
+      );
+      saveXml(store, "host-home-after-home-tab", xml);
+      requestCard = findHostHomeRequestCard(xml, matchSummary);
+    }
+  }
+
   if (!requestCard?.bounds) return null;
 
-  await tap(config, device, requestCard.bounds.x, requestCard.bounds.y);
   const matchedMessage = matchSummary?.title
     ? `${matchSummary.title} / ${matchSummary.schedule}`
     : "호스트 홈 수락 대기 카드";
-  addStep(steps, "호스트 홈 수락 대기 카드 상세 진입", "pass", matchedMessage);
 
-  xml = await waitForUi(config, device, isContractRequestDetail, 9000, 180);
-  saveXml(store, "contract-approve-detail", xml);
+  const tapTargets = [
+    [requestCard.bounds.x, requestCard.bounds.y, "카드 중앙"],
+    [Math.max(requestCard.bounds.left + 90, 180), Math.round((requestCard.bounds.top + requestCard.bounds.bottom) / 2), "카드 이미지 영역"],
+    [Math.min(requestCard.bounds.left + 430, requestCard.bounds.right - 80), requestCard.bounds.top + 48, "카드 숙소명 영역"]
+  ];
 
-  if (isContractRequestDetail(xml)) {
-    return {
-      xml,
-      contractNumber: getContractNumber(xml)
-    };
+  for (const [x, y, targetLabel] of tapTargets) {
+    await tap(config, device, x, y);
+    addStep(steps, "호스트 홈 수락 대기 카드 선택", "pass", `${matchedMessage} (${targetLabel})`);
+
+    xml = await waitForUi(config, device, isContractRequestDetail, 3200, 160);
+    if (isContractRequestDetail(xml)) {
+      saveXml(store, "contract-approve-detail", xml);
+      addStep(steps, "호스트 계약 요청 상세 진입");
+      return {
+        xml,
+        contractNumber: getContractNumber(xml)
+      };
+    }
+
+    if (!isHostModeShell(xml)) {
+      await keyEvent(config, device, 4).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      xml = await waitForUi(config, device, isHostModeShell, 2500, 150);
+    }
   }
 
-  store.appendLog("runner.log", "host home request card did not open approve detail; falling back to contract tab");
-  await keyEvent(config, device, 4).catch(() => {});
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  saveXml(store, "contract-approve-detail", xml);
+
+  store.appendLog("runner.log", "host home request card did not open approve detail");
   return null;
 }
 
@@ -831,8 +869,22 @@ async function runContractApproveTest({ request, config, store }) {
       matchSummary
     });
 
-    let xml = directDetail ? directDetail.xml : await openHostContractList(config, device, store, steps);
-    const detail = directDetail || await openContractRequest(config, device, store, steps, xml);
+    if (!directDetail) {
+      const xml = await dumpUi(config, device);
+      await saveFailureArtifacts(config, device, store, "host-home-approve-card-not-found", xml);
+      fail(
+        "호스트 홈에서 수락 대기 계약 카드를 찾지 못했습니다.",
+        steps,
+        [
+          "계약 승인은 호스트 홈의 '수락이 필요한 계약' 카드에서 바로 시작합니다.",
+          "숙소명/일정 매칭이 어긋나면 다른 계약을 승인하지 않도록 계약 탭 fallback은 사용하지 않습니다.",
+          "리포트의 host-home-approve-card-not-found.png 화면을 확인해주세요."
+        ]
+      );
+    }
+
+    let xml = directDetail.xml;
+    const detail = directDetail;
     xml = await tapAcceptAndConfirm(config, device, store, steps, detail.xml);
 
     addStep(steps, "계약 승인 완료 확인");

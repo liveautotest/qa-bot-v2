@@ -18,14 +18,15 @@ async function main() {
   const args = parseArgs(rest);
 
   if (!testName) {
-    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-approve|contract-reject|contract-payment|schedule-change|toss-deposit-approve> --env=staging --role=guest");
+    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|schedule-change|toss-deposit-approve> --env=staging --role=guest");
   }
 
+  const hostDefaultTests = new Set(["contract-approve", "contract-reject", "contract-extension-approve"]);
   const config = loadConfig();
   const request = {
     test: testName,
     env: args.env || (testName === "toss-deposit-approve" ? "toss" : testName === "schedule-change" ? "api" : "staging"),
-    role: args.role || (testName === "toss-deposit-approve" ? "admin" : testName === "schedule-change" ? "api" : "guest"),
+    role: args.role || (testName === "toss-deposit-approve" ? "admin" : testName === "schedule-change" ? "api" : hostDefaultTests.has(testName) ? "host" : "guest"),
     payment_method: args.method || args.payment_method,
     reservation_id: args.reservation_id || args.reservation || args.id,
     offset_label: args.offset || args.offset_label,

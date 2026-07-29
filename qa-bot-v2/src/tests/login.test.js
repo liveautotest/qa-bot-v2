@@ -476,7 +476,8 @@ async function submitLogin(config, device, xml, steps) {
   addStep(steps, "로그인 제출");
 }
 
-async function verifyHostMode(config, device, store, steps) {
+async function verifyHostMode(config, device, store, steps, options = {}) {
+  const hostHomeOnly = options.hostHomeOnly === true;
   let xml = await waitForUi(config, device, isLoggedInHome, 10000);
   fs.writeFileSync(path.join(store.logsDir, "host-home.xml"), xml);
 
@@ -537,6 +538,22 @@ async function verifyHostMode(config, device, store, steps) {
     throw new Error("Host mode screen was not confirmed after tapping host mode.");
   }
 
+  if (hostHomeOnly) {
+    const homeTabBounds =
+      findBottomTabBounds(xml, "홈") ||
+      findButtonBoundsByLabel(xml, "홈") ||
+      findBoundsByTextIncludes(xml, "홈");
+
+    if (homeTabBounds) {
+      await tap(config, device, homeTabBounds.x, homeTabBounds.y);
+      addStep(steps, "호스트 홈 탭 진입");
+      xml = await waitForUi(config, device, isHostModeShell, 5000);
+      fs.writeFileSync(path.join(store.logsDir, "host-home-final.xml"), xml);
+    }
+
+    return;
+  }
+
   const contractTabBounds =
     findBottomTabBounds(xml, "계약") ||
     findButtonBoundsByLabel(xml, "계약") ||
@@ -578,6 +595,7 @@ async function launchApp(config, device, appPackage, steps) {
 async function runLoginTest({ request, config, store }) {
   const role = request.role || "guest";
   const env = request.env || "dev";
+  const hostHomeOnly = request.host_home_only === true;
   const device = config.devices[role] || "";
   const appPackage = config.androidPackages[env];
   const account = config.accounts[role] || {};
@@ -659,7 +677,7 @@ async function runLoginTest({ request, config, store }) {
       addStep(steps, `기존 ${role} 로그인 세션 확인`);
 
       if (role === "host") {
-        await verifyHostMode(config, device, store, steps);
+        await verifyHostMode(config, device, store, steps, { hostHomeOnly });
         addStep(steps, "호스트 로그인 완료 확인");
       } else {
         addStep(steps, "게스트 로그인 완료 확인");
@@ -672,6 +690,7 @@ async function runLoginTest({ request, config, store }) {
               path.join(store.logsDir, "host-home.xml"),
               path.join(store.logsDir, "host-my-info.xml"),
               path.join(store.logsDir, "host-mode.xml"),
+              path.join(store.logsDir, "host-home-final.xml"),
               path.join(store.logsDir, "host-contract.xml")
             ]
           : [path.join(store.logsDir, "after-launch.xml")];
@@ -820,7 +839,7 @@ async function runLoginTest({ request, config, store }) {
     }
 
     if (role === "host") {
-      await verifyHostMode(config, device, store, steps);
+      await verifyHostMode(config, device, store, steps, { hostHomeOnly });
     }
 
     addStep(steps, "로그인 완료 확인");
@@ -839,7 +858,10 @@ async function runLoginTest({ request, config, store }) {
           path.join(store.logsDir, "runner.log"),
           path.join(store.logsDir, "after-launch.xml"),
           path.join(store.logsDir, "after-submit.xml"),
-          ...(role === "host" ? [path.join(store.logsDir, "host-contract.xml")] : [])
+          ...(role === "host" ? [
+            path.join(store.logsDir, "host-home-final.xml"),
+            path.join(store.logsDir, "host-contract.xml")
+          ] : [])
         ].filter((filePath) => fs.existsSync(filePath))
       }
     };

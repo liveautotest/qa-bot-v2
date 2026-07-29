@@ -30,6 +30,8 @@ function formatHelp() {
     "!게스트 계약 확정 취소 dev",
     "!게스트 연장요청 stg",
     "!게스트 연장요청 dev",
+    "!호스트 연장수락 stg",
+    "!호스트 연장수락 dev",
     "!게스트 계약 결제 일반카드 stg",
     "!게스트 계약 결제 일반카드 dev",
     "!게스트 계약 결제 자동카드 stg (PASS 시 호스트 계약 승인 자동 실행)",
@@ -224,6 +226,17 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-CONTRACT-EXTENSION-APPROVE-001") {
+    return [
+      "- 호스트 홈에서 연장 요청 카드를 선택해 계약 상세로 진입했습니다.",
+      "- 계약 연장 요청 섹션의 확인 및 응답 버튼을 눌렀습니다.",
+      result.contract_extension_approval?.validation_mode === "fast-accept"
+        ? "- 계약 연장 상세 진입 후 속도 우선 모드로 하단 연장 수락을 바로 선택했습니다."
+        : "- 계약 연장 상세 문구, 금액 영역, 정산 예정 금액 일치 여부를 확인했습니다.",
+      "- 연장 수락과 확인 팝업, 수락 완료 팝업 처리 후 호스트 앱 재실행까지 확인했습니다."
+    ];
+  }
+
   if (result.test_id === "TC-CONTRACT-PAYMENT-001") {
     if (result.payment_conditions?.method === "무통장 입금") {
       return [
@@ -338,6 +351,16 @@ function formatResultConditionSummary(result) {
     }
     if (result.contract_extension.extension_nights) {
       lines.push(`- 연장 박수: ${result.contract_extension.extension_nights}박`);
+    }
+  }
+
+  if (result.contract_extension_approval) {
+    const fastExtensionApprove = result.contract_extension_approval.validation_mode === "fast-accept";
+    if (!fastExtensionApprove && result.contract_extension_approval.settlement_amount) {
+      lines.push(`- 연장 정산 예정: ${result.contract_extension_approval.settlement_amount}`);
+    }
+    if (!fastExtensionApprove && result.contract_extension_approval.guest_payment_amount) {
+      lines.push(`- 게스트 결제 예정: ${result.contract_extension_approval.guest_payment_amount}`);
     }
   }
 

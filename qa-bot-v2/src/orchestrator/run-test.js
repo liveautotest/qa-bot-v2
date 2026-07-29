@@ -56,6 +56,7 @@ async function runTest(request, config) {
       "contract-cancel-confirmed": "TC-CONTRACT-CANCEL-CONFIRMED-001",
       "contract-cancel-request": "TC-CONTRACT-CANCEL-REQUEST-001",
       "contract-extension": "TC-CONTRACT-EXTENSION-001",
+      "contract-extension-approve": "TC-CONTRACT-EXTENSION-APPROVE-001",
       "contract-payment": "TC-CONTRACT-PAYMENT-001",
       "schedule-change": "TC-SCHEDULE-CHANGE-001",
       "toss-deposit-approve": "TC-TOSS-DEPOSIT-APPROVE-001"
@@ -71,6 +72,7 @@ async function runTest(request, config) {
       "contract-cancel-confirmed": "계약 확정 취소",
       "contract-cancel-request": "계약 요청 취소",
       "contract-extension": "계약 연장",
+      "contract-extension-approve": "계약 연장 수락",
       "contract-payment": "계약 결제",
       "schedule-change": "계약 일정 변경",
       "toss-deposit-approve": "무통장 입금 승인"

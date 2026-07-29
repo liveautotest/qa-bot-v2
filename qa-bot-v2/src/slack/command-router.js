@@ -2,7 +2,7 @@ const { runTest } = require("../orchestrator/run-test");
 const { formatHelp, formatResult } = require("./slack-reporter");
 
 const KOREAN_SHORTCUT_PATTERN =
-  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
+  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const SCHEDULE_CHANGE_PATTERN =
@@ -49,6 +49,14 @@ function parseKoreanShortcut(text) {
     "연장 요청": "contract-extension",
     계약연장: "contract-extension",
     "계약 연장": "contract-extension",
+    연장수락: "contract-extension-approve",
+    "연장 수락": "contract-extension-approve",
+    연장승인: "contract-extension-approve",
+    "연장 승인": "contract-extension-approve",
+    계약연장수락: "contract-extension-approve",
+    "계약 연장 수락": "contract-extension-approve",
+    계약연장승인: "contract-extension-approve",
+    "계약 연장 승인": "contract-extension-approve",
     계약승인: "contract-approve",
     "계약 승인": "contract-approve",
     계약요청거절: "contract-reject",
@@ -125,7 +133,7 @@ function parseScheduleChange(text) {
 }
 
 function roleForShortcut(test, requestedRoleLabel) {
-  if (test === "contract-approve" || test === "contract-reject") return "host";
+  if (test === "contract-approve" || test === "contract-reject" || test === "contract-extension-approve") return "host";
   if (
     test === "contract-request" ||
     test === "contract-payment" ||
@@ -140,7 +148,7 @@ function roleForShortcut(test, requestedRoleLabel) {
 function defaultRoleForTest(test) {
   if (test === "schedule-change") return "api";
   if (test === "toss-deposit-approve") return "admin";
-  return test === "contract-approve" || test === "contract-reject" ? "host" : "guest";
+  return test === "contract-approve" || test === "contract-reject" || test === "contract-extension-approve" ? "host" : "guest";
 }
 
 function shouldAutoApproveTossDeposit({ test, paymentMethod }, result) {
@@ -168,8 +176,12 @@ function requiredLoginRoleForTest(test) {
     "contract-extension"
   ];
   if (guestRequired.includes(test)) return "guest";
-  if (test === "contract-approve" || test === "contract-reject") return "host";
+  if (test === "contract-approve" || test === "contract-reject" || test === "contract-extension-approve") return "host";
   return "";
+}
+
+function shouldUseLazyLogin(test) {
+  return test === "contract-extension" || test === "contract-extension-approve";
 }
 
 async function runPrerequisiteLogin({ test, env }, context) {
@@ -181,6 +193,7 @@ async function runPrerequisiteLogin({ test, env }, context) {
       test: "login",
       env,
       role: loginRole,
+      host_home_only: loginRole === "host",
       requested_by: context.user,
       slack_channel: context.channel,
       thread_ts: context.threadTs,
@@ -214,6 +227,10 @@ async function runSingleQaCommand(command, context) {
 }
 
 async function runQaCommandWithPrerequisite(command, context) {
+  if (shouldUseLazyLogin(command.test)) {
+    return runSingleQaCommandWithLazyLogin(command, context);
+  }
+
   const loginResult = await runPrerequisiteLogin(command, context);
   if (loginResult && loginResult.status !== "pass") {
     return {
@@ -327,9 +344,40 @@ function looksLikeLoginSessionFailure(result) {
   );
 }
 
+function isRetryableContractRequestError(result) {
+  const message = String(result?.error || "");
+  return (
+    result?.status === "fail" &&
+    (
+      message.includes("일시적인 오류로 요청하지 못") ||
+      message.includes("일시적인 오류가 발생") ||
+      message.includes("잠시 후 다시 시도")
+    )
+  );
+}
+
+function relaunchRetryCommand(command) {
+  return {
+    ...command,
+    skip_fresh_launch: false,
+    skip_app_build_check: true
+  };
+}
+
 async function runSingleQaCommandWithLazyLogin(command, context) {
   let result = await runSingleQaCommand(command, context);
   const loginRole = requiredLoginRoleForTest(command.test);
+
+  if (command.test === "contract-request" && isRetryableContractRequestError(result)) {
+    const retryResult = await runSingleQaCommand(relaunchRetryCommand(command), context);
+    return {
+      result: retryResult,
+      formatted: [
+        "[재시도] 계약 요청 일시 오류로 앱 재실행 후 다시 실행",
+        formatResult(retryResult)
+      ].join("\n")
+    };
+  }
 
   if (result.status === "pass" || !loginRole || !looksLikeLoginSessionFailure(result)) {
     return { result, formatted: formatResult(result) };
@@ -340,6 +388,7 @@ async function runSingleQaCommandWithLazyLogin(command, context) {
       test: "login",
       env: command.env,
       role: loginRole,
+      host_home_only: loginRole === "host",
       skip_app_build_check: command.skip_app_build_check
     },
     context
@@ -356,6 +405,20 @@ async function runSingleQaCommandWithLazyLogin(command, context) {
   }
 
   result = await runSingleQaCommand(command, context);
+  if (command.test === "contract-request" && isRetryableContractRequestError(result)) {
+    const retryResult = await runSingleQaCommand(relaunchRetryCommand(command), context);
+    return {
+      result: retryResult,
+      formatted: [
+        "[세션 복구] 로그인 후 재시도",
+        loginResult.session_reused ? "- 기존 로그인 세션 재사용" : "- 로그인 세션 복구 완료",
+        "",
+        "[재시도] 계약 요청 일시 오류로 앱 재실행 후 다시 실행",
+        formatResult(retryResult)
+      ].join("\n")
+    };
+  }
+
   return {
     result,
     formatted: [
@@ -395,7 +458,7 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
   appendFlowSection(sections, "1. 게스트 로그인", guestLogin);
   if (guestLogin.status !== "pass") return sections.join("\n\n");
 
-  const contractRequest = await runSingleQaCommand(
+  let contractRequest = await runSingleQaCommand(
     {
       test: "contract-request",
       env,
@@ -406,6 +469,20 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
     },
     context
   );
+  if (isRetryableContractRequestError(contractRequest)) {
+    sections.push("[재시도] 계약 요청에서 일시 오류가 발생해 앱 재실행 후 다시 시도합니다.");
+    contractRequest = await runSingleQaCommand(
+      {
+        test: "contract-request",
+        env,
+        role: "guest",
+        payment_method: requestPaymentMethod,
+        skip_fresh_launch: false,
+        skip_app_build_check: true
+      },
+      context
+    );
+  }
   appendFlowSection(
     sections,
     isAutoCard ? "2. 집 검색/상세 진입/자동카드 계약 요청" : "2. 집 검색/상세 진입/계약 요청",
@@ -418,7 +495,6 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
       test: "contract-approve",
       env,
       role: "host",
-      skip_fresh_launch: true,
       skip_app_build_check: true
     },
     context
@@ -506,6 +582,7 @@ async function routeCommand(text, context) {
     command === "contract-cancel-confirmed" ||
     command === "contract-cancel-request" ||
     command === "contract-extension" ||
+    command === "contract-extension-approve" ||
     command === "contract-payment" ||
     command === "contract-request" ||
     command === "basic-validation" ||

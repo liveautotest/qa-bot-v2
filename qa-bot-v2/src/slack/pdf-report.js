@@ -138,6 +138,7 @@ function buildResultSectionHtml(result, reportDir, index = 1) {
     ...objectLines(result.contract_conditions, "contract"),
     ...objectLines(result.payment_conditions, "payment"),
     ...objectLines(result.contract_extension, "contract_extension"),
+    ...objectLines(result.contract_extension_approval, "contract_extension_approval"),
     ...objectLines(result.contract_request, "contract_request"),
     ...objectLines(result.approved_contract, "approved_contract"),
     ...objectLines(result.rejected_contract, "rejected_contract"),

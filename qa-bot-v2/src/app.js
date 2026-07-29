@@ -1,4 +1,5 @@
 const { App } = require("@slack/bolt");
+const { SocketModeClient } = require("@slack/socket-mode");
 const { loadConfig } = require("./config");
 const {
   BASIC_VALIDATION_PATTERN,
@@ -10,9 +11,62 @@ const {
 const { formatHelp } = require("./slack/slack-reporter");
 const { uploadPdfReports } = require("./slack/pdf-report");
 
+function isSocketModeExplicitDisconnectRace(error) {
+  const message = String(error?.message || error || "");
+  return (
+    message.includes("Unhandled event 'server explicit disconnect'") &&
+    message.includes("state 'connecting'")
+  );
+}
+
+function installSocketModeDisconnectGuard() {
+  if (!SocketModeClient?.prototype || SocketModeClient.prototype.__qaBotDisconnectGuardInstalled) {
+    return;
+  }
+
+  const originalOnWebSocketMessage = SocketModeClient.prototype.onWebSocketMessage;
+  SocketModeClient.prototype.onWebSocketMessage = async function guardedOnWebSocketMessage(payload) {
+    try {
+      return await originalOnWebSocketMessage.call(this, payload);
+    } catch (error) {
+      if (!isSocketModeExplicitDisconnectRace(error)) {
+        throw error;
+      }
+
+      this.logger?.warn?.("Slack sent an explicit disconnect while connecting. Retrying Socket Mode connection.");
+      try {
+        this.stateMachine?.handle?.("websocket close");
+      } catch (reconnectError) {
+        this.logger?.error?.(`Socket Mode reconnect guard failed: ${reconnectError.message || reconnectError}`);
+      }
+      return undefined;
+    }
+  };
+
+  Object.defineProperty(SocketModeClient.prototype, "__qaBotDisconnectGuardInstalled", {
+    value: true
+  });
+}
+
 process.on("uncaughtException", (error) => {
-  console.error("qa-bot-v2 crashed while connecting to Slack.");
+  if (isSocketModeExplicitDisconnectRace(error)) {
+    console.warn("Slack Socket Mode disconnected while connecting. Waiting for reconnect.");
+    return;
+  }
+
+  console.error("qa-bot-v2 encountered an uncaught exception.");
   console.error(error.stack || error.message);
+  process.exitCode = 1;
+});
+
+process.on("unhandledRejection", (error) => {
+  if (isSocketModeExplicitDisconnectRace(error)) {
+    console.warn("Slack Socket Mode disconnected while connecting. Waiting for reconnect.");
+    return;
+  }
+
+  console.error("qa-bot-v2 encountered an unhandled rejection.");
+  console.error(error?.stack || error?.message || error);
   process.exitCode = 1;
 });
 
@@ -29,6 +83,8 @@ function formatProgressMessage(text = "") {
 }
 
 async function main() {
+  installSocketModeDisconnectGuard();
+
   const config = loadConfig();
 
   if (!config.slackBotToken || !config.slackAppToken) {

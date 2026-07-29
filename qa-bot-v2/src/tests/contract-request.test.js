@@ -323,6 +323,15 @@ function isContractComplete(xml) {
   );
 }
 
+function isContractSubmitting(xml) {
+  return (
+    xml.includes("계약 요청중입니다") ||
+    xml.includes("계약 요청 중입니다") ||
+    xml.includes("계약 요청중") ||
+    xml.includes("계약 요청 중")
+  );
+}
+
 function isInvalidUiDump(xml) {
   return (
     !xml ||
@@ -465,7 +474,8 @@ function isContractSubmitOutcome(xml) {
     isContractComplete(xml) ||
     isContractPeriodConfirm(xml) ||
     hasTermsAgreementWarning(xml) ||
-    hasContractRequestError(xml)
+    hasContractRequestError(xml) ||
+    isContractSubmitting(xml)
   );
 }
 
@@ -682,19 +692,27 @@ async function submitDefaultGuests(config, device, xml, store, steps) {
   addStep(steps, "검색 버튼 탭");
 }
 
-function findFirstListing(xml) {
-  return parseNodes(xml).find((node) => {
+function findListingCandidates(xml) {
+  return parseNodes(xml).filter((node) => {
     const label = nodeLabel(node);
     return (
       node.bounds &&
       node.attrs.clickable === "true" &&
       node.bounds.top >= 350 &&
+      node.bounds.top < 2300 &&
       node.bounds.bottom > node.bounds.top &&
       label.includes("최소") &&
-      label.includes("계약 가능") &&
-      label.includes("₩")
+      /계약\s*가능/.test(label) &&
+      (
+        label.includes("오피스텔") ||
+        label.includes("독채") ||
+        label.includes("아파트") ||
+        label.includes("원룸") ||
+        label.includes("숙소") ||
+        label.includes("집")
+      )
     );
-  });
+  }).sort((a, b) => a.bounds.top - b.bounds.top);
 }
 
 async function selectNewestSort(config, device, store, steps, xml) {
@@ -767,39 +785,16 @@ async function selectNewestSort(config, device, store, steps, xml) {
   return resultXml;
 }
 
-async function openFirstListing(config, device, store, steps) {
-  await runAdb(config, device, [
-    "shell", "input", "swipe", "540", "2300", "540", "900", "700"
-  ]);
-  addStep(steps, "검색 결과 리스트 끌어올리기");
-  await new Promise((resolve) => setTimeout(resolve, 300));
+function listingTitle(listing) {
+  const lines = nodeLabel(listing)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.find((line) => !/^(1\/\d+|오피스텔|독채|아파트|원룸|신규 등록|최소)/.test(line) && !line.includes("계약 가능")) || "숙소 카드";
+}
 
-  let xml = await dumpUiStable(config, device);
-  await saveArtifacts(config, device, store, "search-results-expanded", xml);
-  let listing = findFirstListing(xml);
-
-  for (let count = 0; !listing && count < 3; count += 1) {
-    await runAdb(config, device, [
-      "shell", "input", "swipe", "540", "2050", "540", "1350", "500"
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    xml = await dumpUiStable(config, device);
-    listing = findFirstListing(xml);
-  }
-
-  if (!listing?.bounds) {
-    await saveFailureArtifacts(config, device, store, "search-results-expanded", xml);
-    fail(
-      "검색 결과 목록에서 계약 가능한 숙소 카드를 찾지 못했습니다.",
-      steps,
-      [
-        "검색 결과 리스트를 끌어올린 뒤 '최소', '계약 가능', 가격 문구가 있는 카드를 찾습니다.",
-        "리포트의 search-results-expanded.png 화면을 확인해주세요."
-      ]
-    );
-  }
-
-  const tapTargets = [
+function listingTapTargets(listing) {
+  return [
     {
       name: "숙소 카드 제목 왼쪽 영역",
       x: Math.min(listing.bounds.right - 120, listing.bounds.left + 260),
@@ -821,39 +816,81 @@ async function openFirstListing(config, device, store, steps) {
       y: Math.min(listing.bounds.bottom - 80, listing.bounds.top + 620)
     },
     {
-      name: "숙소 카드 후기 위 본문 영역",
-      x: Math.min(listing.bounds.right - 120, listing.bounds.left + 260),
-      y: Math.min(listing.bounds.bottom - 180, listing.bounds.top + 980)
-    },
-    {
       name: "숙소 카드 중앙 영역",
       x: listing.bounds.x,
       y: listing.bounds.y
     }
   ];
+}
 
-  let detailXml = "";
-  for (const target of tapTargets) {
+async function tryOpenListing(config, device, store, steps, listing, attemptLabel) {
+  const title = listingTitle(listing);
+  for (const target of listingTapTargets(listing)) {
     await tap(config, device, target.x, target.y);
     store.appendLog(
       "runner.log",
-      `contract-request listing tap: ${target.name} (${target.x}, ${target.y})`
+      `contract-request listing tap: ${attemptLabel} ${title} ${target.name} (${target.x}, ${target.y})`
     );
-    detailXml = await waitForUi(config, device, isAccommodationDetail, 8000);
+
+    const detailXml = await waitForUi(config, device, isAccommodationDetail, 5000, 200);
     if (isAccommodationDetail(detailXml)) {
-      addStep(steps, "검색 결과 첫 번째 숙소 상세 진입", "pass", target.name);
+      addStep(steps, "검색 결과 숙소 상세 진입", "pass", `${title} / ${target.name}`);
       return detailXml;
     }
 
-    if (!isContractSearchResults(detailXml)) break;
+    if (!isContractSearchResults(detailXml)) {
+      await keyEvent(config, device, 4).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
   }
 
-  await saveFailureArtifacts(config, device, store, "listing-tap-did-not-open-detail", detailXml);
+  return "";
+}
+
+async function openContractableListing(config, device, store, steps) {
+  await runAdb(config, device, [
+    "shell", "input", "swipe", "540", "2300", "540", "900", "700"
+  ]);
+  addStep(steps, "검색 결과 리스트 끌어올리기");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  let xml = await dumpUiStable(config, device);
+  await saveArtifacts(config, device, store, "search-results-expanded", xml);
+
+  let lastXml = xml;
+  for (let scrollCount = 0; scrollCount < 4; scrollCount += 1) {
+    const listings = findListingCandidates(xml);
+    if (listings.length) {
+      addStep(steps, "검색 결과 계약 가능 숙소 후보 확인", "pass", `${listings.length}개`);
+
+      const randomIndex = Math.floor(Math.random() * listings.length);
+      const selectedListing = listings[randomIndex];
+      addStep(
+        steps,
+        "검색 결과 보이는 숙소 랜덤 선택",
+        "pass",
+        `${listingTitle(selectedListing)} (${randomIndex + 1}/${listings.length})`
+      );
+
+      const detailXml = await tryOpenListing(config, device, store, steps, selectedListing, `${scrollCount + 1}-${randomIndex + 1}`);
+      if (isAccommodationDetail(detailXml)) return detailXml;
+      xml = await waitForUi(config, device, isContractSearchResults, 3000, 200);
+    }
+
+    await runAdb(config, device, [
+      "shell", "input", "swipe", "540", "2050", "540", "1350", "450"
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    xml = await dumpUiStable(config, device);
+    lastXml = xml;
+  }
+
+  await saveFailureArtifacts(config, device, store, "listing-tap-did-not-open-detail", lastXml);
   fail(
-    "검색 결과 첫 번째 숙소 카드를 눌렀지만 상세 화면으로 이동하지 않았습니다.",
+    "검색 결과 숙소 카드를 눌렀지만 상세 화면으로 이동하지 않았습니다.",
     steps,
     [
-      "자동화가 숙소 카드의 이미지/제목/중앙 영역을 순서대로 탭했습니다.",
+      "자동화가 현재 화면에 보이는 계약 가능 숙소 후보 중 하나를 랜덤 선택했습니다.",
       "상세 화면의 '계약 조건 확인' 버튼이 나타나야 다음 단계로 진행합니다.",
       "리포트의 listing-tap-did-not-open-detail.png 화면을 확인해주세요.",
       "실제 탭 좌표는 runner.log에 기록됩니다."
@@ -1183,7 +1220,7 @@ async function continueContractPeriodIfNeeded(config, device, store, steps, xml)
   await tap(config, device, continueButton.bounds.x, continueButton.bounds.y);
   addStep(steps, "계약 기간 확인 팝업 요청 계속하기 탭");
 
-  return waitForUi(
+  xml = await waitForUi(
     config,
     device,
     (nextXml) => (
@@ -1194,6 +1231,61 @@ async function continueContractPeriodIfNeeded(config, device, store, steps, xml)
     ),
     20000
   );
+
+  if (
+    isContractRequestScreen(xml) &&
+    !isContractComplete(xml) &&
+    !hasTermsAgreementWarning(xml) &&
+    !hasContractRequestError(xml)
+  ) {
+    const submitButton = findNode(xml, "계약 요청하기", {
+      clickable: true,
+      enabled: true,
+      visible: true
+    });
+    if (submitButton?.bounds) {
+      await saveArtifacts(config, device, store, "contract-period-after-continue-detail", xml);
+      await pressContractRequestButton(config, device, store, submitButton, "press");
+      addStep(steps, "계약 기간 확인 후 계약 요청하기 재탭");
+      xml = await waitForUi(
+        config,
+        device,
+        (nextXml) => (
+          isContractComplete(nextXml) ||
+          hasTermsAgreementWarning(nextXml) ||
+          hasContractRequestError(nextXml) ||
+          !isContractRequestScreen(nextXml)
+        ),
+        20000
+      );
+    }
+  }
+
+  return xml;
+}
+
+async function waitWhileContractSubmitting(config, device, store, steps, xml, artifactName) {
+  if (!isContractSubmitting(xml)) return xml;
+
+  addStep(steps, "계약 요청 처리 대기", "pass", "앱 로딩 상태 확인");
+  const nextXml = await waitForUi(
+    config,
+    device,
+    (candidateXml) => (
+      !isContractSubmitting(candidateXml) &&
+      (
+        isContractComplete(candidateXml) ||
+        isContractPeriodConfirm(candidateXml) ||
+        hasTermsAgreementWarning(candidateXml) ||
+        hasContractRequestError(candidateXml) ||
+        !isContractRequestScreen(candidateXml)
+      )
+    ),
+    30000,
+    500
+  );
+  await saveArtifacts(config, device, store, artifactName, nextXml);
+  return nextXml;
 }
 
 async function selectAutoCardPayment(config, device, store, steps, initialXml) {
@@ -1312,6 +1404,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
   xml = await waitForUi(config, device, isContractSubmitOutcome, 20000);
   await saveArtifacts(config, device, store, "contract-request-after-submit", xml);
   xml = await continueContractPeriodIfNeeded(config, device, store, steps, xml);
+  xml = await waitWhileContractSubmitting(config, device, store, steps, xml, "contract-request-after-submit-wait");
   const submittedContractNumber = getContractNumber(xml);
 
   if (
@@ -1347,6 +1440,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
       );
       await saveArtifacts(config, device, store, "contract-request-after-submit-retry", xml);
       xml = await continueContractPeriodIfNeeded(config, device, store, steps, xml);
+      xml = await waitWhileContractSubmitting(config, device, store, steps, xml, "contract-request-after-submit-retry-wait");
     }
   }
 
@@ -1379,6 +1473,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
       12000
     );
     xml = await continueContractPeriodIfNeeded(config, device, store, steps, xml);
+    xml = await waitWhileContractSubmitting(config, device, store, steps, xml, "contract-request-after-terms-retry-wait");
 
     if (hasTermsAgreementWarning(xml)) {
       store.appendLog(
@@ -1408,6 +1503,7 @@ async function submitContractRequest(config, device, store, steps, contractDetai
         15000
       );
       xml = await continueContractPeriodIfNeeded(config, device, store, steps, xml);
+      xml = await waitWhileContractSubmitting(config, device, store, steps, xml, "contract-request-after-final-retry-wait");
     }
 
     await saveArtifacts(config, device, store, "contract-request-after-retry-submit", xml);
@@ -1595,7 +1691,7 @@ async function runContractRequestTest({ request, config, store }) {
     addStep(steps, "계약 요청용 검색 결과 목록 확인");
 
     xml = await selectNewestSort(config, device, store, steps, xml);
-    const detailXml = await openFirstListing(config, device, store, steps);
+    const detailXml = await openContractableListing(config, device, store, steps);
     const contractDetailXml = await tapContractCondition(config, device, store, steps, detailXml);
     const submittedContract = await submitContractRequest(config, device, store, steps, contractDetailXml, { paymentMethod });
     addStep(steps, "계약 요청 완료 후 홈 화면 확인");

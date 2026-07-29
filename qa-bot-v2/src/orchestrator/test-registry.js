@@ -5,6 +5,7 @@ const {
   runContractApproveTest,
   runContractRejectTest
 } = require("../tests/contract-approve.test");
+const { runContractExtensionApproveTest } = require("../tests/contract-extension-approve.test");
 const {
   runContractCancelConfirmedTest,
   runContractCancelRequestTest
@@ -25,6 +26,7 @@ const registry = {
   "contract-cancel-confirmed": runContractCancelConfirmedTest,
   "contract-cancel-request": runContractCancelRequestTest,
   "contract-extension": runContractExtensionTest,
+  "contract-extension-approve": runContractExtensionApproveTest,
   "contract-payment": runContractPaymentTest,
   "contract-request": runContractRequestTest,
   "schedule-change": runScheduleChangeTest,
