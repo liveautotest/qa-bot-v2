@@ -667,7 +667,7 @@ async function tapConfirmButton(config, device, store, steps, xml, label, artifa
   addStep(steps, `${label} 확인 버튼 선택`);
 }
 
-async function tapFixedPopupConfirmButton(config, device, steps, label) {
+async function tapFixedPopupConfirmButton(config, device, steps, label, waitMs = 180) {
   const confirmButton = fixedPopupConfirmButtonFromViewport();
   await runAdb(config, device, [
     "shell",
@@ -678,7 +678,7 @@ async function tapFixedPopupConfirmButton(config, device, steps, label) {
     String(confirmButton.bounds.y)
   ]);
   addStep(steps, `${label} 확인 버튼 선택`, "pass", "팝업 XML 미노출로 화면 좌표 fallback 사용");
-  await new Promise((resolve) => setTimeout(resolve, 450));
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
 }
 
 async function verifyExtensionRequestResolved(config, device, appPackage, store, steps) {
@@ -751,46 +751,55 @@ async function submitExtensionApproval(config, device, appPackage, store, steps,
   await tap(config, device, detail.acceptButton.bounds.x, detail.acceptButton.bounds.y);
   addStep(steps, "연장 수락 버튼 선택");
 
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  await tapFixedPopupConfirmButton(config, device, steps, "연장 계약 내용 확인", 220);
+
   let xml = await waitForUi(
     config,
     device,
-    (nextXml) => hasAcceptConfirmPopup(nextXml) || isAccessibilityLightUi(nextXml),
-    1800,
-    150
+    (nextXml) => (
+      hasExtensionAcceptCompletePopup(nextXml) ||
+      hasAcceptConfirmPopup(nextXml) ||
+      isAccessibilityLightUi(nextXml)
+    ),
+    1200,
+    100
   );
   saveXml(store, "host-extension-accept-confirm-popup", xml);
-  if (!hasAcceptConfirmPopup(xml)) {
+  if (hasAcceptConfirmPopup(xml)) {
+    await tapFixedPopupConfirmButton(config, device, steps, "연장 계약 내용 확인 재시도", 180);
+    xml = await waitForUi(
+      config,
+      device,
+      (nextXml) => hasExtensionAcceptCompletePopup(nextXml) || isAccessibilityLightUi(nextXml),
+      1200,
+      100
+    );
+  }
+
+  if (!hasExtensionAcceptCompletePopup(xml) && !isAccessibilityLightUi(xml)) {
     await saveScreenshotArtifact(config, device, store, "host-extension-accept-confirm-popup-visual-fallback");
     addWarning(
       detail,
       "host_extension_accept_confirm_accessibility",
-      "연장 계약 내용 확인 팝업의 Android XML 텍스트가 확인되지 않아 확인 버튼을 화면 좌표로 선택했습니다.",
+      "연장 계약 내용 확인 팝업 처리 후 완료 팝업 전환을 Android XML에서 즉시 확인하지 못했습니다.",
       ["캡처: host-extension-accept-confirm-popup-visual-fallback.png"]
     );
-    await tapFixedPopupConfirmButton(config, device, steps, "연장 계약 내용 확인");
-  } else {
-    await tapConfirmButton(config, device, store, steps, xml, "연장 계약 내용 확인", "host-extension-accept-confirm-button-not-found");
   }
 
-  xml = await waitForUi(
-    config,
-    device,
-    (nextXml) => hasExtensionAcceptCompletePopup(nextXml) || isAccessibilityLightUi(nextXml),
-    2200,
-    150
-  );
+  await tapFixedPopupConfirmButton(config, device, steps, "계약 연장 수락 완료", 260);
+
+  xml = await waitForUi(config, device, (nextXml) => !hasExtensionAcceptCompletePopup(nextXml), 1200, 120);
   saveXml(store, "host-extension-accept-complete-popup", xml);
-  if (!hasExtensionAcceptCompletePopup(xml)) {
+  if (hasExtensionAcceptCompletePopup(xml)) {
     await saveScreenshotArtifact(config, device, store, "host-extension-accept-complete-popup-visual-fallback");
     addWarning(
       detail,
       "host_extension_accept_complete_accessibility",
-      "계약 연장 수락 완료 팝업의 Android XML 텍스트가 확인되지 않아 확인 버튼을 화면 좌표로 선택했습니다.",
+      "계약 연장 수락 완료 팝업의 확인 버튼을 눌렀지만 팝업 닫힘을 즉시 확인하지 못했습니다.",
       ["캡처: host-extension-accept-complete-popup-visual-fallback.png"]
     );
-    await tapFixedPopupConfirmButton(config, device, steps, "계약 연장 수락 완료");
-  } else {
-    await tapConfirmButton(config, device, store, steps, xml, "계약 연장 수락 완료", "host-extension-complete-confirm-not-found");
+    await tapFixedPopupConfirmButton(config, device, steps, "계약 연장 수락 완료 재시도", 260);
   }
 
   await verifyExtensionRequestResolved(config, device, appPackage, store, steps);
