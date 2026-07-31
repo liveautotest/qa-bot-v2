@@ -218,6 +218,38 @@ function isExtensionCompletePopup(xml) {
   );
 }
 
+function findExtensionSubmitButton(xml) {
+  return findNode(xml, ["연장 요청", "계약 연장 요청"], {
+    visible: true,
+    clickable: true,
+    enabled: true
+  });
+}
+
+function findExtensionAgreementNode(xml) {
+  return findNode(xml, [
+    "주의사항 및 규정 전체 동의",
+    "주의사항 및 환불 규정 전체 동의",
+    "주의사항 및 규정",
+    "주의사항 및 환불 규정"
+  ], {
+    visible: true,
+    enabled: true
+  });
+}
+
+function findExtensionCalendarConfirmButton(xml) {
+  return findNode(xml, "확인", {
+    visible: true,
+    clickable: true,
+    enabled: true
+  });
+}
+
+function hasExtensionAgreementWarning(xml) {
+  return xml.includes("모든 주의사항 및 규정에 대한 동의가 필요합니다.");
+}
+
 function extractCheckoutDate(xml) {
   const labels = parseNodes(xml)
     .map((node) => nodeLabel(node).trim())
@@ -445,24 +477,82 @@ async function tapExtensionRequestButton(config, device, store, steps, initialXm
   let xml = initialXml;
   for (let count = 0; count < 12; count += 1) {
     saveXml(store, `extension-request-search-${count + 1}`, xml);
-    const button = findNode(xml, "계약 연장 요청", {
+    let button = findNode(xml, "계약 연장 요청", {
       visible: true,
       clickable: true,
       enabled: true
     });
     if (button?.bounds) {
       saveXml(store, "extension-request-button", xml);
-      await tapNode(config, device, button, "계약 연장 요청 버튼", steps);
-      addStep(steps, "계약 상세 계약 연장 요청 버튼 선택");
-      const nextXml = await waitForUi(
-        config,
-        device,
-        (nextXml) => isExtensionGuidePopup(nextXml) || isExtensionCalendar(nextXml),
-        4000
+      const tapAttempts = [
+        {
+          name: "버튼 XML 좌표 탭",
+          action: () => tap(config, device, button.bounds.x, button.bounds.y)
+        },
+        {
+          name: "버튼 중앙 짧은 press",
+          action: () => runAdb(config, device, [
+            "shell",
+            "input",
+            "swipe",
+            String(button.bounds.x),
+            String(button.bounds.y),
+            String(button.bounds.x),
+            String(button.bounds.y),
+            "160"
+          ])
+        },
+        {
+          name: "버튼 하단 영역 탭",
+          action: () => tap(
+            config,
+            device,
+            button.bounds.x,
+            Math.max(button.bounds.top + 24, button.bounds.bottom - 42)
+          )
+        },
+        {
+          name: "포커스 확정",
+          action: () => keyEvent(config, device, 23)
+        }
+      ];
+
+      for (let attemptIndex = 0; attemptIndex < tapAttempts.length; attemptIndex += 1) {
+        await tapAttempts[attemptIndex].action();
+        addStep(
+          steps,
+          attemptIndex === 0 ? "계약 상세 계약 연장 요청 버튼 선택" : "계약 상세 계약 연장 요청 버튼 재시도",
+          "pass",
+          tapAttempts[attemptIndex].name
+        );
+
+        const nextXml = await waitForUi(
+          config,
+          device,
+          (nextXml) => isExtensionGuidePopup(nextXml) || isExtensionCalendar(nextXml),
+          attemptIndex === 0 ? 3500 : 2200,
+          160
+        );
+        if (isExtensionGuidePopup(nextXml) || isExtensionCalendar(nextXml)) return nextXml;
+        saveXml(store, `extension-request-tap-no-transition-${count + 1}-${attemptIndex + 1}`, nextXml);
+        xml = nextXml;
+        button = findNode(xml, "계약 연장 요청", {
+          visible: true,
+          clickable: true,
+          enabled: true
+        });
+        if (!button?.bounds) break;
+      }
+
+      await saveFailureArtifacts(config, device, store, "extension-request-button-did-not-open", xml);
+      fail(
+        "계약 연장 요청 버튼을 눌렀지만 연장 퇴실일 선택 화면으로 이동하지 않았습니다.",
+        steps,
+        [
+          "계약 상세 화면의 '계약 연장 요청' 버튼을 여러 방식으로 재시도했지만 화면이 그대로였습니다.",
+          "리포트의 extension-request-button-did-not-open.png 화면과 runner.log를 확인해주세요."
+        ]
       );
-      if (isExtensionGuidePopup(nextXml) || isExtensionCalendar(nextXml)) return nextXml;
-      saveXml(store, `extension-request-tap-no-transition-${count + 1}`, nextXml);
-      xml = nextXml;
     }
 
     await runAdb(config, device, ["shell", "input", "swipe", "540", "1920", "540", "1320", "180"]);
@@ -558,11 +648,7 @@ async function selectRandomExtensionCheckout(config, device, store, steps, initi
       xml = await dumpUi(config, device);
       saveXml(store, "extension-calendar-selected", xml);
 
-      const confirmButton = findNode(xml, "확인", {
-        visible: true,
-        clickable: true,
-        enabled: true
-      });
+      let confirmButton = findExtensionCalendarConfirmButton(xml);
       if (!confirmButton?.bounds) {
         await saveFailureArtifacts(config, device, store, "extension-calendar-confirm-not-found", xml);
         fail(
@@ -575,10 +661,64 @@ async function selectRandomExtensionCheckout(config, device, store, steps, initi
         );
       }
 
-      await tapNode(config, device, confirmButton, "연장 퇴실일 확인 버튼", steps);
-      addStep(steps, "연장 퇴실일 확인 버튼 선택");
+      const confirmAttempts = [
+        {
+          name: "확인 버튼 XML 좌표 탭",
+          action: () => tap(config, device, confirmButton.bounds.x, confirmButton.bounds.y)
+        },
+        {
+          name: "하단 확인 버튼 고정 좌표 탭",
+          action: () => runAdb(config, device, ["shell", "input", "touchscreen", "tap", "540", "2233"])
+        },
+        {
+          name: "하단 확인 버튼 짧은 press",
+          action: () => runAdb(config, device, ["shell", "input", "swipe", "540", "2233", "540", "2233", "160"])
+        },
+        {
+          name: "포커스 확인 실행",
+          action: () => keyEvent(config, device, 23)
+        }
+      ];
+
+      for (let index = 0; index < confirmAttempts.length; index += 1) {
+        await confirmAttempts[index].action();
+        addStep(
+          steps,
+          index === 0 ? "연장 퇴실일 확인 버튼 선택" : "연장 퇴실일 확인 버튼 재시도",
+          "pass",
+          confirmAttempts[index].name
+        );
+
+        xml = await waitForUi(
+          config,
+          device,
+          (nextXml) => isExtensionDetail(nextXml) || !isExtensionCalendar(nextXml),
+          index === 0 ? 3500 : 2200,
+          160
+        );
+        if (isExtensionDetail(xml)) {
+          return {
+            xml,
+            targetDate: selected.date,
+            extensionNights: selected.extensionNights
+          };
+        }
+
+        confirmButton = findExtensionCalendarConfirmButton(xml);
+        if (!confirmButton?.bounds) break;
+      }
+
+      await saveFailureArtifacts(config, device, store, "extension-calendar-confirm-did-not-open-detail", xml);
+      fail(
+        "연장 퇴실일 확인 버튼을 눌렀지만 계약 연장 요청 화면으로 이동하지 않았습니다.",
+        steps,
+        [
+          "희망 퇴실일 선택 화면의 확인 버튼을 여러 방식으로 재시도했지만 달력 화면이 유지되었습니다.",
+          "리포트의 extension-calendar-confirm-did-not-open-detail.png 화면과 runner.log를 확인해주세요."
+        ]
+      );
       return {
-        xml: await waitForUi(config, device, isExtensionDetail, 10000),
+        xml,
         targetDate: selected.date,
         extensionNights: selected.extensionNights
       };
@@ -641,10 +781,7 @@ async function agreeRulesAndSubmit(config, device, store, steps, initialXml, ext
     xml = await dumpUi(config, device);
   }
 
-  const agreeNode = findNode(xml, ["주의사항 및 규정 전체 동의", "주의사항 및 환불 규정 전체 동의", "주의사항 및 규정", "주의사항 및 환불 규정"], {
-    visible: true,
-    enabled: true
-  });
+  let agreeNode = findExtensionAgreementNode(xml);
   if (!agreeNode?.bounds) {
     await saveFailureArtifacts(config, device, store, "extension-agreement-not-found", xml);
     fail(
@@ -657,17 +794,61 @@ async function agreeRulesAndSubmit(config, device, store, steps, initialXml, ext
     );
   }
 
-  await tap(config, device, Math.min(1000, agreeNode.bounds.right - 40), agreeNode.bounds.y);
-  addStep(steps, "주의사항 및 규정 전체 동의 선택");
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  if (agreeNode.bounds.bottom > 2200) {
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "1960", "540", "1220", "220"]);
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    xml = await dumpUi(config, device);
+    agreeNode = findExtensionAgreementNode(xml);
+    saveXml(store, "extension-agreement-lifted", xml);
+    if (!agreeNode?.bounds) {
+      await saveFailureArtifacts(config, device, store, "extension-agreement-lifted-not-found", xml);
+      fail(
+        "주의사항 및 규정 전체 동의 영역을 화면 중간으로 올린 뒤에도 찾지 못했습니다.",
+        steps,
+        [
+          "전체 동의 행이 하단 고정 버튼 또는 시스템 바에 가려졌을 수 있습니다.",
+          "리포트의 extension-agreement-lifted-not-found.png 화면을 확인해주세요."
+        ]
+      );
+    }
+  }
+
+  const agreementTapTargets = [
+    {
+      name: "오른쪽 체크 표시",
+      x: Math.min(1000, agreeNode.bounds.right - 62),
+      y: agreeNode.bounds.y
+    },
+    {
+      name: "오른쪽 체크 표시 상단",
+      x: Math.min(1000, agreeNode.bounds.right - 62),
+      y: Math.max(agreeNode.bounds.top + 44, agreeNode.bounds.y - 26)
+    },
+    {
+      name: "전체 동의 행 중앙",
+      x: agreeNode.bounds.x,
+      y: agreeNode.bounds.y
+    }
+  ];
+
+  for (let index = 0; index < agreementTapTargets.length; index += 1) {
+    const target = agreementTapTargets[index];
+    await tap(config, device, target.x, target.y);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    xml = await dumpUi(config, device);
+    if (!hasExtensionAgreementWarning(xml)) {
+      addStep(steps, "주의사항 및 규정 전체 동의 선택", "pass", target.name);
+      break;
+    }
+    if (index === agreementTapTargets.length - 1) {
+      addStep(steps, "주의사항 및 규정 전체 동의 선택", "pass", `${target.name} 후 경고 유지`);
+    }
+  }
+
   xml = await dumpUi(config, device);
   saveXml(store, "extension-agreement-selected", xml);
 
-  const submitButton = findNode(xml, ["연장 요청", "계약 연장 요청"], {
-    visible: true,
-    clickable: true,
-    enabled: true
-  });
+  const submitButton = findExtensionSubmitButton(xml);
   if (!submitButton?.bounds) {
     await saveFailureArtifacts(config, device, store, "extension-submit-not-found", xml);
     fail(
@@ -680,9 +861,48 @@ async function agreeRulesAndSubmit(config, device, store, steps, initialXml, ext
     );
   }
 
-  await tapNode(config, device, submitButton, "연장 요청 버튼", steps);
-  addStep(steps, "연장 요청 버튼 선택");
-  return waitForUi(config, device, isExtensionCompletePopup, 12000);
+  const attempts = [
+    {
+      name: "버튼 XML 좌표 탭",
+      action: () => tap(config, device, submitButton.bounds.x, submitButton.bounds.y)
+    },
+    {
+      name: "하단 고정 좌표 탭",
+      action: () => runAdb(config, device, ["shell", "input", "touchscreen", "tap", "540", "2388"])
+    },
+    {
+      name: "하단 고정 좌표 짧은 press",
+      action: () => runAdb(config, device, ["shell", "input", "swipe", "540", "2388", "540", "2388", "160"])
+    },
+    {
+      name: "포커스 확정",
+      action: () => keyEvent(config, device, 23)
+    }
+  ];
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    await attempts[index].action();
+    addStep(
+      steps,
+      index === 0 ? "연장 요청 버튼 선택" : "연장 요청 버튼 재시도",
+      "pass",
+      attempts[index].name
+    );
+
+    xml = await waitForUi(
+      config,
+      device,
+      (nextXml) => isExtensionCompletePopup(nextXml) || !isExtensionDetail(nextXml),
+      index === 0 ? 3500 : 2200,
+      160
+    );
+    if (isExtensionCompletePopup(xml)) return xml;
+
+    const nextSubmitButton = findExtensionSubmitButton(xml);
+    if (!nextSubmitButton?.bounds) return xml;
+  }
+
+  return xml;
 }
 
 async function confirmCompletePopup(config, device, store, steps, initialXml) {

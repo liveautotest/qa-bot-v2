@@ -985,153 +985,83 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
     );
   }
 
-  if (!xml.includes("필수 약관 전체 동의")) {
-    for (let count = 0; count < 2; count += 1) {
-      await runAdb(config, device, [
-        "shell", "input", "swipe", "540", "2260", "540", "380", "260"
-      ]);
-      await new Promise((resolve) => setTimeout(resolve, 120));
-    }
-    xml = await dumpUiStable(config, device);
-    addStep(steps, "계약 상세 하단으로 빠르게 스크롤");
-  }
-
-  for (let batch = 0; batch < 4; batch += 1) {
-    const terms = findNode(xml, "필수 약관 전체 동의", {
+  const findReadyTerms = (candidateXml) => {
+    const terms = findNode(candidateXml, "필수 약관 전체 동의", {
       clickable: true,
       enabled: true,
       visible: true,
       aboveBottomAction: true
     });
-    const request = findNode(xml, "계약 요청하기", {
+    const request = findNode(candidateXml, "계약 요청하기", {
       clickable: true,
       enabled: true,
       visible: true
     });
     if (terms?.bounds && request?.bounds) {
-      await saveArtifacts(config, device, store, "contract-detail-terms", xml);
-      return { terms, request, xml };
+      return { terms, request, xml: candidateXml };
     }
 
-    const fallbackRequest = getBottomContractRequestButton(xml);
+    const fallbackRequest = getBottomContractRequestButton(candidateXml);
     if (terms?.bounds && fallbackRequest?.bounds) {
       store.appendLog(
         "runner.log",
         "contract-request terms are safely visible; using bottom fixed submit button fallback because XML submit bounds are clipped"
       );
-      await saveArtifacts(config, device, store, "contract-detail-terms", xml);
-      return { terms, request: fallbackRequest, xml };
+      return { terms, request: fallbackRequest, xml: candidateXml };
     }
 
-    if (
-      xml.includes("필수 약관 전체 동의") &&
-      xml.includes("계약 요청하기") &&
-      xml.includes("결제 수단")
-    ) {
-      const revealSwipes = [
-        ["540", "2180", "540", "1730", "250"],
-        ["540", "2050", "540", "1200", "450"],
-        ["540", "1950", "540", "700", "650"],
-        ["540", "1800", "540", "620", "650"]
-      ];
+    return null;
+  };
 
-      for (const [startX, startY, endX, endY, duration] of revealSwipes) {
-        await runAdb(config, device, [
-          "shell", "input", "swipe", startX, startY, endX, endY, duration
-        ]);
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        xml = await dumpUiStable(config, device);
+  let ready = findReadyTerms(xml);
+  if (ready) {
+    await saveArtifacts(config, device, store, "contract-detail-terms", ready.xml);
+    return ready;
+  }
 
-        const adjustedTerms = findNode(xml, "필수 약관 전체 동의", {
-          clickable: true,
-          enabled: true,
-          visible: true,
-          aboveBottomAction: true
-        });
-        const adjustedRequest = findNode(xml, "계약 요청하기", {
-          clickable: true,
-          enabled: true,
-          visible: true
-        });
-        if (adjustedTerms?.bounds && adjustedRequest?.bounds) {
-          store.appendLog(
-            "runner.log",
-            `contract-request terms became visible after reveal scroll adjustment (${startY}->${endY})`
-          );
-          await saveArtifacts(config, device, store, "contract-detail-terms", xml);
-          return { terms: adjustedTerms, request: adjustedRequest, xml };
-        }
+  await runAdb(config, device, ["shell", "input", "swipe", "540", "2280", "540", "310", "620"]);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await runAdb(config, device, ["shell", "input", "swipe", "540", "2280", "540", "310", "620"]);
+  await new Promise((resolve) => setTimeout(resolve, 160));
+  xml = await dumpUiStable(config, device);
+  addStep(steps, "계약 상세 하단으로 한 번에 스크롤");
 
-        const adjustedFallbackRequest = getBottomContractRequestButton(xml);
-        if (adjustedTerms?.bounds && adjustedFallbackRequest?.bounds) {
-          store.appendLog(
-            "runner.log",
-            `contract-request terms became visible after reveal scroll adjustment (${startY}->${endY}); using bottom fixed submit button fallback`
-          );
-          await saveArtifacts(config, device, store, "contract-detail-terms", xml);
-          return { terms: adjustedTerms, request: adjustedFallbackRequest, xml };
-        }
-      }
+  ready = findReadyTerms(xml);
+  if (ready) {
+    await saveArtifacts(config, device, store, "contract-detail-terms", ready.xml);
+    return ready;
+  }
 
-      for (let count = 0; count < 6; count += 1) {
-        await runAdb(config, device, [
-          "shell", "input", "swipe", "540", "1760", "540", "1180", "320"
-        ]);
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        xml = await dumpUiStable(config, device);
+  await runAdb(config, device, ["shell", "input", "swipe", "540", "1780", "540", "1160", "240"]);
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  xml = await dumpUiStable(config, device);
+  store.appendLog("runner.log", "contract-request used one short terms reveal adjustment after fast bottom scroll");
 
-        const liftedTerms = findNode(xml, "필수 약관 전체 동의", {
-          clickable: true,
-          enabled: true,
-          visible: true,
-          aboveBottomAction: true
-        });
-        const liftedRequest = findNode(xml, "계약 요청하기", {
-          clickable: true,
-          enabled: true,
-          visible: true
-        });
-        if (liftedTerms?.bounds && liftedRequest?.bounds) {
-          store.appendLog(
-            "runner.log",
-            `contract-request terms lifted above bottom action after extra scroll (${count + 1})`
-          );
-          await saveArtifacts(config, device, store, "contract-detail-terms", xml);
-          return { terms: liftedTerms, request: liftedRequest, xml };
-        }
+  ready = findReadyTerms(xml);
+  if (ready) {
+    await saveArtifacts(config, device, store, "contract-detail-terms", ready.xml);
+    return ready;
+  }
 
-        const liftedFallbackRequest = getBottomContractRequestButton(xml);
-        if (liftedTerms?.bounds && liftedFallbackRequest?.bounds) {
-          store.appendLog(
-            "runner.log",
-            `contract-request terms lifted above bottom action after extra scroll (${count + 1}); using bottom fixed submit button fallback`
-          );
-          await saveArtifacts(config, device, store, "contract-detail-terms", xml);
-          return { terms: liftedTerms, request: liftedFallbackRequest, xml };
-        }
-      }
-
-      store.appendLog(
-        "runner.log",
-        "contract-request terms are visible in WebView but XML bounds are clipped; refusing unsafe fallback tap"
-      );
-      await saveFailureArtifacts(config, device, store, "contract-detail-terms-clipped", xml);
-      fail(
-        "필수 약관 전체 동의 영역의 실제 탭 좌표를 확인하지 못했습니다.",
-        steps,
-        [
-          "화면에는 약관 영역이 있지만 Android XML 좌표가 화면 하단에 접혀 있어 안전하게 탭할 수 없습니다.",
-          "상세 규정 확인 같은 다른 버튼을 누르지 않도록 좌표 추정 탭은 중단했습니다.",
-          "리포트의 contract-detail-terms-clipped.png 화면을 확인해주세요."
-        ]
-      );
-    }
-
-    await runAdb(config, device, [
-      "shell", "input", "swipe", "540", "2240", "540", "340", "280"
-    ]);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    xml = await dumpUiStable(config, device);
+  if (
+    xml.includes("필수 약관 전체 동의") &&
+    xml.includes("계약 요청하기") &&
+    xml.includes("결제 수단")
+  ) {
+    store.appendLog(
+      "runner.log",
+      "contract-request terms are visible in WebView but XML bounds are clipped; refusing unsafe fallback tap"
+    );
+    await saveFailureArtifacts(config, device, store, "contract-detail-terms-clipped", xml);
+    fail(
+      "필수 약관 전체 동의 영역의 실제 탭 좌표를 확인하지 못했습니다.",
+      steps,
+      [
+        "화면에는 약관 영역이 있지만 Android XML 좌표가 화면 하단에 접혀 있어 안전하게 탭할 수 없습니다.",
+        "상세 규정 확인 같은 다른 버튼을 누르지 않도록 좌표 추정 탭은 중단했습니다.",
+        "리포트의 contract-detail-terms-clipped.png 화면을 확인해주세요."
+      ]
+    );
   }
 
   await saveFailureArtifacts(config, device, store, "contract-detail-terms-not-found", xml);

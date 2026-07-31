@@ -242,6 +242,39 @@ async function tapNode(config, device, node, label, steps) {
   await tap(config, device, node.bounds.x, node.bounds.y);
 }
 
+async function tapButtonAndWaitFast(config, device, node, predicate, label, options = {}) {
+  if (!node?.bounds) return "";
+
+  const attempts = options.attempts || [
+    { x: node.bounds.x, y: node.bounds.y, waitMs: 1800, type: "tap" },
+    { x: node.bounds.x, y: node.bounds.y, waitMs: 2200, type: "tap" },
+    { x: node.bounds.x, y: Math.max(node.bounds.top + 12, node.bounds.y - 24), waitMs: 2500, type: "tap" }
+  ];
+
+  let xml = "";
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    if (attempt.type === "press") {
+      await runAdb(config, device, [
+        "shell",
+        "input",
+        "swipe",
+        String(attempt.x),
+        String(attempt.y),
+        String(attempt.x),
+        String(attempt.y),
+        String(attempt.durationMs || 120)
+      ]);
+    } else {
+      await tap(config, device, attempt.x, attempt.y);
+    }
+    xml = await waitForUi(config, device, predicate, attempt.waitMs);
+    if (predicate(xml)) return xml;
+  }
+
+  return xml;
+}
+
 async function hideKeyboard(config, device) {
   await keyEvent(config, device, 111).catch(() => {});
   await new Promise((resolve) => setTimeout(resolve, 200));
@@ -306,13 +339,18 @@ async function prepareHomeForContractPayment(config, device, appPackage, store, 
     let xml = await waitForUi(
       config,
       device,
-      (nextXml) => nextXml.includes("동네") || hasPaymentWaitingCard(nextXml),
+      (nextXml) => (
+        nextXml.includes("동네") ||
+        hasPaymentWaitingCard(nextXml) ||
+        hasExtensionPaymentWaitingCard(nextXml) ||
+        isContractDetailLike(nextXml)
+      ),
       3000
     );
     saveXml(store, "payment-home-before-reuse", xml);
-    if (xml.includes("동네") || hasPaymentWaitingCard(xml)) {
+    if (xml.includes("동네") || hasPaymentWaitingCard(xml) || hasExtensionPaymentWaitingCard(xml) || isContractDetailLike(xml)) {
       addStep(steps, "기본검증 기존 홈 화면 재사용");
-      return;
+      return xml;
     }
 
     store.appendLog("runner.log", "contract-payment could not reuse current screen; launching app fresh");
@@ -320,6 +358,7 @@ async function prepareHomeForContractPayment(config, device, appPackage, store, 
   }
 
   await launchFresh(config, device, appPackage, steps);
+  return "";
 }
 
 function hasPaymentWaitingCard(xml) {
@@ -328,6 +367,23 @@ function hasPaymentWaitingCard(xml) {
       xml.includes("결제 대기 중") ||
       xml.includes("결제 요청 중") ||
       xml.includes("요청 중")
+    ) &&
+    (
+      xml.includes("확인 및 결제") ||
+      xml.includes("결제하기") ||
+      xml.includes("계약 확인")
+    )
+  );
+}
+
+function hasExtensionPaymentWaitingCard(xml) {
+  return (
+    (
+      xml.includes("연장 결제 대기") ||
+      xml.includes("연장결제대기") ||
+      xml.includes("연장 결제") ||
+      xml.includes("연장 요청 수락") ||
+      xml.includes("연장 수락")
     ) &&
     (
       xml.includes("확인 및 결제") ||
@@ -353,12 +409,55 @@ function findPaymentWaitingCard(xml) {
   });
 }
 
+function findExtensionPaymentWaitingCard(xml) {
+  return parseNodes(xml).find((node) => {
+    const label = nodeLabel(node);
+    return (
+      node.bounds &&
+      isVisibleNode(node) &&
+      node.attrs.clickable === "true" &&
+      (
+        label.includes("연장 결제 대기") ||
+        label.includes("연장결제대기") ||
+        label.includes("연장 결제") ||
+        label.includes("연장 요청 수락") ||
+        label.includes("연장 수락")
+      )
+    );
+  });
+}
+
 function findPaymentHomeActionButton(xml) {
   return findNode(xml, ["확인 및 결제", "결제하기", "계약 확인"], {
     visible: true,
     clickable: true,
     enabled: true
   });
+}
+
+function findExtensionPaymentHomeActionButton(xml) {
+  const extensionCard = findExtensionPaymentWaitingCard(xml);
+  const minTop = extensionCard?.bounds?.top || 0;
+  const maxBottom = extensionCard?.bounds?.bottom || 2496;
+
+  return parseNodes(xml)
+    .filter((node) => {
+      const label = nodeLabel(node);
+      return (
+        node.bounds &&
+        isVisibleNode(node) &&
+        node.attrs.clickable === "true" &&
+        node.attrs.enabled === "true" &&
+        node.bounds.top >= minTop &&
+        node.bounds.bottom <= maxBottom + 40 &&
+        (
+          label.includes("확인 및 결제") ||
+          label.includes("결제하기") ||
+          label.includes("계약 확인")
+        )
+      );
+    })
+    .sort((leftNode, rightNode) => rightNode.bounds.top - leftNode.bounds.top)[0] || null;
 }
 
 async function tapPaymentHomeCard(config, device, xml, steps) {
@@ -377,11 +476,100 @@ async function tapPaymentHomeCard(config, device, xml, steps) {
   fail("홈 화면 결제 카드 선택 좌표를 찾지 못했습니다.", steps);
 }
 
+async function tapExtensionPaymentHomeCard(config, device, xml, steps) {
+  const paymentButton = findExtensionPaymentHomeActionButton(xml);
+  if (paymentButton?.bounds) {
+    await tapNode(config, device, paymentButton, "연장 결제 카드 확인 및 결제 버튼", steps);
+    return;
+  }
+
+  const paymentCard = findExtensionPaymentWaitingCard(xml);
+  if (paymentCard?.bounds) {
+    await tap(config, device, paymentCard.bounds.x, paymentCard.bounds.y);
+    return;
+  }
+
+  fail("홈 화면 연장 결제 카드 선택 좌표를 찾지 못했습니다.", steps);
+}
+
+async function tapExtensionPaymentHomeCardRobust(config, device, store, xml, steps) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const paymentButton = findExtensionPaymentHomeActionButton(xml);
+    if (paymentButton?.bounds) {
+      const tapTargets = [
+        [paymentButton.bounds.x, paymentButton.bounds.y],
+        [paymentButton.bounds.x, paymentButton.bounds.bottom - 48],
+        [paymentButton.bounds.x, paymentButton.bounds.top + 48]
+      ];
+      const [x, y] = tapTargets[Math.min(attempt, tapTargets.length - 1)];
+      if (attempt === 1) {
+        await runAdb(config, device, ["shell", "input", "swipe", String(x), String(y), String(x), String(y), "180"]);
+      } else {
+        await tap(config, device, x, y);
+      }
+      store.appendLog("runner.log", `extension payment home action tap attempt ${attempt + 1}: ${x},${y}`);
+    } else {
+      await tapExtensionPaymentHomeCard(config, device, xml, steps);
+    }
+
+    const nextXml = await waitForUi(
+      config,
+      device,
+      (candidateXml) => !hasExtensionPaymentWaitingCard(candidateXml) || isContractDetailLike(candidateXml),
+      attempt === 0 ? 900 : 1600
+    );
+    if (isContractDetailLike(nextXml) || !hasExtensionPaymentWaitingCard(nextXml)) {
+      return nextXml;
+    }
+
+    xml = nextXml;
+  }
+
+  return xml;
+}
+
 function isContractPaymentDetail(xml) {
   return (
     xml.includes("계약번호") &&
     (xml.includes("결제해 주세요") || xml.includes("결제해 주세요.")) &&
     xml.includes("결제하기")
+  );
+}
+
+function isContractDetailLike(xml) {
+  return (
+    (xml.includes("계약번호") || xml.includes("계약 번호") || xml.includes("계약 상세")) &&
+    (xml.includes("계약") || xml.includes("결제") || xml.includes("연장"))
+  );
+}
+
+function isExtensionAcceptedPaymentScreen(xml) {
+  return (
+    xml.includes("연장") &&
+    (
+      xml.includes("수락") ||
+      xml.includes("결제 예정") ||
+      xml.includes("연장 계약") ||
+      xml.includes("게스트 결제")
+    ) &&
+    xml.includes("결제")
+  );
+}
+
+function isPaymentEntryScreen(xml) {
+  return (
+    hasPaymentMethodSection(xml) ||
+    isPgPaymentScreen(xml) ||
+    (
+      xml.includes("결제하기") &&
+      (
+        xml.includes("총 결제") ||
+        xml.includes("결제 마감") ||
+        xml.includes("결제 방법") ||
+        xml.includes("신용") ||
+        xml.includes("체크카드")
+      )
+    )
   );
 }
 
@@ -485,6 +673,23 @@ function hasVisiblePaymentTypeTabs(xml) {
   return Boolean(creditTab && bankTransferTab);
 }
 
+function findVisibleExtensionBankTransferOption(xml) {
+  const directOption = parseNodes(xml)
+    .filter((node) => {
+      const label = nodeLabel(node);
+      return (
+        node.bounds &&
+        isVisibleNode(node) &&
+        node.attrs.clickable === "true" &&
+        node.attrs.enabled === "true" &&
+        (label.includes("무통장 입금") || label.includes("무통장입금"))
+      );
+    })
+    .sort((leftNode, rightNode) => rightNode.bounds.top - leftNode.bounds.top)[0] || null;
+  if (directOption) return directOption;
+  return null;
+}
+
 function isPaymentMethodReady(xml, paymentMethod) {
   if (paymentMethod === "bank-transfer") {
     return hasVisiblePaymentTypeTabs(xml);
@@ -496,6 +701,15 @@ function isPaymentMethodReady(xml, paymentMethod) {
 function hasBankTransferForm(xml) {
   return (
     (xml.includes("현금영수증") || xml.includes("현금 영수증")) &&
+    (xml.includes("환불") || xml.includes("보증금")) &&
+    xml.includes("은행") &&
+    xml.includes("계좌")
+  );
+}
+
+function hasExtensionBankTransferForm(xml) {
+  return (
+    (xml.includes("무통장 입금") || xml.includes("무통장입금")) &&
     (xml.includes("환불") || xml.includes("보증금")) &&
     xml.includes("은행") &&
     xml.includes("계좌")
@@ -607,6 +821,48 @@ function isBankTransferPaymentComplete(xml) {
   );
 }
 
+function isExtensionVirtualAccountComplete(xml) {
+  return (
+    isBankTransferPaymentComplete(xml) ||
+    (
+      (xml.includes("가상계좌") || xml.includes("입금")) &&
+      !xml.includes("가상계좌 발급") &&
+      !xml.includes("가상 계좌 발급") &&
+      (
+        xml.includes("발급 완료") ||
+        xml.includes("발급되었습니다") ||
+        xml.includes("입금해주세요") ||
+        xml.includes("무통장 입금 정보") ||
+        xml.includes("입금 계좌") ||
+        xml.includes("입금기한")
+      )
+    )
+  );
+}
+
+function findTopLeftCloseButton(xml) {
+  if (!isExtensionVirtualAccountComplete(xml)) return null;
+
+  return parseNodes(xml)
+    .filter((node) => (
+      node.bounds &&
+      isVisibleNode(node) &&
+      node.attrs.clickable === "true" &&
+      node.attrs.enabled === "true" &&
+      node.bounds.left <= 180 &&
+      node.bounds.top >= 90 &&
+      node.bounds.top <= 330 &&
+      (
+        nodeLabel(node).includes("닫기") ||
+        nodeLabel(node).includes("close") ||
+        nodeLabel(node).includes("Close") ||
+        nodeLabel(node).includes("left-action") ||
+        (node.bounds.left >= 30 && node.bounds.right <= 180)
+      )
+    ))
+    .sort((leftNode, rightNode) => leftNode.bounds.top - rightNode.bounds.top)[0] || null;
+}
+
 function isHomeScreen(xml) {
   return (
     xml.includes("동네 주변 장소로 검색") ||
@@ -695,6 +951,47 @@ async function bringHolderCheckIntoSafeView(config, device) {
   }
 
   return xml;
+}
+
+async function tapHolderCheckRobust(config, device, store, steps, xml) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let holderCheck = findHolderCheckButton(xml);
+    if (holderCheck?.bounds && holderCheck.bounds.top >= 260 && holderCheck.bounds.bottom <= 2100) {
+      await tapNode(config, device, holderCheck, "예금주 확인 버튼", steps);
+      const nextXml = await waitForUi(config, device, (candidateXml) => (
+        isAccountHolderConfirmDialog(candidateXml) ||
+        hasRefundAccountVerified(candidateXml) ||
+        hasRefundAccountRequiredError(candidateXml)
+      ), 3000);
+      if (
+        isAccountHolderConfirmDialog(nextXml) ||
+        hasRefundAccountVerified(nextXml) ||
+        hasRefundAccountRequiredError(nextXml)
+      ) {
+        return nextXml;
+      }
+      xml = nextXml;
+    }
+
+    if (attempt === 0) {
+      await keyEvent(config, device, 111).catch(() => {});
+    } else {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "1750", "540", "1300", "160"]);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    xml = await dumpUiStable(config, device);
+  }
+
+  await saveFailureArtifacts(config, device, store, "account-holder-check-not-ready", xml);
+  fail(
+    "예금주 확인 버튼이 활성화되지 않았습니다.",
+    steps,
+    [
+      "은행 선택과 계좌번호 입력 후 예금주 확인 버튼이 눌릴 수 있는 상태가 되어야 합니다.",
+      "계좌 입력 직후 키패드가 올라와 있으면 버튼이 보이는 좌표를 먼저 탭하고, 실패 시 키패드 닫기/위치 보정 후 재시도합니다.",
+      "리포트의 account-holder-check-not-ready.png 화면을 확인해주세요."
+    ]
+  );
 }
 
 function hasRefundAccountRequiredError(xml) {
@@ -883,6 +1180,196 @@ async function openPaymentDetailFromHome(config, device, store, steps) {
       [
         "확인 및 결제 버튼을 눌렀지만 계약번호, 결제 안내, 결제하기 버튼이 확인되지 않았습니다.",
         "리포트의 payment-detail-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  return xml;
+}
+
+async function openExtensionPaymentFromHome(config, device, store, steps, options = {}) {
+  let xml = options.initialXml || "";
+  if (options.fastHomeActionTap && !isContractDetailLike(xml)) {
+    if (hasExtensionPaymentWaitingCard(xml)) {
+      const button = findExtensionPaymentHomeActionButton(xml);
+      if (button?.bounds) {
+        xml = await tapButtonAndWaitFast(config, device, button, isContractDetailLike, "연장 결제 카드 확인 및 결제 버튼", {
+          attempts: [
+            { x: button.bounds.x, y: button.bounds.y, waitMs: 1100, type: "tap" },
+            { x: button.bounds.x, y: button.bounds.y, waitMs: 1500, type: "tap" }
+          ]
+        });
+        store.appendLog("runner.log", `extension payment fast home xml action tap: ${button.bounds.x},${button.bounds.y}`);
+      }
+    } else {
+      await tap(config, device, 540, 1110);
+      store.appendLog("runner.log", "extension payment fast home action tap: 540,1110");
+      xml = await waitForUi(config, device, isContractDetailLike, 1400);
+    }
+    if (isContractDetailLike(xml)) {
+      addStep(steps, "홈 화면 연장 결제 카드 선택", "pass", "상단 카드 확인 및 결제 버튼 빠른 탭");
+      saveXml(store, "extension-payment-contract-detail", xml);
+    }
+  }
+
+  if (!isContractDetailLike(xml)) {
+    xml = await dumpUiStable(config, device);
+    if (isContractDetailLike(xml)) {
+      addStep(steps, "연장 결제 계약 상세 화면 확인", "pass", "홈 카드 탭 후 상세 화면 진입 상태");
+      saveXml(store, "extension-payment-contract-detail", xml);
+    } else if (!hasExtensionPaymentWaitingCard(xml) && !xml.includes("동네")) {
+      xml = await waitForUi(
+        config,
+        device,
+        (nextXml) => nextXml.includes("동네") || hasExtensionPaymentWaitingCard(nextXml),
+        3000
+      );
+    }
+    saveXml(store, "extension-payment-home-before-refresh", xml);
+
+    if (isContractDetailLike(xml)) {
+      // Already on contract detail. Do not pull-refresh the detail page while looking for a home card.
+    } else if (!hasExtensionPaymentWaitingCard(xml)) {
+      for (let attempt = 1; attempt <= 3 && !hasExtensionPaymentWaitingCard(xml); attempt += 1) {
+        await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        addStep(steps, `홈 화면 풀 리프레시 ${attempt}회`);
+
+        xml = await waitForUi(config, device, hasExtensionPaymentWaitingCard, 7500);
+        saveXml(store, `extension-payment-home-after-refresh-${attempt}`, xml);
+      }
+    } else {
+      addStep(steps, "홈 화면 연장 결제 카드 즉시 확인", "pass", "리프레시 없이 카드가 이미 보이는 상태");
+    }
+    saveXml(store, "extension-payment-home-after-refresh", xml);
+
+    if (!isContractDetailLike(xml) && !hasExtensionPaymentWaitingCard(xml)) {
+      await saveFailureArtifacts(config, device, store, "extension-payment-card-not-found", xml);
+      fail(
+        "홈 화면에서 연장 결제 대기 카드를 찾지 못했습니다.",
+        steps,
+        [
+          "홈 화면에서 '연장 결제 대기 중' 상태와 확인 및 결제/결제하기 버튼이 있는 카드를 찾습니다.",
+          "호스트가 연장 요청을 수락했는지 확인해주세요.",
+          "리포트의 extension-payment-card-not-found.png 화면을 확인해주세요."
+        ]
+      );
+    }
+
+    if (!isContractDetailLike(xml)) {
+      addStep(steps, "홈 화면 연장 결제 카드 확인");
+      xml = await tapExtensionPaymentHomeCardRobust(config, device, store, xml, steps);
+      addStep(steps, "홈 화면 연장 결제 카드 선택");
+    }
+  }
+
+  xml = isContractDetailLike(xml) ? xml : await waitForUi(config, device, isContractDetailLike, 10000);
+  saveXml(store, "extension-payment-contract-detail", xml);
+
+  if (!isContractDetailLike(xml)) {
+    await saveFailureArtifacts(config, device, store, "extension-payment-contract-detail-not-found", xml);
+    fail(
+      "연장 결제 계약 상세 화면으로 진입하지 못했습니다.",
+      steps,
+      [
+        "홈 카드의 확인 및 결제 버튼을 눌렀지만 계약 상세 화면을 확인하지 못했습니다.",
+        "리포트의 extension-payment-contract-detail-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  const extensionPaymentButton = findNode(xml, ["확인 및 결제", "결제하기", "결제"], {
+    visible: true,
+    clickable: true,
+    enabled: true
+  });
+  if (!extensionPaymentButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, "extension-payment-detail-button-not-found", xml);
+    fail(
+      "계약 상세 화면에서 계약 연장 요청 카드의 확인 및 결제 버튼을 찾지 못했습니다.",
+      steps,
+      [
+        "계약 상세 화면에는 계약연장요청 카드와 확인 및 결제 버튼이 보여야 합니다.",
+        "리포트의 extension-payment-detail-button-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  xml = await tapButtonAndWaitFast(
+    config,
+    device,
+    extensionPaymentButton,
+    isExtensionAcceptedPaymentScreen,
+    "계약 연장 요청 확인 및 결제 버튼"
+  );
+  addStep(steps, "계약 연장 요청 확인 및 결제 버튼 선택");
+
+  saveXml(store, "extension-payment-accepted-detail", xml);
+
+  if (!isExtensionAcceptedPaymentScreen(xml)) {
+    await saveFailureArtifacts(config, device, store, "extension-payment-accepted-detail-not-found", xml);
+    fail(
+      "계약 연장 요청 수락 화면으로 진입하지 못했습니다.",
+      steps,
+      [
+        "확인 및 결제 선택 후 연장 결제 금액과 결제 버튼이 있는 화면이 보여야 합니다.",
+        "리포트의 extension-payment-accepted-detail-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  const amountPayButton = parseNodes(xml)
+    .filter((node) => {
+      const label = nodeLabel(node);
+      return (
+        node.bounds &&
+        isVisibleNode(node) &&
+        node.attrs.clickable === "true" &&
+        node.attrs.enabled === "true" &&
+        label.includes("결제") &&
+        !label.includes("확인 및 결제")
+      );
+    })
+    .sort((leftNode, rightNode) => rightNode.bounds.top - leftNode.bounds.top)[0] ||
+    findNode(xml, "결제", { visible: true, clickable: true, enabled: true });
+  if (!amountPayButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, "extension-payment-amount-button-not-found", xml);
+    fail(
+      "계약연장요청수락 화면에서 금액 결제 버튼을 찾지 못했습니다.",
+      steps,
+      [
+        "계약연장요청수락 화면 하단에는 파란색 금액 결제 버튼이 보여야 합니다.",
+        "리포트의 extension-payment-amount-button-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  xml = await tapButtonAndWaitFast(
+    config,
+    device,
+    amountPayButton,
+    isPaymentEntryScreen,
+    "연장 금액 결제 버튼",
+    {
+      attempts: [
+        { x: amountPayButton.bounds.x, y: amountPayButton.bounds.y, waitMs: 2200, type: "tap" },
+        { x: amountPayButton.bounds.x, y: amountPayButton.bounds.y, waitMs: 2600, type: "tap" },
+        { x: amountPayButton.bounds.x, y: Math.min(amountPayButton.bounds.bottom - 10, amountPayButton.bounds.y + 20), waitMs: 3200, type: "press", durationMs: 120 }
+      ]
+    }
+  );
+  addStep(steps, "계약연장요청수락 화면 금액 결제 버튼 선택");
+
+  saveXml(store, "extension-payment-detail-start", xml);
+
+  if (!isPaymentEntryScreen(xml)) {
+    await saveFailureArtifacts(config, device, store, "extension-payment-page-not-found", xml);
+    fail(
+      "연장 결제하기 화면으로 이동하지 못했습니다.",
+      steps,
+      [
+        "금액 결제 버튼을 눌렀지만 결제 방법 영역 또는 PG 결제 화면을 확인하지 못했습니다.",
+        "리포트의 extension-payment-page-not-found.png 화면을 확인해주세요."
       ]
     );
   }
@@ -1149,6 +1636,17 @@ function hasTextInEditableBesideLabel(xml, label, expectedValue) {
   return Boolean(node && nodeLabel(node).includes(expectedValue));
 }
 
+function hasRefundAccountNumberValue(xml, expectedValue) {
+  const accountInput = findRefundAccountInput(xml);
+  if (accountInput && nodeLabel(accountInput).includes(expectedValue)) return true;
+
+  return findEditableNodes(xml).some((node) => (
+    isVisibleNode(node) &&
+    !nodeLabel(node).includes("@") &&
+    nodeLabel(node).includes(expectedValue)
+  ));
+}
+
 function findCashReceiptPhoneInput(xml) {
   const heading = findNode(xml, ["현금영수증", "현금 영수증"], { visible: true });
   const issueButton = findNode(xml, "발급 요청", { visible: true });
@@ -1190,16 +1688,31 @@ function findEnabledCashReceiptIssueButton(xml) {
 }
 
 function hasVisibleRefundAccountSection(xml) {
-  return Boolean(
-    findNode(xml, ["환불/보증금 반환 계좌", "보증금 반환 계좌", "환불 계좌"], { visible: true }) &&
-      findNode(xml, ["은행 선택", "은행"], { visible: true }) &&
-      findNode(xml, "계좌번호", { visible: true })
-  );
+  const heading = findNode(xml, ["환불/보증금 반환 계좌", "보증금 반환 계좌", "환불 계좌"], { visible: true });
+  const bankSelect = findNode(xml, ["은행 선택", "은행"], { visible: true });
+  const holderCheck = findNode(xml, ["예금주 확인", "예금 주 확인"], { visible: true });
+  const accountInput = findRefundAccountInput(xml);
+
+  return Boolean(heading && bankSelect && holderCheck && accountInput);
 }
 
 function findRefundAccountInput(xml) {
-  return findEditableBesideLabel(xml, "계좌번호", { excludeEmail: true }) ||
+  const labelBasedInput = findEditableBesideLabel(xml, "계좌번호", { excludeEmail: true }) ||
     findEditableBelowLabel(xml, "계좌번호", { excludeEmail: true });
+  if (labelBasedInput?.bounds) return labelBasedInput;
+
+  const bankSelect = findNode(xml, ["은행 선택", "은행"], { visible: true });
+  const holderCheck = findNode(xml, ["예금주 확인", "예금 주 확인"], { visible: true });
+  if (!bankSelect?.bounds || !holderCheck?.bounds) return null;
+
+  return findEditableNodes(xml)
+    .filter((node) => (
+      isVisibleNode(node) &&
+      !nodeLabel(node).includes("@") &&
+      node.bounds.top >= bankSelect.bounds.bottom - 20 &&
+      node.bounds.bottom <= holderCheck.bounds.top + 20
+    ))
+    .sort((leftNode, rightNode) => leftNode.bounds.top - rightNode.bounds.top)[0] || null;
 }
 
 async function bringRefundAccountInputIntoSafeView(config, device, xml) {
@@ -1400,11 +1913,25 @@ async function selectBank(config, device, store, steps, xml) {
 
   await tapNode(config, device, bankSelect, "은행 선택", steps);
   addStep(steps, "환불/보증금 반환 은행 선택 열기");
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await tap(config, device, 540, 335);
+  let selectedXml = await waitForUi(
+    config,
+    device,
+    (nextXml) => nextXml.includes("IBK기업은행"),
+    1200
+  );
+  if (selectedXml.includes("IBK기업은행")) {
+    addStep(steps, "기업은행 선택", "pass", "드롭다운 첫 번째 항목 빠른 선택");
+    return selectedXml;
+  }
+
   xml = await waitForUi(
     config,
     device,
     (nextXml) => nextXml.includes("기업은행") || nextXml.includes("IBK기업은행"),
-    4000
+    2500
   );
   saveXml(store, "refund-bank-dropdown", xml);
 
@@ -1413,7 +1940,7 @@ async function selectBank(config, device, store, steps, xml) {
     enabled: true
   });
   await tapNode(config, device, ibk, "기업은행", steps);
-  addStep(steps, "기업은행 선택");
+  addStep(steps, "기업은행 선택", "pass", "빠른 선택 실패 후 XML 탐색으로 선택");
   await new Promise((resolve) => setTimeout(resolve, 250));
 
   return dumpUiStable(config, device);
@@ -1453,10 +1980,10 @@ async function fillRefundAccount(config, device, store, steps, xml) {
   xml = await waitForUi(
     config,
     device,
-    (nextXml) => hasTextInEditableBesideLabel(nextXml, "계좌번호", "34108755301018"),
+    (nextXml) => hasRefundAccountNumberValue(nextXml, "34108755301018"),
     2500
   );
-  if (!hasTextInEditableBesideLabel(xml, "계좌번호", "34108755301018")) {
+  if (!hasRefundAccountNumberValue(xml, "34108755301018")) {
     await saveFailureArtifacts(config, device, store, "refund-account-number-input-failed", xml);
     fail(
       "환불 계좌번호가 실제 입력되지 않았습니다.",
@@ -1468,37 +1995,7 @@ async function fillRefundAccount(config, device, store, steps, xml) {
     );
   }
   addStep(steps, "환불 계좌번호 입력", "pass", "34108755301018");
-  xml = await bringHolderCheckIntoSafeView(config, device);
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    xml = await bringHolderCheckIntoSafeView(config, device);
-    const holderCheck = findHolderCheckButton(xml);
-    if (!holderCheck?.bounds) {
-      await saveFailureArtifacts(config, device, store, "account-holder-check-not-ready", xml);
-      fail(
-        "예금주 확인 버튼이 활성화되지 않았습니다.",
-        steps,
-        [
-          "은행 선택과 계좌번호 입력 후 예금주 확인 버튼이 눌릴 수 있는 상태가 되어야 합니다.",
-          "리포트의 account-holder-check-not-ready.png 화면을 확인해주세요."
-        ]
-      );
-    }
-
-    xml = await hideKeyboard(config, device);
-    const refreshedHolderCheck = findNode(xml, ["예금주 확인", "예금 주 확인"], {
-      visible: true,
-      clickable: true,
-      enabled: true
-    }) || holderCheck;
-    await tapNode(config, device, refreshedHolderCheck, "예금주 확인 버튼", steps);
-    xml = await waitForUi(config, device, (nextXml) => (
-      isAccountHolderConfirmDialog(nextXml) ||
-      hasRefundAccountVerified(nextXml) ||
-      hasRefundAccountRequiredError(nextXml)
-    ), 3000);
-    if (isAccountHolderConfirmDialog(xml) || hasRefundAccountVerified(xml) || hasRefundAccountRequiredError(xml)) break;
-  }
+  xml = await tapHolderCheckRobust(config, device, store, steps, xml);
   saveXml(store, "account-holder-confirm-dialog", xml);
 
   if (isAccountHolderConfirmDialog(xml)) {
@@ -1610,6 +2107,116 @@ async function submitBankTransferPayment(config, device, store, steps, xml) {
   return returnHomeFromPaymentComplete(config, device, store, steps, xml, "payment");
 }
 
+function findVirtualAccountIssueButton(xml) {
+  return findNode(xml, ["가상계좌 발급", "가상 계좌 발급"], {
+    visible: true,
+    clickable: true,
+    enabled: true
+  });
+}
+
+async function tapVirtualAccountIssueButtonRobust(config, device, store, steps, xml) {
+  await keyEvent(config, device, 111).catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  xml = await dumpUiStable(config, device);
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const issueButton = findVirtualAccountIssueButton(xml);
+    if (issueButton?.bounds && issueButton.bounds.top >= 900 && issueButton.bounds.bottom <= 2465) {
+      saveXml(store, "extension-bank-transfer-submit-ready", xml);
+      await tapNode(config, device, issueButton, "가상계좌 발급 버튼", steps);
+      addStep(steps, "가상계좌 발급 버튼 선택");
+      return xml;
+    }
+
+    const accountSectionVisible = Boolean(findNode(xml, ["환불 계좌", "환불/보증금 반환 계좌"], { visible: true }));
+    const swipeArgs = accountSectionVisible
+      ? ["shell", "input", "swipe", "540", "1880", "540", "1420", "150"]
+      : ["shell", "input", "swipe", "540", "1850", "540", "900", "170"];
+    await runAdb(config, device, swipeArgs);
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    xml = await dumpUiStable(config, device);
+  }
+
+  await saveFailureArtifacts(config, device, store, "extension-bank-transfer-submit-ready", xml);
+  fail(
+    "연장 무통장 결제의 가상계좌 발급 버튼을 찾지 못했습니다.",
+    steps,
+    [
+      "환불계좌 입력/예금주 확인 후 키패드를 닫고 가상계좌 발급 버튼을 찾아야 합니다.",
+      "버튼이 화면 하단에 있으면 짧은 스크롤로 위치만 보정합니다.",
+      "리포트의 extension-bank-transfer-submit-ready.png 화면을 확인해주세요."
+    ]
+  );
+}
+
+async function selectExtensionBankTransferMethod(config, device, store, steps, xml) {
+  if (xml.includes("결제 방법") && !xml.includes("무통장 입금")) {
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "850", "540", "1500", "180"]);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    xml = await dumpUiStable(config, device);
+  }
+
+  for (let count = 0; count < 8; count += 1) {
+    const bankTransfer = findVisibleExtensionBankTransferOption(xml);
+    if (bankTransfer?.bounds) {
+      await tapNode(config, device, bankTransfer, "연장결제 무통장 입금 라디오", steps);
+      addStep(steps, "연장결제 무통장 입금 선택");
+      xml = await waitForUi(config, device, hasExtensionBankTransferForm, 5000);
+      saveXml(store, "extension-payment-bank-transfer-method", xml);
+      if (hasExtensionBankTransferForm(xml)) return xml;
+    }
+
+    const paymentMethodHeading = findNode(xml, "결제 방법", { visible: true });
+    const swipeArgs = paymentMethodHeading?.bounds
+      ? ["shell", "input", "swipe", "540", "900", "540", "1500", "160"]
+      : ["shell", "input", "swipe", "540", "1850", "540", "900", "170"];
+    await runAdb(config, device, swipeArgs);
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    xml = await dumpUiStable(config, device);
+  }
+
+  await saveFailureArtifacts(config, device, store, "extension-bank-transfer-method-not-found", xml);
+  fail(
+    "연장 결제하기 화면에서 무통장 입금 라디오 버튼을 찾지 못했습니다.",
+    steps,
+    [
+      "결제하기 화면의 카드/간편결제 기본 선택 상태에서 무통장 입금 라디오 버튼을 선택해야 합니다.",
+      "리포트의 extension-bank-transfer-method-not-found.png 화면을 확인해주세요."
+    ]
+  );
+}
+
+async function submitExtensionBankTransferPayment(config, device, appPackage, store, steps, xml) {
+  xml = await selectExtensionBankTransferMethod(config, device, store, steps, xml);
+  xml = await fillRefundAccount(config, device, store, steps, xml);
+  xml = await tapVirtualAccountIssueButtonRobust(config, device, store, steps, xml);
+
+  xml = await waitForUi(config, device, isExtensionVirtualAccountComplete, 12000);
+  saveXml(store, "payment-complete", xml);
+
+  if (!isExtensionVirtualAccountComplete(xml)) {
+    await saveFailureArtifacts(config, device, store, "extension-bank-transfer-complete-not-found", xml);
+    fail(
+      "연장 무통장 가상계좌 발급 완료 화면을 확인하지 못했습니다.",
+      steps,
+      [
+        "가상계좌 발급 버튼을 눌렀지만 가상계좌/입금 안내 완료 화면이 확인되지 않았습니다.",
+        "리포트의 extension-bank-transfer-complete-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+  addStep(steps, "가상계좌 발급 완료 화면 확인");
+
+  if (appPackage) {
+    await launchFresh(config, device, appPackage, steps);
+    addStep(steps, "가상계좌 발급 완료 후 앱 재실행");
+    return waitForUi(config, device, isHomeScreen, 8000);
+  }
+
+  return xml;
+}
+
 async function inputPgCard(config, device, store, steps, xml) {
   let { cardFields, expiryField } = findPgPaymentFields(xml);
 
@@ -1715,13 +2322,15 @@ async function runContractPaymentTest({ request, config, store }) {
   const role = request.role || "guest";
   const env = request.env || "staging";
   const paymentMethod = request.payment_method || "card";
+  const isExtensionPayment = paymentMethod === "extension-card";
+  const isExtensionBankTransfer = paymentMethod === "extension-bank-transfer";
   const skipFreshLaunch = request.skip_fresh_launch === true;
   const device = config.devices.guest || "";
   const appPackage = config.androidPackages[env];
   const steps = [];
 
   if (role !== "guest") throw new Error("계약 결제는 guest role에서만 실행할 수 있습니다.");
-  if (!["card", "bank-transfer"].includes(paymentMethod)) {
+  if (!["card", "bank-transfer", "extension-card", "extension-bank-transfer"].includes(paymentMethod)) {
     throw new Error(`Unknown payment method: ${paymentMethod}`);
   }
   if (!device) throw new Error("Missing device id for role: guest");
@@ -1730,16 +2339,26 @@ async function runContractPaymentTest({ request, config, store }) {
   return withDeviceLock(device, async () => {
     addStep(steps, "환경 설정 확인");
     await wakeAndUnlock(config, device, steps, store);
-    await prepareHomeForContractPayment(config, device, appPackage, store, steps, {
+    const homeXml = await prepareHomeForContractPayment(config, device, appPackage, store, steps, {
       skipFreshLaunch
     });
 
-    let xml = await openPaymentDetailFromHome(config, device, store, steps);
-    xml = await scrollToPaymentMethod(config, device, store, steps, paymentMethod);
-    if (paymentMethod === "card") {
+    let xml = isExtensionPayment || isExtensionBankTransfer
+      ? await openExtensionPaymentFromHome(config, device, store, steps, {
+        fastHomeActionTap: skipFreshLaunch,
+        initialXml: homeXml
+      })
+      : await openPaymentDetailFromHome(config, device, store, steps);
+    if (isExtensionBankTransfer) {
+      xml = await submitExtensionBankTransferPayment(config, device, appPackage, store, steps, xml);
+    } else {
+      xml = await scrollToPaymentMethod(config, device, store, steps, isExtensionPayment ? "card" : paymentMethod);
+    }
+
+    if (paymentMethod === "card" || isExtensionPayment) {
       xml = await chooseJcbAndSubmit(config, device, store, steps, xml);
       xml = await inputPgCard(config, device, store, steps, xml);
-    } else {
+    } else if (paymentMethod === "bank-transfer") {
       xml = await submitBankTransferPayment(config, device, store, steps, xml);
     }
 
@@ -1747,32 +2366,49 @@ async function runContractPaymentTest({ request, config, store }) {
 
     return {
       test_id: "TC-CONTRACT-PAYMENT-001",
-      name: "guest 계약 결제",
+      name: isExtensionPayment || isExtensionBankTransfer ? "guest 계약 연장 결제" : "guest 계약 결제",
       env,
       status: "pass",
       device,
       steps,
       payment_conditions: {
-        method: paymentMethod === "card" ? "신용·체크카드" : "무통장 입금",
-        ...(paymentMethod === "card"
+        method: paymentMethod === "bank-transfer" || isExtensionBankTransfer ? "무통장 입금" : "신용·체크카드",
+        type: isExtensionPayment || isExtensionBankTransfer ? "계약 연장 결제" : "계약 결제",
+        ...(paymentMethod === "card" || isExtensionPayment
           ? {
             card_brand: "JCB",
             card_number: "3530 **** **** 0000",
             expiry: "03/28"
           }
           : {
-            cash_receipt_type: "개인",
-            cash_receipt_phone: "01000000000",
+            ...(paymentMethod === "bank-transfer"
+              ? {
+                cash_receipt_type: "개인",
+                cash_receipt_phone: "01000000000"
+              }
+              : {}),
             refund_bank: "기업은행",
             refund_account: "34108755301018",
-            toss_approval_target: extractBankTransferApprovalTarget(store)
+            ...(isExtensionBankTransfer
+              ? {
+                virtual_account: "가상계좌 발급 완료"
+              }
+              : {
+                toss_approval_target: extractBankTransferApprovalTarget(store)
+              })
           })
       },
       artifacts: {
         screenshots: [],
         logs: [
           path.join(store.logsDir, "payment-home-after-refresh.xml"),
-          path.join(store.logsDir, paymentMethod === "card" ? "payment-method-jcb.xml" : "payment-method-bank-transfer.xml"),
+          path.join(store.logsDir, "extension-payment-home-after-refresh.xml"),
+          path.join(store.logsDir, "extension-payment-contract-detail.xml"),
+          path.join(store.logsDir, "extension-payment-accepted-detail.xml"),
+          path.join(store.logsDir, "extension-payment-detail-start.xml"),
+          path.join(store.logsDir, "extension-payment-bank-transfer-method.xml"),
+          path.join(store.logsDir, paymentMethod === "bank-transfer" || isExtensionBankTransfer ? "payment-method-bank-transfer.xml" : "payment-method-jcb.xml"),
+          path.join(store.logsDir, "extension-bank-transfer-submit-ready.xml"),
           path.join(store.logsDir, "cash-receipt-section.xml"),
           path.join(store.logsDir, "refund-account-section.xml"),
           path.join(store.logsDir, "account-holder-checked.xml"),

@@ -2,13 +2,13 @@ const { runTest } = require("../orchestrator/run-test");
 const { formatHelp, formatResult } = require("./slack-reporter");
 
 const KOREAN_SHORTCUT_PATTERN =
-  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
+  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장결제|연장 결제|계약연장결제|계약 연장 결제|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const SCHEDULE_CHANGE_PATTERN =
   /^!(\d+)\s+계약\s*변경\s+(일주일\s*전|2주일\s*전|2주\s*전|한달\s*전|1달\s*전|일주일\s*후|2주일\s*후|2주\s*후|한달\s*후|1달\s*후)$/i;
 const BASIC_VALIDATION_PATTERN =
-  /^!기본검증\s+(일반결제|일반카드|카드|무통장\s*결제|무통장결제|무통장|자동결제|자동\s*결제|자동카드)(?:\s+(dev|stg|staging))?$/i;
+  /^!기본검증\s+(일반결제|일반카드|카드|무통장\s*결제|무통장결제|무통장|자동결제|자동\s*결제|자동카드|연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?$/i;
 
 function parseKeyValues(parts) {
   const values = {};
@@ -49,6 +49,10 @@ function parseKoreanShortcut(text) {
     "연장 요청": "contract-extension",
     계약연장: "contract-extension",
     "계약 연장": "contract-extension",
+    연장결제: "contract-payment",
+    "연장 결제": "contract-payment",
+    계약연장결제: "contract-payment",
+    "계약 연장 결제": "contract-payment",
     연장수락: "contract-extension-approve",
     "연장 수락": "contract-extension-approve",
     연장승인: "contract-extension-approve",
@@ -76,6 +80,7 @@ function parseKoreanShortcut(text) {
     자동카드: "auto-card"
   };
   const paymentMethod = paymentMethodByShortcut[match[3]];
+  const isExtensionPayment = ["연장결제", "연장 결제", "계약연장결제", "계약 연장 결제"].includes(match[2]);
   const test = paymentMethod === "auto-card"
     ? "contract-request"
     : testByCommand[match[2]];
@@ -85,7 +90,10 @@ function parseKoreanShortcut(text) {
     test,
     role,
     env: envByShortcut[String(match[4] || "stg").toLowerCase()],
-    payment_method: paymentMethod
+    payment_method: isExtensionPayment
+      ? paymentMethod === "bank-transfer" ? "extension-bank-transfer" : "extension-card"
+      : paymentMethod,
+    skip_fresh_launch: isExtensionPayment ? true : undefined
   };
 }
 
@@ -109,12 +117,24 @@ function parseBasicValidation(text) {
     무통장: "bank-transfer",
     자동결제: "auto-card",
     "자동 결제": "auto-card",
-    자동카드: "auto-card"
+    자동카드: "auto-card",
+    연장결제: "extension-card",
+    "연장 결제": "extension-card",
+    "연장결제 카드": "extension-card",
+    "연장 결제 카드": "extension-card",
+    "연장결제 무통장": "extension-bank-transfer",
+    "연장 결제 무통장": "extension-bank-transfer"
   };
 
+  const methodLabel = match[1].replace(/\s+/g, " ").trim();
+  const detailLabel = match[2] ? match[2].replace(/\s+/g, " ").trim() : "";
+  const isExtensionPayment = methodLabel === "연장결제" || methodLabel === "연장 결제";
+
   return {
-    env: envByShortcut[String(match[2] || "stg").toLowerCase()],
-    payment_method: methodByShortcut[match[1].replace(/\s+/g, " ").trim()] || "card"
+    env: envByShortcut[String(match[3] || "stg").toLowerCase()],
+    payment_method: isExtensionPayment
+      ? detailLabel === "무통장" ? "extension-bank-transfer" : "extension-card"
+      : methodByShortcut[methodLabel] || "card"
   };
 }
 
@@ -213,6 +233,7 @@ async function runSingleQaCommand(command, context) {
       payment_method: paymentMethod,
       reservation_id: command.reservation_id,
       offset_label: command.offset_label || command.offset,
+      host_home_only: command.host_home_only,
       skip_fresh_launch: command.skip_fresh_launch,
       skip_app_build_check: command.skip_app_build_check,
       requested_by: context.user,
@@ -337,6 +358,8 @@ function looksLikeLoginSessionFailure(result) {
   const message = String(result?.error || "");
   return (
     message.includes("호스트모드") ||
+    message.includes("호스트 모드") ||
+    message.includes("게스트 모드") ||
     message.includes("로그인") ||
     message.includes("login") ||
     message.includes("세션") ||
@@ -431,12 +454,79 @@ async function runSingleQaCommandWithLazyLogin(command, context) {
 }
 
 function basicValidationLabel(paymentMethod) {
+  if (paymentMethod === "extension-bank-transfer") return "연장결제 무통장";
+  if (paymentMethod === "extension-card") return "연장결제";
   if (paymentMethod === "bank-transfer") return "무통장 결제";
   if (paymentMethod === "auto-card") return "자동결제";
   return "일반결제";
 }
 
+async function runExtensionPaymentValidation({ env, payment_method: paymentMethod }, context) {
+  const flowLabel = basicValidationLabel(paymentMethod);
+  const sections = [
+    `[기본검증] ${flowLabel} 1사이클 (${env})`,
+    `게스트 연장요청 > 호스트 연장수락 > 게스트 ${flowLabel} 순서로 실행합니다.`
+  ];
+
+  const guestLogin = await runSingleQaCommand(
+    {
+      test: "login",
+      env,
+      role: "guest"
+    },
+    context
+  );
+  appendFlowSection(sections, "1. 게스트 로그인", guestLogin);
+  if (guestLogin.status !== "pass") return sections.join("\n\n");
+
+  const extensionRequest = await runSingleQaCommandWithLazyLogin(
+    {
+      test: "contract-extension",
+      env,
+      role: "guest",
+      skip_fresh_launch: true,
+      skip_app_build_check: true
+    },
+    context
+  );
+  sections.push(compactFlowSection("2. 게스트 연장요청", extensionRequest.result));
+  if (extensionRequest.result.status !== "pass") return sections.join("\n\n");
+
+  const extensionApprove = await runSingleQaCommandWithLazyLogin(
+    {
+      test: "contract-extension-approve",
+      env,
+      role: "host",
+      skip_app_build_check: true
+    },
+    context
+  );
+  sections.push(compactFlowSection("3. 호스트 연장수락", extensionApprove.result));
+  if (extensionApprove.result.status !== "pass") return sections.join("\n\n");
+
+  const extensionPayment = await runSingleQaCommand(
+    {
+      test: "contract-payment",
+      env,
+      role: "guest",
+      payment_method: paymentMethod,
+      skip_fresh_launch: true,
+      skip_app_build_check: true
+    },
+    context
+  );
+  sections.push(compactFlowSection(`4. 게스트 ${flowLabel}`, extensionPayment));
+  if (extensionPayment.status !== "pass") return sections.join("\n\n");
+
+  sections.push(`[기본검증 PASS] 연장요청부터 연장수락, ${flowLabel}까지 1사이클이 완료되었습니다.`);
+  return sections.join("\n\n");
+}
+
 async function runBasicValidation({ env, payment_method: paymentMethod }, context) {
+  if (paymentMethod === "extension-card" || paymentMethod === "extension-bank-transfer") {
+    return runExtensionPaymentValidation({ env, payment_method: paymentMethod }, context);
+  }
+
   const flowLabel = basicValidationLabel(paymentMethod);
   const isAutoCard = paymentMethod === "auto-card";
   const requestPaymentMethod = isAutoCard ? "auto-card" : undefined;

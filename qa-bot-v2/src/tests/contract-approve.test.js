@@ -106,6 +106,15 @@ function isHostModeShell(xml) {
   return ["집 목록", "계약", "메시지", "내 정보"].filter((label) => findBottomTab(xml, label)).length >= 3;
 }
 
+function isLoginStartScreen(xml) {
+  return (
+    xml.includes("이메일/휴대폰 번호로 시작하기") ||
+    xml.includes("카카오로 시작하기") ||
+    xml.includes("구글로 시작하기") ||
+    xml.includes("로그인 하지 않고 둘러보기")
+  );
+}
+
 function isHostContractList(xml) {
   return xml.includes("계약 관리") && xml.includes("계약 요청") && xml.includes("최근 계약 요청일 순");
 }
@@ -116,6 +125,10 @@ function isContractRequestDetail(xml) {
     xml.includes("수락해주세요") &&
     (xml.includes("계약 수락") || xml.includes("거절"))
   );
+}
+
+function hasServiceUpdateBanner(xml) {
+  return xml.includes("서비스 업데이트가 있습니다.") && xml.includes("새로고침");
 }
 
 function hasAcceptConfirmDialog(xml) {
@@ -469,6 +482,47 @@ async function openContractRequestFromHostHome(config, device, store, steps, opt
         xml,
         contractNumber: getContractNumber(xml)
       };
+    }
+
+    if (hasServiceUpdateBanner(xml)) {
+      const refreshButton = findNode(xml, "새로고침", { visibleOnly: true });
+      if (refreshButton?.bounds) {
+        await tap(config, device, refreshButton.bounds.x, refreshButton.bounds.y);
+        addStep(steps, "서비스 업데이트 안내 새로고침 선택");
+        xml = await waitForUi(
+          config,
+          device,
+          (candidateXml) => isContractRequestDetail(candidateXml) || isHostModeShell(candidateXml),
+          3500,
+          150
+        );
+      }
+    }
+
+    if (isHostModeShell(xml)) {
+      await keyEvent(config, device, 23).catch(() => {});
+      addStep(steps, "호스트 홈 수락 대기 카드 포커스 확정");
+      xml = await waitForUi(config, device, isContractRequestDetail, 1600, 120);
+      if (isContractRequestDetail(xml)) {
+        saveXml(store, "contract-approve-detail", xml);
+        addStep(steps, "호스트 계약 요청 상세 진입");
+        return {
+          xml,
+          contractNumber: getContractNumber(xml)
+        };
+      }
+
+      await tap(config, device, x, y);
+      addStep(steps, "호스트 홈 수락 대기 카드 재탭", "pass", targetLabel);
+      xml = await waitForUi(config, device, isContractRequestDetail, 1800, 120);
+      if (isContractRequestDetail(xml)) {
+        saveXml(store, "contract-approve-detail", xml);
+        addStep(steps, "호스트 계약 요청 상세 진입");
+        return {
+          xml,
+          contractNumber: getContractNumber(xml)
+        };
+      }
     }
 
     if (!isHostModeShell(xml)) {
@@ -872,11 +926,23 @@ async function runContractApproveTest({ request, config, store }) {
     if (!directDetail) {
       const xml = await dumpUi(config, device);
       await saveFailureArtifacts(config, device, store, "host-home-approve-card-not-found", xml);
+      if (isLoginStartScreen(xml)) {
+        fail(
+          "호스트 로그인 세션이 풀려 계약 승인 홈 화면에 진입하지 못했습니다.",
+          steps,
+          [
+            "기본검증에서는 이 실패를 감지하면 호스트 로그인을 먼저 복구한 뒤 계약 승인을 재시도합니다.",
+            "리포트의 host-home-approve-card-not-found.png 화면을 확인해주세요."
+          ]
+        );
+      }
+
       fail(
-        "호스트 홈에서 수락 대기 계약 카드를 찾지 못했습니다.",
+        "호스트 홈 수락 대기 계약 카드를 눌렀지만 상세 화면으로 이동하지 못했습니다.",
         steps,
         [
           "계약 승인은 호스트 홈의 '수락이 필요한 계약' 카드에서 바로 시작합니다.",
+          "자동화가 카드 탭, 포커스 확정, 재탭까지 시도했습니다.",
           "숙소명/일정 매칭이 어긋나면 다른 계약을 승인하지 않도록 계약 탭 fallback은 사용하지 않습니다.",
           "리포트의 host-home-approve-card-not-found.png 화면을 확인해주세요."
         ]
