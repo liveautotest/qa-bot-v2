@@ -133,12 +133,10 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 ### 5.1 한국어 단축 명령어
 
 ```text
-!기본검증 일반결제 stg
-!기본검증 일반결제 dev
-!기본검증 무통장 결제 stg
-!기본검증 무통장 결제 dev
-!기본검증 자동결제 stg
-!기본검증 자동결제 dev
+!기본검증 연장결제 카드 stg
+!기본검증 연장결제 카드 dev
+!기본검증 연장결제 무통장 stg
+!기본검증 연장결제 무통장 dev
 !게스트 로그인 stg
 !게스트 로그인 dev
 !게스트 로그아웃 stg
@@ -184,9 +182,8 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 
 ```text
 !qa help
-!qa basic-validation env=staging method=card
-!qa basic-validation env=staging method=bank-transfer
-!qa basic-validation env=staging method=auto-card
+!qa basic-validation env=staging method=extension-card
+!qa basic-validation env=staging method=extension-bank-transfer
 !qa login env=staging role=guest
 !qa login env=staging role=host
 !qa logout env=staging role=guest
@@ -213,9 +210,8 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 
 | 테스트 ID | 이름 | 역할 | 목적 |
 | --- | --- | --- | --- |
-| `FLOW-BASIC-CARD-001` | 기본검증 일반결제 | guest, host | 게스트 계약 요청부터 호스트 승인, 일반카드 결제까지 1사이클 검증 |
-| `FLOW-BASIC-BANK-001` | 기본검증 무통장 결제 | guest, host, admin | 게스트 계약 요청부터 호스트 승인, 무통장 결제, Toss 입금 승인까지 1사이클 검증 |
-| `FLOW-BASIC-AUTO-CARD-001` | 기본검증 자동결제 | guest, host | 자동카드 계약 요청 후 호스트 승인까지 1사이클 검증 |
+| `FLOW-EXTENSION-CARD-001` | 기본검증 연장결제 카드 | guest, host | 게스트 연장요청부터 호스트 연장수락, 게스트 카드 연장결제까지 1사이클 검증 |
+| `FLOW-EXTENSION-BANK-001` | 기본검증 연장결제 무통장 | guest, host | 게스트 연장요청부터 호스트 연장수락, 게스트 무통장 연장결제까지 1사이클 검증 |
 | `TC-LOGIN-001` | 로그인 | guest, host | 이메일 로그인 및 역할별 완료 상태 확인 |
 | `TC-LOGOUT-001` | 로그아웃 | guest, host | 내 정보 화면에서 로그아웃 처리 |
 | `TC-SEARCH-001` | 정확한 일정 검색 | guest | 국내, 8월 1일-8월 7일 검색 |
@@ -801,6 +797,6 @@ ADB 단말 확인:
 
 `qa-bot-v2`는 Slack 명령어로 LiveAnywhere Android 앱의 핵심 게스트/호스트 시나리오를 실행하는 QA 자동화 봇이다.
 
-현재 로그인, 로그아웃, 정확한 일정 검색, 유연한 일정 검색, 계약 요청, 자동카드 계약 요청, 호스트 계약 승인, 호스트 계약 요청 거절, 일반카드 결제, 무통장 결제, Toss 무통장 입금 승인, 날짜-only 계약 일정 변경 API, 계약 요청 취소, 계약 확정 취소, 기본검증 일반결제/무통장 결제/자동결제 1사이클까지 구현되어 있다.
+현재 로그인, 로그아웃, 정확한 일정 검색, 유연한 일정 검색, 계약 요청, 자동카드 계약 요청, 호스트 계약 승인, 호스트 계약 요청 거절, 일반카드 결제, 무통장 결제, Toss 무통장 입금 승인, 날짜-only 계약 일정 변경 API, 계약 요청 취소, 계약 확정 취소, 계약 연장요청, 호스트 연장수락, 게스트 연장결제 카드/무통장, 기본검증 연장결제 카드/무통장 1사이클까지 구현되어 있다.
 
 앞으로는 TargetSdk 36 화면 진단, 리뷰/쿠폰/알림/채팅 등 주변 시나리오, iOS/Web 자동화로 확장한다.

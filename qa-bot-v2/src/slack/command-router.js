@@ -8,7 +8,7 @@ const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const SCHEDULE_CHANGE_PATTERN =
   /^!(\d+)\s+계약\s*변경\s+(일주일\s*전|2주일\s*전|2주\s*전|한달\s*전|1달\s*전|일주일\s*후|2주일\s*후|2주\s*후|한달\s*후|1달\s*후)$/i;
 const BASIC_VALIDATION_PATTERN =
-  /^!기본검증\s+(일반결제|일반카드|카드|무통장\s*결제|무통장결제|무통장|자동결제|자동\s*결제|자동카드|연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?$/i;
+  /^!기본검증\s+(연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?$/i;
 
 function parseKeyValues(parts) {
   const values = {};
@@ -109,15 +109,6 @@ function parseBasicValidation(text) {
   };
 
   const methodByShortcut = {
-    일반결제: "card",
-    일반카드: "card",
-    카드: "card",
-    "무통장 결제": "bank-transfer",
-    무통장결제: "bank-transfer",
-    무통장: "bank-transfer",
-    자동결제: "auto-card",
-    "자동 결제": "auto-card",
-    자동카드: "auto-card",
     연장결제: "extension-card",
     "연장 결제": "extension-card",
     "연장결제 카드": "extension-card",
@@ -527,105 +518,7 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
     return runExtensionPaymentValidation({ env, payment_method: paymentMethod }, context);
   }
 
-  const flowLabel = basicValidationLabel(paymentMethod);
-  const isAutoCard = paymentMethod === "auto-card";
-  const requestPaymentMethod = isAutoCard ? "auto-card" : undefined;
-  const sections = [
-    `[기본검증] ${flowLabel} 1사이클 (${env})`,
-    isAutoCard
-      ? "로그인 > 정확한 일정 검색/집 상세 진입/자동카드 계약 요청 > 호스트 승인 순서로 실행합니다."
-      : `로그인 > 정확한 일정 검색/집 상세 진입/계약 요청 > 호스트 승인 > 게스트 ${flowLabel} 순서로 실행합니다.`
-  ];
-
-  const guestLogin = await runSingleQaCommand(
-    {
-      test: "login",
-      env,
-      role: "guest"
-    },
-    context
-  );
-  appendFlowSection(sections, "1. 게스트 로그인", guestLogin);
-  if (guestLogin.status !== "pass") return sections.join("\n\n");
-
-  let contractRequest = await runSingleQaCommand(
-    {
-      test: "contract-request",
-      env,
-      role: "guest",
-      payment_method: requestPaymentMethod,
-      skip_fresh_launch: true,
-      skip_app_build_check: true
-    },
-    context
-  );
-  if (isRetryableContractRequestError(contractRequest)) {
-    sections.push("[재시도] 계약 요청에서 일시 오류가 발생해 앱 재실행 후 다시 시도합니다.");
-    contractRequest = await runSingleQaCommand(
-      {
-        test: "contract-request",
-        env,
-        role: "guest",
-        payment_method: requestPaymentMethod,
-        skip_fresh_launch: false,
-        skip_app_build_check: true
-      },
-      context
-    );
-  }
-  appendFlowSection(
-    sections,
-    isAutoCard ? "2. 집 검색/상세 진입/자동카드 계약 요청" : "2. 집 검색/상세 진입/계약 요청",
-    contractRequest
-  );
-  if (contractRequest.status !== "pass") return sections.join("\n\n");
-
-  const { result: approveResult, formatted: formattedApproveResult } = await runSingleQaCommandWithLazyLogin(
-    {
-      test: "contract-approve",
-      env,
-      role: "host",
-      skip_app_build_check: true
-    },
-    context
-  );
-  sections.push(compactFlowSection("3. 호스트 계약 승인", approveResult));
-  if (approveResult.status !== "pass") return sections.join("\n\n");
-
-  if (isAutoCard) {
-    sections.push("[기본검증 PASS] 자동결제 계약 요청부터 호스트 승인까지 1사이클이 완료되었습니다.");
-    return sections.join("\n\n");
-  }
-
-  const paymentResult = await runSingleQaCommand(
-    {
-      test: "contract-payment",
-      env,
-      role: "guest",
-      payment_method: paymentMethod,
-      skip_fresh_launch: true,
-      skip_app_build_check: true
-    },
-    context
-  );
-  sections.push(compactFlowSection(`4. 게스트 ${flowLabel}`, paymentResult));
-  if (paymentResult.status !== "pass") return sections.join("\n\n");
-
-  if (paymentMethod === "bank-transfer") {
-    const tossResult = await runSingleQaCommand(
-      {
-        test: "toss-deposit-approve",
-        env: "toss",
-        role: "admin"
-      },
-      context
-    );
-    appendFlowSection(sections, "5. 무통장 입금 승인", tossResult);
-    if (tossResult.status !== "pass") return sections.join("\n\n");
-  }
-
-  sections.push(`[기본검증 PASS] ${flowLabel} 계약 요청부터 결제까지 1사이클이 완료되었습니다.`);
-  return sections.join("\n\n");
+  throw new Error("기본검증은 연장결제 카드/무통장만 실행할 수 있습니다. 예: !기본검증 연장결제 카드 dev");
 }
 
 async function routeCommand(text, context) {
@@ -685,7 +578,7 @@ async function routeCommand(text, context) {
       return runBasicValidation(
         {
           env: args.env || "staging",
-          payment_method: paymentMethod || "card"
+          payment_method: paymentMethod || "extension-card"
         },
         context
       );
