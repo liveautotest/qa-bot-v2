@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { chromium } = require("playwright-core");
+const { buildResultJudgment } = require("./slack-reporter");
 
 function escapeHtml(value) {
   return String(value || "")
@@ -115,14 +116,27 @@ function listDiagnosticFiles(reportDir, result) {
 
 function buildResultSectionHtml(result, reportDir, index = 1) {
   const statusClass = result.status === "pass" ? "pass" : "fail";
+  const judgment = buildResultJudgment(result);
   const summaryLines = [
-    `테스트: ${result.name || result.test_id}`,
-    `상태: ${String(result.status || "unknown").toUpperCase()}`,
-    `환경: ${result.env || "-"}`,
-    `디바이스: ${result.device || "-"}`,
-    `소요시간: ${result.duration_ms || 0}ms`,
-    `run_id: ${result.run_id || "-"}`
+    `판정: ${judgment.conclusion}`,
+    `요청자: ${judgment.requester}`,
+    `환경/디바이스: ${judgment.env} / ${judgment.device}`,
+    `소요시간: ${judgment.duration}`,
+    `run_id: ${judgment.runId}`
   ];
+
+  const judgmentLines = result.status === "pass"
+    ? [
+      ...judgment.verified.map((line) => `검증 완료: ${line}`),
+      ...judgment.conditions.map((line) => line.replace(/^- /, "조건: "))
+    ]
+    : [
+      `실패 위치: ${judgment.failedStep}`,
+      `마지막 성공: ${judgment.lastPassed}`,
+      `마지막 진행: ${judgment.lastProgress}`,
+      `의심 영역: ${judgment.suspectedArea}`,
+      ...judgment.nextChecks.map((line) => `다음 확인: ${line}`)
+    ];
 
   const errorLines = result.status === "fail"
     ? [
@@ -170,6 +184,7 @@ function buildResultSectionHtml(result, reportDir, index = 1) {
     <div class="box">
       <ul>${summaryLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
     </div>
+    ${section(result.status === "pass" ? "검증 요약" : "실패 판단 요약", judgmentLines)}
     ${section("실패 정보", errorLines)}
     ${preSection("에러 스택", errorStack)}
     ${section("테스트 조건", conditionLines)}
@@ -182,11 +197,19 @@ function buildResultSectionHtml(result, reportDir, index = 1) {
 
 function buildReportHtml(results) {
   const overallStatus = results.every((item) => item.result.status === "pass") ? "pass" : "fail";
-  const summaryLines = results.map(({ result }, index) => {
-    const status = String(result.status || "unknown").toUpperCase();
-    const error = result.status === "fail" && result.error ? ` - ${result.error}` : "";
-    return `${index + 1}. [${status}] ${result.name || result.test_id} (${result.duration_ms || 0}ms)${error}`;
+  const judgments = results.map(({ result }) => buildResultJudgment(result));
+  const totalMs = results.reduce((sum, item) => sum + (Number(item.result.duration_ms) || 0), 0);
+  const failed = judgments.filter((judgment) => judgment.status === "FAIL");
+  const summaryLines = judgments.map((judgment, index) => {
+    return `${index + 1}. [${judgment.status}] ${judgment.title} - ${judgment.conclusion}`;
   });
+  const decisionLines = [
+    `최종 상태: ${overallStatus.toUpperCase()}`,
+    `총 실행 수: ${results.length}개`,
+    `실패 수: ${failed.length}개`,
+    `총 소요시간: ${Math.round(totalMs / 1000)}초`,
+    failed[0] ? `우선 확인 대상: ${failed[0].title} - ${failed[0].failureReason}` : "우선 확인 대상: 없음"
+  ];
   const resultSections = results.map(({ result, reportDir }, index) => (
     buildResultSectionHtml(result, reportDir, index + 1)
   )).join("\n");
@@ -230,6 +253,11 @@ function buildReportHtml(results) {
 <body>
   <h1>QA 자동화 통합 리포트</h1>
   <div class="meta"><span class="badge ${overallStatus}">${escapeHtml(overallStatus.toUpperCase())}</span></div>
+  <h2>결과 판정</h2>
+  <div class="box">
+    <ul>${decisionLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
+  </div>
+  <h2>실행 요약</h2>
   <div class="box">
     <ul>${summaryLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
   </div>

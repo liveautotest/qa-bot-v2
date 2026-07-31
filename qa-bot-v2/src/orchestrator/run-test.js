@@ -33,6 +33,8 @@ async function runTest(request, config) {
     const finalResult = {
       ...result,
       app_build: appBuild,
+      requested_by: store.request.requested_by,
+      source: store.request.source,
       run_id: store.runId,
       duration_ms: Date.now() - startedAt,
       artifacts: {
@@ -94,6 +96,8 @@ async function runTest(request, config) {
       error_details: error.details || [],
       error_stack: error.stack,
       app_build: error.app_build || appBuild,
+      requested_by: store.request.requested_by,
+      source: store.request.source,
       possible_causes: ["테스트 코드 예외", "환경 설정 누락", "디바이스 상태 문제"],
       steps: error.steps || [],
       artifacts: {

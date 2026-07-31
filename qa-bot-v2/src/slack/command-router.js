@@ -1,5 +1,5 @@
 const { runTest } = require("../orchestrator/run-test");
-const { formatHelp, formatResult } = require("./slack-reporter");
+const { buildResultJudgment, formatHelp, formatResult } = require("./slack-reporter");
 
 const KOREAN_SHORTCUT_PATTERN =
   /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장결제|연장 결제|계약연장결제|계약 연장 결제|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
@@ -322,18 +322,19 @@ function reportLine(result) {
 }
 
 function compactFlowSection(title, result) {
-  const status = String(result.status || "unknown").toUpperCase();
+  const judgment = buildResultJudgment(result);
+  const status = judgment.status;
   const lines = [
     `${status === "PASS" ? "[PASS]" : "[FAIL]"} ${title}`,
-    `- run_id: ${result.run_id || "-"} / ${result.duration_ms || 0}ms`
+    `- 판정: ${judgment.conclusion}`,
+    `- run_id: ${judgment.runId} / ${judgment.duration}`
   ];
 
   if (result.status === "fail") {
-    lines.push(`- 실패: ${result.error || "unknown"}`);
-    const lastStep = (result.steps || []).slice(-1)[0];
-    if (lastStep) {
-      lines.push(`- 마지막 진행: ${lastStep.name}${lastStep.message ? ` (${lastStep.message})` : ""}`);
-    }
+    lines.push(`- 마지막 성공: ${judgment.lastPassed}`);
+    lines.push(`- 마지막 진행: ${judgment.lastProgress}`);
+    lines.push(`- 의심 영역: ${judgment.suspectedArea}`);
+    if (judgment.nextChecks[0]) lines.push(`- 다음 확인: ${judgment.nextChecks[0]}`);
   }
 
   const report = reportLine(result);

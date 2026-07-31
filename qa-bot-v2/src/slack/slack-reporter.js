@@ -402,103 +402,212 @@ function formatCompactDetails(details = []) {
     .map((detail) => `- ${detail}`);
 }
 
-function formatResult(result) {
-  const icon = result.status === "pass" ? "PASS" : "FAIL";
+function formatDuration(ms = 0) {
+  const value = Number(ms) || 0;
+  if (value < 1000) return `${value}ms`;
+  const seconds = Math.round(value / 1000);
+  if (seconds < 60) return `${seconds}초`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}분 ${rest}초` : `${minutes}분`;
+}
+
+function formatRequester(result) {
+  return result.requested_by ? `<@${result.requested_by}>` : "-";
+}
+
+function getLastStep(steps = []) {
+  return steps.length ? steps[steps.length - 1] : null;
+}
+
+function getLastPassedStep(steps = []) {
+  return [...steps].reverse().find((step) => step.status === "pass") || null;
+}
+
+function formatStepLabel(step) {
+  if (!step) return "-";
+  return `${step.name}${step.message ? ` (${step.message})` : ""}`;
+}
+
+function classifyFailure(result) {
+  const message = [
+    result.error,
+    ...(result.error_details || [])
+  ].join(" ");
+
+  if (/adb: device .* not found|device .* not found|offline|unauthorized/i.test(message)) {
+    return "단말/ADB 연결 상태를 먼저 확인해야 합니다.";
+  }
+  if (/로그인|세션|login|호스트모드|홈 화면/.test(message)) {
+    return "계정 세션 또는 앱 시작 화면 상태를 먼저 확인해야 합니다.";
+  }
+  if (/일시적인 오류|잠시 후 다시 시도|앱 오류|오류 메시지/.test(message)) {
+    return "앱 또는 서버에서 노출한 오류 가능성이 큽니다.";
+  }
+  if (/HTTP|API|예약이 불가능|response|request/i.test(message)) {
+    return "API 응답, 테스트 데이터, 예약 가능 조건을 확인해야 합니다.";
+  }
+  if (/찾지 못|확인하지 못|버튼|카드|팝업|화면|좌표|탭/.test(message)) {
+    return "화면 상태 변화 또는 자동화 selector/탭 좌표를 확인해야 합니다.";
+  }
+  return "리포트의 마지막 화면과 로그를 기준으로 원인을 확인해야 합니다.";
+}
+
+function formatFailConclusion(result) {
+  const lastStep = getLastStep(result.steps || []);
+  const base = result.error || "실패 원인을 확인하지 못했습니다.";
+  if (!lastStep) return base;
+  return `${formatStepLabel(lastStep)} 단계 이후 실패했습니다. ${base}`;
+}
+
+function formatPassConclusion(result) {
+  const summary = formatPassSummary(result);
+  if (summary.length) return summary[0].replace(/^- /, "");
+  return "요청한 자동화 시나리오가 PASS 기준까지 완료되었습니다.";
+}
+
+function buildResultJudgment(result) {
+  const status = String(result.status || "unknown").toUpperCase();
+  const passSummary = formatPassSummary(result).map((line) => line.replace(/^- /, ""));
+  const conditionSummary = [
+    ...formatSearchConditions(result.search_conditions).slice(0, 3),
+    ...formatSearchConditions(result.contract_conditions).slice(0, 3),
+    ...formatResultConditionSummary(result)
+  ].slice(0, 6);
+  const lastPassed = getLastPassedStep(result.steps || []);
+  const lastStep = getLastStep(result.steps || []);
+  const details = (result.error_details || []).filter(Boolean).slice(0, 3);
+
+  return {
+    status,
+    requester: formatRequester(result),
+    command: result.source === "slack-prerequisite" ? "사전 확인" : "슬랙 명령 실행",
+    title: result.name || result.test_id || "QA 자동화",
+    runId: result.run_id || "-",
+    env: result.env || "-",
+    device: result.device || "-",
+    duration: formatDuration(result.duration_ms),
+    conclusion: result.status === "pass" ? formatPassConclusion(result) : formatFailConclusion(result),
+    verified: passSummary.slice(0, 3),
+    conditions: conditionSummary,
+    failedStep: result.status === "fail" ? result.failed_step || "runner" : "",
+    lastPassed: result.status === "fail" ? formatStepLabel(lastPassed) : "",
+    lastProgress: result.status === "fail" ? formatStepLabel(lastStep) : "",
+    failureReason: result.status === "fail" ? result.error || "unknown" : "",
+    suspectedArea: result.status === "fail" ? classifyFailure(result) : "",
+    nextChecks: result.status === "fail"
+      ? [
+        ...details,
+        result.artifacts?.report_dir ? "PDF 리포트와 실패 화면/로그를 함께 확인해주세요." : ""
+      ].filter(Boolean).slice(0, 4)
+      : [],
+    reportDir: result.artifacts?.report_dir || ""
+  };
+}
+
+function formatJudgmentLines(result) {
+  const judgment = buildResultJudgment(result);
   const lines = [
-    `[${icon}] [${result.test_id}] ${result.name}`,
-    `환경: ${result.env} / 디바이스: ${result.device || "unknown"} / ${result.duration_ms}ms`,
-    `run_id: ${result.run_id}`
+    `[${judgment.status}] ${judgment.title}`,
+    `요청자: ${judgment.requester} / 환경: ${judgment.env} / 디바이스: ${judgment.device} / 소요시간: ${judgment.duration}`,
+    `run_id: ${judgment.runId}`,
+    "",
+    `판정: ${judgment.conclusion}`
   ];
 
-  const passSummary = formatPassSummary(result);
-  if (passSummary.length > 0) {
+  if (result.status === "pass") {
+    if (judgment.verified.length) {
+      lines.push("");
+      lines.push("검증 완료:");
+      lines.push(...judgment.verified.slice(0, 3).map((line) => `- ${line}`));
+    }
+    if (judgment.conditions.length) {
+      lines.push("");
+      lines.push("주요 조건:");
+      lines.push(...judgment.conditions);
+    }
+  } else {
     lines.push("");
-    lines.push("요약:");
-    lines.push(...passSummary.slice(0, 3));
-  }
+    lines.push("실패 요약:");
+    lines.push(`- 실패 위치: ${judgment.failedStep}`);
+    lines.push(`- 마지막 성공: ${judgment.lastPassed}`);
+    lines.push(`- 마지막 진행: ${judgment.lastProgress}`);
+    lines.push(`- 의심 영역: ${judgment.suspectedArea}`);
 
-  const appBuild = formatAppBuild(result.app_build);
-  if (appBuild.length > 0) {
-    lines.push("");
-    lines.push(...appBuild);
-  }
-
-  const conditionSummary = [
-    ...formatSearchConditions(result.search_conditions).slice(0, 5),
-    ...formatSearchConditions(result.contract_conditions).slice(0, 5),
-    ...formatResultConditionSummary(result)
-  ].slice(0, 8);
-  if (conditionSummary.length > 0) {
-    lines.push("");
-    lines.push("조건:");
-    lines.push(...conditionSummary);
+    if (judgment.nextChecks.length) {
+      lines.push("");
+      lines.push("다음 확인:");
+      lines.push(...judgment.nextChecks.map((line) => `- ${line}`));
+    }
   }
 
   if (result.app_warnings && result.app_warnings.length > 0) {
     lines.push("");
-    lines.push("기타 이슈:");
-    for (const warning of result.app_warnings) {
+    lines.push("부가 이슈:");
+    for (const warning of result.app_warnings.slice(0, 2)) {
       lines.push(`- ${warning.name}: ${warning.message}`);
-      if (warning.details && warning.details.length > 0) {
-        for (const detail of warning.details) {
-          lines.push(`  - ${detail}`);
-        }
-      }
-      if (warning.log) {
-        lines.push(`  - 로그: ${warning.log}`);
-      }
-    }
-  }
-
-  if (result.session_reused) {
-    lines.push("로그인 방식: 기존 로그인 세션 사용");
-  }
-
-  if (result.session_already_logged_out) {
-    lines.push("로그아웃 방식: 이미 로그아웃된 상태");
-  }
-
-  if (result.status === "fail") {
-    lines.push("");
-    lines.push("실패:");
-    lines.push(`- ${result.error || "unknown"}`);
-    const progress = formatLastProgress(result.steps);
-    if (progress.length > 0) {
-      lines.push("");
-      lines.push("마지막 진행:");
-      lines.push(...progress);
-    }
-    const details = formatCompactDetails(result.error_details);
-    if (details.length > 0) {
-      lines.push("");
-      lines.push("확인:");
-      lines.push(...details);
     }
   }
 
   if (result.security_checks && result.security_checks.length > 0) {
-    lines.push("");
-    lines.push("로그인 보안 확인:");
-    for (const check of result.security_checks) {
-      const status =
-        check.status === "pass"
-          ? "PASS"
-          : check.status === "fail"
-            ? "FAIL"
-            : "NOT TESTED";
-      lines.push(`[${status}] ${check.name}`);
+    const failedSecurity = result.security_checks.filter((check) => check.status === "fail");
+    if (failedSecurity.length) {
+      lines.push("");
+      lines.push("보안 확인 이슈:");
+      for (const check of failedSecurity.slice(0, 3)) {
+        lines.push(`- ${check.name}`);
+      }
     }
   }
 
-  if (result.artifacts && result.artifacts.report_dir) {
+  if (judgment.reportDir) {
     lines.push("");
-    lines.push(`리포트: ${result.artifacts.report_dir}`);
+    lines.push(`리포트: ${judgment.reportDir}`);
+  }
+
+  return lines;
+}
+
+function formatResult(result) {
+  const lines = formatJudgmentLines(result);
+
+  const appBuild = formatAppBuild(result.app_build);
+  if (appBuild.length > 0) lines.splice(Math.min(4, lines.length), 0, "", ...appBuild);
+
+  if (result.session_reused) {
+    lines.push("");
+    lines.push("로그인 방식: 기존 로그인 세션 사용");
+  }
+
+  if (result.session_already_logged_out) {
+    lines.push("");
+    lines.push("로그아웃 방식: 이미 로그아웃된 상태");
+  }
+
+  if (result.security_checks && result.security_checks.length > 0) {
+    const hasSecuritySection = lines.includes("보안 확인 이슈:");
+    if (!hasSecuritySection) {
+      lines.push("");
+      lines.push("로그인 보안 확인:");
+      for (const check of result.security_checks) {
+        const status =
+          check.status === "pass"
+            ? "PASS"
+            : check.status === "fail"
+              ? "FAIL"
+              : "NOT TESTED";
+        lines.push(`[${status}] ${check.name}`);
+      }
+    }
   }
 
   return lines.join("\n");
 }
 
 module.exports = {
+  buildResultJudgment,
   formatHelp,
+  formatJudgmentLines,
+  formatPassSummary,
   formatResult
 };
