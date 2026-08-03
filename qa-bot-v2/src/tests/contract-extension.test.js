@@ -8,6 +8,11 @@ const {
   screenshotPng,
   tap
 } = require("../infra/adb");
+const {
+  mergeFigmaValidations,
+  validateGuestExtensionCompletePopup,
+  validateGuestExtensionDetail
+} = require("./helpers/extension-figma-baseline");
 
 function addStep(steps, name, status = "pass", message) {
   const step = { name, status };
@@ -741,7 +746,7 @@ async function selectRandomExtensionCheckout(config, device, store, steps, initi
   );
 }
 
-async function agreeRulesAndSubmit(config, device, store, steps, initialXml, extensionInfo) {
+async function agreeRulesAndSubmit(config, device, store, steps, initialXml, extensionInfo, figmaValidations) {
   let xml = isExtensionDetail(initialXml)
     ? initialXml
     : await waitForUi(config, device, isExtensionDetail, 10000);
@@ -761,6 +766,29 @@ async function agreeRulesAndSubmit(config, device, store, steps, initialXml, ext
 
   const hasDateSummary = xml.includes("계약 연장 날짜") || xml.includes("변경 후 계약");
   const hasNightSummary = xml.includes("총 연장 박수") || xml.includes("총 연장박수") || /\d+박\s*연장/.test(xml);
+  const figmaDetailValidation = validateGuestExtensionDetail(xml, extensionInfo);
+  figmaValidations.push(figmaDetailValidation);
+  if (figmaDetailValidation.status === "fail") {
+    await saveFailureArtifacts(config, device, store, "extension-detail-figma-mismatch", xml);
+    fail(
+      "계약 연장 상세 화면의 문구가 Figma 기준과 다릅니다.",
+      steps,
+      [
+        `누락 기준: ${figmaDetailValidation.missing.join(", ")}`,
+        "팝업/금액처럼 Android XML에 노출되지 않는 항목은 수동 확인 필요로만 기록합니다.",
+        "리포트의 extension-detail-figma-mismatch.png 화면을 확인해주세요."
+      ]
+    );
+  }
+  addStep(
+    steps,
+    "Figma 기준 계약 연장 상세 문구 비교",
+    "pass",
+    figmaDetailValidation.status === "manual_required"
+      ? "자동 확인 가능 항목 PASS, 일부 수동 확인 필요"
+      : "자동 확인 가능 항목 PASS"
+  );
+
   if (!hasDateSummary || !hasNightSummary) {
     await saveFailureArtifacts(config, device, store, "extension-detail-text-mismatch", xml);
     fail(
@@ -905,7 +933,7 @@ async function agreeRulesAndSubmit(config, device, store, steps, initialXml, ext
   return xml;
 }
 
-async function confirmCompletePopup(config, device, store, steps, initialXml) {
+async function confirmCompletePopup(config, device, store, steps, initialXml, figmaValidations) {
   let xml = isExtensionCompletePopup(initialXml)
     ? initialXml
     : await waitForUi(config, device, isExtensionCompletePopup, 10000);
@@ -922,6 +950,29 @@ async function confirmCompletePopup(config, device, store, steps, initialXml) {
       ]
     );
   }
+
+  const figmaPopupValidation = validateGuestExtensionCompletePopup(xml);
+  figmaValidations.push(figmaPopupValidation);
+  if (figmaPopupValidation.status === "fail") {
+    await saveFailureArtifacts(config, device, store, "extension-complete-popup-figma-mismatch", xml);
+    fail(
+      "계약 연장 요청 완료 팝업의 문구가 Figma 기준과 다릅니다.",
+      steps,
+      [
+        `누락 기준: ${figmaPopupValidation.missing.join(", ")}`,
+        "볼 수 없는 팝업 본문은 수동 확인 필요로만 기록합니다.",
+        "리포트의 extension-complete-popup-figma-mismatch.png 화면을 확인해주세요."
+      ]
+    );
+  }
+  addStep(
+    steps,
+    "Figma 기준 계약 연장 완료 팝업 비교",
+    "pass",
+    figmaPopupValidation.status === "manual_required"
+      ? "자동 확인 가능 항목 PASS, 일부 수동 확인 필요"
+      : "자동 확인 가능 항목 PASS"
+  );
 
   const confirmButton = findNode(xml, "확인", {
     visible: true,
@@ -1084,15 +1135,17 @@ async function runContractExtensionTest({ request, config, store }) {
     addStep(steps, "환경 설정 확인");
     await wakeAndUnlock(config, device, steps, store);
     await launchFresh(config, device, appPackage, steps);
+    const figmaValidations = [];
 
     const detail = await openConfirmedContractDetailFromHome(config, device, store, steps, env);
     let xml = await tapExtensionRequestButton(config, device, store, steps, detail.xml);
     xml = await confirmGuideIfNeeded(config, device, store, steps, xml);
     const extensionInfo = await selectRandomExtensionCheckout(config, device, store, steps, xml, detail.checkoutDate);
-    xml = await agreeRulesAndSubmit(config, device, store, steps, extensionInfo.xml, extensionInfo);
-    await confirmCompletePopup(config, device, store, steps, xml);
+    xml = await agreeRulesAndSubmit(config, device, store, steps, extensionInfo.xml, extensionInfo, figmaValidations);
+    await confirmCompletePopup(config, device, store, steps, xml, figmaValidations);
     await relaunchAndVerifyHome(config, device, appPackage, store, steps);
 
+    const figmaValidation = mergeFigmaValidations(figmaValidations);
     return {
       test_id: "TC-CONTRACT-EXTENSION-001",
       name: "guest 계약 연장",
@@ -1104,6 +1157,7 @@ async function runContractExtensionTest({ request, config, store }) {
         target_checkout_date: formatDate(extensionInfo.targetDate),
         extension_nights: extensionInfo.extensionNights
       },
+      figma_validation: figmaValidation,
       artifacts: {
         screenshots: [],
         logs: [

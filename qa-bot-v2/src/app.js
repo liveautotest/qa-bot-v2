@@ -103,6 +103,9 @@ async function main() {
 
   async function handleQaMessage(message, say) {
     const threadTs = message.thread_ts || message.ts;
+    if (/기본검증/i.test(String(message.text || ""))) {
+      console.log(`[QA command] ${message.text}`);
+    }
     if (shouldPostProgressMessage(message.text)) {
       await say({
         text: formatProgressMessage(message.text),
@@ -147,7 +150,7 @@ async function main() {
     await handleQaMessage(message, say);
   });
 
-  app.message(BASIC_VALIDATION_PATTERN, async ({ message, say }) => {
+  app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*기본검증/i, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
 

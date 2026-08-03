@@ -357,6 +357,17 @@ function formatResultConditionSummary(result) {
     }
   }
 
+  if (result.figma_validation) {
+    const validation = result.figma_validation;
+    if (validation.status === "pass") {
+      lines.push("- Figma 기준: 자동 비교 PASS");
+    } else if (validation.status === "manual_required") {
+      lines.push(`- Figma 기준: 자동 비교 PASS, 수동 확인 필요 ${validation.manual_required?.length || 0}건`);
+    } else if (validation.status === "fail") {
+      lines.push(`- Figma 기준: 불일치 ${validation.missing?.length || 0}건`);
+    }
+  }
+
   if (result.contract_extension_approval) {
     const fastExtensionApprove = result.contract_extension_approval.validation_mode === "fast-accept";
     if (!fastExtensionApprove && result.contract_extension_approval.settlement_amount) {
@@ -384,6 +395,26 @@ function formatResultConditionSummary(result) {
   }
 
   return lines.slice(0, 6);
+}
+
+function formatFigmaValidationSummary(validation) {
+  if (!validation) return [];
+
+  if (validation.status === "pass") {
+    return ["Figma 기준 비교: 자동 확인 가능 항목 PASS"];
+  }
+
+  if (validation.status === "manual_required") {
+    return [
+      `Figma 기준 비교: 자동 확인 가능 항목 PASS, 수동 확인 필요 ${validation.manual_required?.length || 0}건`
+    ];
+  }
+
+  if (validation.status === "fail") {
+    return [`Figma 기준 비교: 불일치 ${validation.missing?.length || 0}건`];
+  }
+
+  return [`Figma 기준 비교: ${validation.status}`];
 }
 
 function formatLastProgress(steps = []) {
@@ -469,6 +500,7 @@ function formatPassConclusion(result) {
 function buildResultJudgment(result) {
   const status = String(result.status || "unknown").toUpperCase();
   const passSummary = formatPassSummary(result).map((line) => line.replace(/^- /, ""));
+  const figmaSummary = formatFigmaValidationSummary(result.figma_validation);
   const conditionSummary = [
     ...formatSearchConditions(result.search_conditions).slice(0, 3),
     ...formatSearchConditions(result.contract_conditions).slice(0, 3),
@@ -488,7 +520,7 @@ function buildResultJudgment(result) {
     device: result.device || "-",
     duration: formatDuration(result.duration_ms),
     conclusion: result.status === "pass" ? formatPassConclusion(result) : formatFailConclusion(result),
-    verified: passSummary.slice(0, 3),
+    verified: [...figmaSummary, ...passSummary].slice(0, 4),
     conditions: conditionSummary,
     failedStep: result.status === "fail" ? result.failed_step || "runner" : "",
     lastPassed: result.status === "fail" ? formatStepLabel(lastPassed) : "",
@@ -519,7 +551,7 @@ function formatJudgmentLines(result) {
     if (judgment.verified.length) {
       lines.push("");
       lines.push("검증 완료:");
-      lines.push(...judgment.verified.slice(0, 3).map((line) => `- ${line}`));
+      lines.push(...judgment.verified.map((line) => `- ${line}`));
     }
     if (judgment.conditions.length) {
       lines.push("");
@@ -558,11 +590,6 @@ function formatJudgmentLines(result) {
         lines.push(`- ${check.name}`);
       }
     }
-  }
-
-  if (judgment.reportDir) {
-    lines.push("");
-    lines.push(`리포트: ${judgment.reportDir}`);
   }
 
   return lines;

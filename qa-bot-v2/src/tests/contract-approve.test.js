@@ -203,12 +203,13 @@ function summaryMatches(label, summary) {
 }
 
 function getHomeRequestCardSummary(xml) {
+  const scheduleRegex = /\d{1,2}월\s*\d{1,2}일\s*~\s*\d{1,2}월\s*\d{1,2}일/;
   const card = parseNodes(xml).find((node) => {
     if (!node.bounds) return false;
     const label = labelOf(node);
     return (
       label.includes("요청 중") &&
-      label.includes("8월 1일 ~ 8월 7일") &&
+      scheduleRegex.test(label) &&
       label.includes("성인 1")
     );
   });
@@ -225,7 +226,7 @@ function getHomeRequestCardSummary(xml) {
   return {
     status: "요청 중",
     title: lines[statusIndex + 1] || "",
-    schedule: lines.find((line) => line.includes("8월 1일 ~ 8월 7일")) || "",
+    schedule: lines.find((line) => scheduleRegex.test(line)) || "",
     guest: lines.find((line) => line.includes("성인 1")) || "",
     raw: lines.join(" | ")
   };

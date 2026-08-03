@@ -22,7 +22,13 @@ function findChromeExecutable(config) {
   return candidates.find((filePath) => fs.existsSync(filePath)) || "";
 }
 
-function extractReportDirs(text) {
+function findReportDirByRunId(reportBaseDir, runId) {
+  if (!reportBaseDir || !runId) return "";
+  const reportDir = path.join(reportBaseDir, runId);
+  return fs.existsSync(path.join(reportDir, "result.json")) ? reportDir : "";
+}
+
+function extractReportDirs(text, config = {}) {
   const dirs = [];
   const pattern = /리포트:\s*(\/[^\n]+)/g;
   let match;
@@ -32,6 +38,13 @@ function extractReportDirs(text) {
       dirs.push(reportDir);
     }
   }
+
+  const runIdPattern = /\brun_id:\s*(qa-[^\s]+)/g;
+  while ((match = runIdPattern.exec(String(text || "")))) {
+    const reportDir = findReportDirByRunId(config.reportBaseDir, match[1].trim());
+    if (reportDir) dirs.push(reportDir);
+  }
+
   return Array.from(new Set(dirs));
 }
 
@@ -153,6 +166,7 @@ function buildResultSectionHtml(result, reportDir, index = 1) {
     ...objectLines(result.payment_conditions, "payment"),
     ...objectLines(result.contract_extension, "contract_extension"),
     ...objectLines(result.contract_extension_approval, "contract_extension_approval"),
+    ...objectLines(result.figma_validation, "figma_validation"),
     ...objectLines(result.contract_request, "contract_request"),
     ...objectLines(result.approved_contract, "approved_contract"),
     ...objectLines(result.rejected_contract, "rejected_contract"),
@@ -342,7 +356,7 @@ async function createCombinedPdfReport({ config, reportDirs }) {
 }
 
 async function uploadPdfReports({ client, config, channel, threadTs, responseText }) {
-  const reportDirs = extractReportDirs(responseText);
+  const reportDirs = extractReportDirs(responseText, config);
   const combined = await createCombinedPdfReport({ config, reportDirs });
   if (!combined) return [];
 

@@ -8,6 +8,11 @@ const {
   screenshotPng,
   tap
 } = require("../infra/adb");
+const {
+  formatMonthLabel,
+  getRandomExactSearchDateRange,
+  schedulePattern
+} = require("./helpers/exact-date-range");
 
 function addStep(steps, name, status = "pass", message) {
   const step = { name, status };
@@ -162,11 +167,14 @@ function isGuestScreen(xml) {
   );
 }
 
-function isContractSearchResults(xml) {
+function isContractSearchResults(xml, exactDateRange = null) {
+  const dateOk = exactDateRange ? xml.includes(exactDateRange.label) : schedulePattern().test(xml);
   return (
     xml.includes("국내") &&
-    xml.includes("8월 1일 ~ 8월 7일") &&
-    (xml.includes("개의 집") || xml.includes("필터") || xml.includes("지도로 보기"))
+    dateOk &&
+    !xml.includes("일주일 / 1명") &&
+    xml.includes("필터") &&
+    (/\d[\d,]*개의 집/.test(xml) || xml.includes("지도로 보기") || xml.includes("리브 추천 순"))
   );
 }
 
@@ -195,12 +203,13 @@ function getContractNumber(xml) {
 }
 
 function getHomeRequestCardSummary(xml) {
+  const scheduleRegex = schedulePattern();
   const card = parseNodes(xml).find((node) => {
     if (!node.bounds) return false;
     const label = nodeLabel(node);
     return (
       label.includes("요청 중") &&
-      label.includes("8월 1일 ~ 8월 7일") &&
+      scheduleRegex.test(label) &&
       label.includes("성인 1")
     );
   });
@@ -217,7 +226,7 @@ function getHomeRequestCardSummary(xml) {
   return {
     status: "요청 중",
     title: lines[statusIndex + 1] || "",
-    schedule: lines.find((line) => line.includes("8월 1일 ~ 8월 7일")) || "",
+    schedule: lines.find((line) => scheduleRegex.test(line)) || "",
     guest: lines.find((line) => line.includes("성인 1")) || "",
     raw: lines.join(" | ")
   };
@@ -352,14 +361,14 @@ async function dumpUiStable(config, device, attempts = 4) {
   return xml;
 }
 
-async function waitForUi(config, device, predicate, timeoutMs = 10000) {
+async function waitForUi(config, device, predicate, timeoutMs = 10000, intervalMs = 300) {
   const startedAt = Date.now();
   let xml = "";
 
   while (Date.now() - startedAt < timeoutMs) {
     xml = await dumpUiStable(config, device);
     if (predicate(xml)) return xml;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
   return xml;
@@ -437,7 +446,15 @@ async function launchFresh(config, device, appPackage, steps) {
 
 async function prepareHomeForContractRequest(config, device, appPackage, store, steps, options = {}) {
   if (options.skipFreshLaunch) {
-    let xml = await waitForUi(config, device, hasHomeSearchBar, 3000);
+    await tap(config, device, 540, 360);
+    let xml = await waitForUi(config, device, isSearchConditionScreen, 650, 120);
+    if (isSearchConditionScreen(xml)) {
+      await saveArtifacts(config, device, store, "search-condition-fast-reuse", xml);
+      addStep(steps, "기본검증 기존 홈 검색바 즉시 진입");
+      return xml;
+    }
+
+    xml = await waitForUi(config, device, hasHomeSearchBar, 700, 160);
     await saveArtifacts(config, device, store, "search-home-before-reuse", xml);
     if (hasHomeSearchBar(xml)) {
       addStep(steps, "기본검증 기존 홈 화면 재사용");
@@ -449,16 +466,19 @@ async function prepareHomeForContractRequest(config, device, appPackage, store, 
   }
 
   await launchFresh(config, device, appPackage, steps);
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  await tap(config, device, 540, 360);
-  let xml = await waitForUi(config, device, isSearchConditionScreen, 2600);
-  if (isSearchConditionScreen(xml)) {
-    addStep(steps, "홈 검색바 빠른 진입", "pass", "앱 재실행 후 예상 검색바 좌표 탭");
-    return xml;
+  let xml = "";
+  for (let count = 0; count < 3; count += 1) {
+    await new Promise((resolve) => setTimeout(resolve, count === 0 ? 260 : 180));
+    await tap(config, device, 540, 360);
+    xml = await waitForUi(config, device, isSearchConditionScreen, 520, 120);
+    if (isSearchConditionScreen(xml)) {
+      addStep(steps, "홈 검색바 빠른 진입", "pass", `앱 재실행 후 예상 검색바 좌표 ${count + 1}회 탭`);
+      return xml;
+    }
   }
 
   store.appendLog("runner.log", "contract-request fast home search tap did not open search condition; falling back to XML search");
-  xml = await waitForUi(config, device, hasHomeSearchBar, 6500);
+  xml = await waitForUi(config, device, hasHomeSearchBar, 2500, 200);
   return xml;
 }
 
@@ -592,21 +612,21 @@ function findDateNodeInMonth(xml, monthLabel, dayLabel) {
   });
 }
 
-async function ensureAugustVisible(config, device, xml, steps) {
+async function ensureMonthVisible(config, device, xml, steps, monthLabel) {
   let currentXml = xml;
   for (let count = 0; count < 4; count += 1) {
-    if (currentXml.includes("2026년 8월")) return currentXml;
+    if (currentXml.includes(monthLabel)) return currentXml;
     await runAdb(config, device, [
       "shell", "input", "swipe", "540", "1900", "540", "1100", "500"
     ]);
-    addStep(steps, "달력 스크롤", "pass", "2026년 8월 탐색");
+    addStep(steps, "달력 스크롤", "pass", `${monthLabel} 탐색`);
     await new Promise((resolve) => setTimeout(resolve, 450));
     currentXml = await dumpUiStable(config, device);
   }
   return currentXml;
 }
 
-async function selectExactDates(config, device, xml, store, steps) {
+async function selectExactDates(config, device, xml, store, steps, exactDateRange) {
   const scheduleTab = findNode(xml, "일정", { clickable: true });
   await tapNode(config, device, scheduleTab, "일정 탭", steps);
   addStep(steps, "일정 탭 진입");
@@ -615,38 +635,41 @@ async function selectExactDates(config, device, xml, store, steps) {
     config,
     device,
     (nextXml) => nextXml.includes("정확한 일정") && nextXml.includes("유연한 일정"),
-    8000
+    3500,
+    200
   );
   await saveArtifacts(config, device, store, "calendar-open", xml);
 
   const exact = findNode(xml, "정확한 일정", { clickable: true });
   await tapNode(config, device, exact, "정확한 일정 탭", steps);
   addStep(steps, "정확한 일정 선택");
-  await new Promise((resolve) => setTimeout(resolve, 220));
+  await new Promise((resolve) => setTimeout(resolve, 120));
 
   xml = await dumpUiStable(config, device);
-  xml = await ensureAugustVisible(config, device, xml, steps);
+  const monthLabel = formatMonthLabel(exactDateRange.start);
+  xml = await ensureMonthVisible(config, device, xml, steps, monthLabel);
   await saveArtifacts(config, device, store, "calendar-before-select", xml);
 
-  const startDate = findDateNodeInMonth(xml, "2026년 8월", "1");
-  const endDate = findDateNodeInMonth(xml, "2026년 8월", "7");
+  const startDate = findDateNodeInMonth(xml, monthLabel, String(exactDateRange.start.getDate()));
+  const endDate = findDateNodeInMonth(xml, monthLabel, String(exactDateRange.end.getDate()));
   if (!startDate?.bounds || !endDate?.bounds) {
     fail(
-      "달력에서 2026년 8월 1일 또는 8월 7일을 찾지 못했습니다.",
+      "달력에서 정확한 일정 날짜를 찾지 못했습니다.",
       steps,
       [
-        "계약 요청 선행 검색은 정확한 일정 2026-08-01~2026-08-07을 사용합니다.",
+        `선택 대상: ${exactDateRange.label}`,
+        "정확한 일정은 8월 달력 안에서 오늘 이후 날짜를 랜덤 선택합니다.",
         "리포트의 calendar-before-select.png 화면을 확인해주세요."
       ]
     );
   }
 
   await tap(config, device, startDate.bounds.x, startDate.bounds.y);
-  addStep(steps, "체크인 날짜 선택", "pass", "2026-08-01");
-  await new Promise((resolve) => setTimeout(resolve, 220));
+  addStep(steps, "체크인 날짜 선택", "pass", `${monthLabel} ${exactDateRange.start.getDate()}일`);
+  await new Promise((resolve) => setTimeout(resolve, 120));
   await tap(config, device, endDate.bounds.x, endDate.bounds.y);
-  addStep(steps, "체크아웃 날짜 선택", "pass", "2026-08-07");
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  addStep(steps, "체크아웃 날짜 선택", "pass", `${monthLabel} ${exactDateRange.end.getDate()}일`);
+  await new Promise((resolve) => setTimeout(resolve, 160));
 
   xml = await dumpUiStable(config, device);
   await saveArtifacts(config, device, store, "calendar-after-select", xml);
@@ -715,7 +738,7 @@ function findListingCandidates(xml) {
   }).sort((a, b) => a.bounds.top - b.bounds.top);
 }
 
-async function selectNewestSort(config, device, store, steps, xml) {
+async function selectNewestSort(config, device, store, steps, xml, exactDateRange) {
   if (xml.includes("신규 집 순")) {
     addStep(steps, "검색 결과 정렬 확인", "pass", "신규 집 순");
     return xml;
@@ -765,11 +788,11 @@ async function selectNewestSort(config, device, store, steps, xml) {
   const resultXml = await waitForUi(
     config,
     device,
-    (nextXml) => isContractSearchResults(nextXml) && nextXml.includes("신규 집 순"),
+    (nextXml) => isContractSearchResults(nextXml, exactDateRange) && nextXml.includes("신규 집 순"),
     8000
   );
   await saveArtifacts(config, device, store, "search-results-newest-sort", resultXml);
-  if (!isContractSearchResults(resultXml) || !resultXml.includes("신규 집 순")) {
+  if (!isContractSearchResults(resultXml, exactDateRange) || !resultXml.includes("신규 집 순")) {
     await saveFailureArtifacts(config, device, store, "search-newest-sort-not-applied", resultXml);
     fail(
       "검색 결과 신규 집 순 정렬 적용을 확인하지 못했습니다.",
@@ -823,7 +846,7 @@ function listingTapTargets(listing) {
   ];
 }
 
-async function tryOpenListing(config, device, store, steps, listing, attemptLabel) {
+async function tryOpenListing(config, device, store, steps, listing, attemptLabel, exactDateRange) {
   const title = listingTitle(listing);
   for (const target of listingTapTargets(listing)) {
     await tap(config, device, target.x, target.y);
@@ -838,7 +861,7 @@ async function tryOpenListing(config, device, store, steps, listing, attemptLabe
       return detailXml;
     }
 
-    if (!isContractSearchResults(detailXml)) {
+    if (!isContractSearchResults(detailXml, exactDateRange)) {
       await keyEvent(config, device, 4).catch(() => {});
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
@@ -847,7 +870,7 @@ async function tryOpenListing(config, device, store, steps, listing, attemptLabe
   return "";
 }
 
-async function openContractableListing(config, device, store, steps) {
+async function openContractableListing(config, device, store, steps, exactDateRange) {
   await runAdb(config, device, [
     "shell", "input", "swipe", "540", "2300", "540", "900", "700"
   ]);
@@ -872,9 +895,9 @@ async function openContractableListing(config, device, store, steps) {
         `${listingTitle(selectedListing)} (${randomIndex + 1}/${listings.length})`
       );
 
-      const detailXml = await tryOpenListing(config, device, store, steps, selectedListing, `${scrollCount + 1}-${randomIndex + 1}`);
+      const detailXml = await tryOpenListing(config, device, store, steps, selectedListing, `${scrollCount + 1}-${randomIndex + 1}`, exactDateRange);
       if (isAccommodationDetail(detailXml)) return detailXml;
-      xml = await waitForUi(config, device, isContractSearchResults, 3000, 200);
+      xml = await waitForUi(config, device, (nextXml) => isContractSearchResults(nextXml, exactDateRange), 3000, 200);
     }
 
     await runAdb(config, device, [
@@ -1019,12 +1042,10 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
     return ready;
   }
 
-  await runAdb(config, device, ["shell", "input", "swipe", "540", "2280", "540", "310", "620"]);
-  await new Promise((resolve) => setTimeout(resolve, 80));
-  await runAdb(config, device, ["shell", "input", "swipe", "540", "2280", "540", "310", "620"]);
-  await new Promise((resolve) => setTimeout(resolve, 160));
+  await runAdb(config, device, ["shell", "input", "swipe", "540", "2280", "540", "520", "420"]);
+  await new Promise((resolve) => setTimeout(resolve, 120));
   xml = await dumpUiStable(config, device);
-  addStep(steps, "계약 상세 하단으로 한 번에 스크롤");
+  addStep(steps, "계약 상세 약관 영역으로 빠르게 스크롤");
 
   ready = findReadyTerms(xml);
   if (ready) {
@@ -1032,36 +1053,18 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
     return ready;
   }
 
-  await runAdb(config, device, ["shell", "input", "swipe", "540", "1780", "540", "1160", "240"]);
-  await new Promise((resolve) => setTimeout(resolve, 140));
-  xml = await dumpUiStable(config, device);
-  store.appendLog("runner.log", "contract-request used one short terms reveal adjustment after fast bottom scroll");
+  for (let count = 0; count < 5; count += 1) {
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2180", "540", "1660", "150"]);
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    xml = await dumpUiStable(config, device);
+    store.appendLog("runner.log", `contract-request terms reveal adjustment ${count + 1}`);
 
-  ready = findReadyTerms(xml);
-  if (ready) {
-    await saveArtifacts(config, device, store, "contract-detail-terms", ready.xml);
-    return ready;
-  }
-
-  if (
-    xml.includes("필수 약관 전체 동의") &&
-    xml.includes("계약 요청하기") &&
-    xml.includes("결제 수단")
-  ) {
-    store.appendLog(
-      "runner.log",
-      "contract-request terms are visible in WebView but XML bounds are clipped; refusing unsafe fallback tap"
-    );
-    await saveFailureArtifacts(config, device, store, "contract-detail-terms-clipped", xml);
-    fail(
-      "필수 약관 전체 동의 영역의 실제 탭 좌표를 확인하지 못했습니다.",
-      steps,
-      [
-        "화면에는 약관 영역이 있지만 Android XML 좌표가 화면 하단에 접혀 있어 안전하게 탭할 수 없습니다.",
-        "상세 규정 확인 같은 다른 버튼을 누르지 않도록 좌표 추정 탭은 중단했습니다.",
-        "리포트의 contract-detail-terms-clipped.png 화면을 확인해주세요."
-      ]
-    );
+    ready = findReadyTerms(xml);
+    if (ready) {
+      await saveArtifacts(config, device, store, "contract-detail-terms", ready.xml);
+      addStep(steps, "필수 약관 영역 빠른 보정", "pass", `${count + 1}회`);
+      return ready;
+    }
   }
 
   await saveFailureArtifacts(config, device, store, "contract-detail-terms-not-found", xml);
@@ -1069,7 +1072,7 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
     "계약 상세 화면에서 필수 약관 전체 동의 영역을 찾지 못했습니다.",
     steps,
     [
-      "계약 상세 화면 하단까지 스크롤했지만 필수 약관 전체 동의와 계약 요청하기 버튼이 동시에 보이지 않았습니다.",
+      "계약 상세 화면에서 약관 영역까지 빠르게 스크롤하고 짧은 보정을 반복했지만 안전한 탭 좌표를 찾지 못했습니다.",
       "리포트의 contract-detail-terms-not-found.png 화면을 확인해주세요."
     ]
   );
@@ -1581,7 +1584,7 @@ async function runContractRequestTest({ request, config, store }) {
 
     if (!isSearchConditionScreen(xml)) {
       await tapSearchBar(config, device, xml, steps);
-      xml = await waitForUi(config, device, isSearchConditionScreen, 8000);
+      xml = await waitForUi(config, device, isSearchConditionScreen, 2500, 180);
     }
     await saveArtifacts(config, device, store, "search-condition", xml);
     if (!isSearchConditionScreen(xml)) {
@@ -1597,31 +1600,35 @@ async function runContractRequestTest({ request, config, store }) {
     }
 
     await selectDomesticRegion(config, device, xml, steps);
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 180));
     xml = await dumpUiStable(config, device);
     await saveArtifacts(config, device, store, "domestic-selected", xml);
 
-    await selectExactDates(config, device, xml, store, steps);
-    xml = await waitForUi(config, device, isGuestScreen, 8000);
+    const exactDateRange = getRandomExactSearchDateRange();
+    addStep(steps, "정확한 일정 랜덤 기간 결정", "pass", exactDateRange.label);
+
+    await selectExactDates(config, device, xml, store, steps, exactDateRange);
+    xml = await waitForUi(config, device, isGuestScreen, 3500, 180);
     await submitDefaultGuests(config, device, xml, store, steps);
 
-    xml = await waitForUi(config, device, isContractSearchResults, 20000);
+    xml = await waitForUi(config, device, (nextXml) => isContractSearchResults(nextXml, exactDateRange), 20000);
     await saveArtifacts(config, device, store, "search-results", xml);
-    if (!isContractSearchResults(xml)) {
+    if (!isContractSearchResults(xml, exactDateRange)) {
       await saveFailureArtifacts(config, device, store, "search-results", xml);
       fail(
         "계약 요청용 검색 결과 목록 화면을 확인하지 못했습니다.",
         steps,
         [
-          "성공 기준은 '국내', '8월 1일 ~ 8월 7일', '개의 집/필터/지도로 보기' 신호입니다.",
+          `성공 기준은 '국내', '${exactDateRange.label}', 검색 결과 화면의 숙소 수/필터/정렬/지도 신호입니다.`,
+          "검색 결과가 '일주일 / 1명'이면 정확한 일정 선택 실패로 처리합니다.",
           "리포트의 search-results.png 화면을 확인해주세요."
         ]
       );
     }
     addStep(steps, "계약 요청용 검색 결과 목록 확인");
 
-    xml = await selectNewestSort(config, device, store, steps, xml);
-    const detailXml = await openContractableListing(config, device, store, steps);
+    xml = await selectNewestSort(config, device, store, steps, xml, exactDateRange);
+    const detailXml = await openContractableListing(config, device, store, steps, exactDateRange);
     const contractDetailXml = await tapContractCondition(config, device, store, steps, detailXml);
     const submittedContract = await submitContractRequest(config, device, store, steps, contractDetailXml, { paymentMethod });
     addStep(steps, "계약 요청 완료 후 홈 화면 확인");
@@ -1636,8 +1643,8 @@ async function runContractRequestTest({ request, config, store }) {
       contract_conditions: {
         region: "국내",
         schedule_type: "정확한 일정",
-        start_date: "2026-08-01",
-        end_date: "2026-08-07",
+        start_date: exactDateRange.startIso,
+        end_date: exactDateRange.endIso,
         adult_count: 1,
         child_count: 0,
         infant_count: 0,

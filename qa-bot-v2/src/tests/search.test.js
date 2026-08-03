@@ -8,6 +8,11 @@ const {
   screenshotPng,
   tap
 } = require("../infra/adb");
+const {
+  formatMonthLabel,
+  getRandomExactSearchDateRange,
+  schedulePattern
+} = require("./helpers/exact-date-range");
 
 function addStep(steps, name, status = "pass", message) {
   const step = { name, status };
@@ -116,10 +121,12 @@ function isGuestScreen(xml) {
   );
 }
 
-function isSearchResults(xml) {
+function isSearchResults(xml, exactDateRange = null) {
+  const dateOk = exactDateRange ? xml.includes(exactDateRange.label) : schedulePattern().test(xml);
   return (
     xml.includes("국내") &&
-    xml.includes("8월 1일 ~ 8월 7일") &&
+    dateOk &&
+    !xml.includes("일주일 / 1명") &&
     (xml.includes("개의 집") || xml.includes("필터") || xml.includes("지도로 보기"))
   );
 }
@@ -174,14 +181,14 @@ async function collectAppErrorWarning(config, device, store, xml, screenshotName
   };
 }
 
-async function waitForUi(config, device, predicate, timeoutMs = 10000) {
+async function waitForUi(config, device, predicate, timeoutMs = 10000, intervalMs = 300) {
   const startedAt = Date.now();
   let xml = "";
 
   while (Date.now() - startedAt < timeoutMs) {
     xml = await dumpUi(config, device);
     if (predicate(xml)) return xml;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
   return xml;
@@ -298,21 +305,21 @@ function findDateNodeInMonth(xml, monthLabel, dayLabel) {
   });
 }
 
-async function ensureAugustVisible(config, device, xml, steps) {
+async function ensureMonthVisible(config, device, xml, steps, monthLabel) {
   let currentXml = xml;
   for (let count = 0; count < 4; count += 1) {
-    if (currentXml.includes("2026년 8월")) return currentXml;
+    if (currentXml.includes(monthLabel)) return currentXml;
     await runAdb(config, device, [
       "shell", "input", "swipe", "540", "1900", "540", "1100", "500"
     ]);
-    addStep(steps, "달력 스크롤", "pass", "2026년 8월 탐색");
+    addStep(steps, "달력 스크롤", "pass", `${monthLabel} 탐색`);
     await new Promise((resolve) => setTimeout(resolve, 700));
     currentXml = await dumpUi(config, device);
   }
   return currentXml;
 }
 
-async function selectExactDates(config, device, xml, store, steps) {
+async function selectExactDates(config, device, xml, store, steps, exactDateRange) {
   const scheduleTab = findNode(xml, "일정", { clickable: true });
   await tapNode(config, device, scheduleTab, "일정 탭", steps);
   addStep(steps, "일정 탭 진입");
@@ -321,38 +328,41 @@ async function selectExactDates(config, device, xml, store, steps) {
     config,
     device,
     (nextXml) => nextXml.includes("정확한 일정") && nextXml.includes("유연한 일정"),
-    8000
+    3500,
+    200
   );
   await saveArtifacts(config, device, store, "calendar-open", xml);
 
   const exact = findNode(xml, "정확한 일정", { clickable: true });
   await tapNode(config, device, exact, "정확한 일정 탭", steps);
   addStep(steps, "정확한 일정 선택");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 120));
 
   xml = await dumpUi(config, device);
-  xml = await ensureAugustVisible(config, device, xml, steps);
+  const monthLabel = formatMonthLabel(exactDateRange.start);
+  xml = await ensureMonthVisible(config, device, xml, steps, monthLabel);
   await saveArtifacts(config, device, store, "calendar-before-select", xml);
 
-  const startDate = findDateNodeInMonth(xml, "2026년 8월", "1");
-  const endDate = findDateNodeInMonth(xml, "2026년 8월", "7");
+  const startDate = findDateNodeInMonth(xml, monthLabel, String(exactDateRange.start.getDate()));
+  const endDate = findDateNodeInMonth(xml, monthLabel, String(exactDateRange.end.getDate()));
   if (!startDate?.bounds || !endDate?.bounds) {
     fail(
-      "달력에서 2026년 8월 1일 또는 8월 7일을 찾지 못했습니다.",
+      "달력에서 정확한 일정 날짜를 찾지 못했습니다.",
       steps,
       [
-        "정확한 일정 달력에 2026년 8월이 노출되어야 합니다.",
+        `선택 대상: ${exactDateRange.label}`,
+        "정확한 일정은 8월 달력 안에서 오늘 이후 날짜를 랜덤 선택합니다.",
         "리포트의 calendar-before-select.png 화면을 확인해주세요."
       ]
     );
   }
 
   await tap(config, device, startDate.bounds.x, startDate.bounds.y);
-  addStep(steps, "체크인 날짜 선택", "pass", "2026-08-01");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  addStep(steps, "체크인 날짜 선택", "pass", `${monthLabel} ${exactDateRange.start.getDate()}일`);
+  await new Promise((resolve) => setTimeout(resolve, 120));
   await tap(config, device, endDate.bounds.x, endDate.bounds.y);
-  addStep(steps, "체크아웃 날짜 선택", "pass", "2026-08-07");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  addStep(steps, "체크아웃 날짜 선택", "pass", `${monthLabel} ${exactDateRange.end.getDate()}일`);
+  await new Promise((resolve) => setTimeout(resolve, 160));
 
   xml = await dumpUi(config, device);
   await saveArtifacts(config, device, store, "calendar-after-select", xml);
@@ -534,6 +544,24 @@ async function submitDefaultGuests(config, device, xml, store, steps) {
   addStep(steps, "검색 버튼 탭");
 }
 
+async function openSearchConditionAfterLaunch(config, device, store, steps) {
+  let xml = "";
+  for (let count = 0; count < 3; count += 1) {
+    await new Promise((resolve) => setTimeout(resolve, count === 0 ? 260 : 180));
+    await tap(config, device, 540, 360);
+    xml = await waitForUi(config, device, isSearchConditionScreen, 520, 120);
+    if (isSearchConditionScreen(xml)) {
+      addStep(steps, "홈 검색바 빠른 진입", "pass", `앱 재실행 후 예상 검색바 좌표 ${count + 1}회 탭`);
+      await saveArtifacts(config, device, store, "search-condition", xml);
+      return xml;
+    }
+  }
+
+  xml = await waitForUi(config, device, hasHomeSearchBar, 2500, 200);
+  await saveArtifacts(config, device, store, "search-home", xml);
+  return xml;
+}
+
 async function runSearchTest({ request, config, store }) {
   const role = request.role || "guest";
   const env = request.env || "staging";
@@ -548,17 +576,10 @@ async function runSearchTest({ request, config, store }) {
     addStep(steps, "환경 설정 확인");
     await wakeAndUnlock(config, device, steps, store);
     await launchFresh(config, device, appPackage, steps);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    let xml = await waitForUi(
-      config,
-      device,
-      hasHomeSearchBar,
-      10000
-    );
-    await saveArtifacts(config, device, store, "search-home", xml);
+    let xml = await openSearchConditionAfterLaunch(config, device, store, steps);
 
-    if (!hasHomeSearchBar(xml)) {
+    if (!isSearchConditionScreen(xml) && !hasHomeSearchBar(xml)) {
       fail(
         "앱 재실행 후 홈 검색바를 확인하지 못했습니다.",
         steps,
@@ -570,8 +591,10 @@ async function runSearchTest({ request, config, store }) {
       );
     }
 
-    await tapSearchBar(config, device, xml, steps);
-    xml = await waitForUi(config, device, isSearchConditionScreen, 8000);
+    if (!isSearchConditionScreen(xml)) {
+      await tapSearchBar(config, device, xml, steps);
+      xml = await waitForUi(config, device, isSearchConditionScreen, 2500, 180);
+    }
     await saveArtifacts(config, device, store, "search-condition", xml);
     if (!isSearchConditionScreen(xml)) {
       fail(
@@ -585,28 +608,32 @@ async function runSearchTest({ request, config, store }) {
     }
 
     await selectDomesticRegion(config, device, xml, steps);
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 180));
     xml = await dumpUi(config, device);
     await saveArtifacts(config, device, store, "domestic-selected", xml);
 
-    await selectExactDates(config, device, xml, store, steps);
-    xml = await waitForUi(config, device, isGuestScreen, 8000);
+    const exactDateRange = getRandomExactSearchDateRange();
+    addStep(steps, "정확한 일정 랜덤 기간 결정", "pass", exactDateRange.label);
+
+    await selectExactDates(config, device, xml, store, steps, exactDateRange);
+    xml = await waitForUi(config, device, isGuestScreen, 3500, 180);
     await addGuestOptions(config, device, xml, store, steps);
 
     xml = await waitForUi(
       config,
       device,
-      (nextXml) => isSearchResults(nextXml) || hasAppError(nextXml),
+      (nextXml) => isSearchResults(nextXml, exactDateRange) || hasAppError(nextXml),
       20000
     );
     const appWarning = await collectAppErrorWarning(config, device, store, xml);
-    if (!isSearchResults(xml)) {
+    if (!isSearchResults(xml, exactDateRange)) {
       await saveArtifacts(config, device, store, "search-results", xml, { screenshot: true });
       fail(
         "검색 버튼을 눌렀지만 검색 결과 목록 화면을 확인하지 못했습니다.",
         steps,
         [
-          "성공 기준은 '국내', '8월 1일 ~ 8월 7일', '개의 집/필터/지도로 보기' 신호입니다.",
+          `성공 기준은 '국내', '${exactDateRange.label}', '개의 집/필터/지도로 보기' 신호입니다.`,
+          "검색 결과가 '일주일 / 1명'이면 정확한 일정 선택 실패로 처리합니다.",
           "리포트의 search-results.png 화면을 확인해주세요."
         ]
       );
@@ -628,8 +655,8 @@ async function runSearchTest({ request, config, store }) {
       search_conditions: {
         region: "국내",
         schedule_type: "정확한 일정",
-        start_date: "2026-08-01",
-        end_date: "2026-08-07",
+        start_date: exactDateRange.startIso,
+        end_date: exactDateRange.endIso,
         child_count: 1,
         infant_count: 1,
         pet_count: 1
@@ -664,12 +691,10 @@ async function runFlexibleSearchTest({ request, config, store }) {
     addStep(steps, "환경 설정 확인");
     await wakeAndUnlock(config, device, steps, store);
     await launchFresh(config, device, appPackage, steps);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    let xml = await waitForUi(config, device, hasHomeSearchBar, 10000);
-    await saveArtifacts(config, device, store, "search-home", xml);
+    let xml = await openSearchConditionAfterLaunch(config, device, store, steps);
 
-    if (!hasHomeSearchBar(xml)) {
+    if (!isSearchConditionScreen(xml) && !hasHomeSearchBar(xml)) {
       fail(
         "앱 재실행 후 홈 검색바를 확인하지 못했습니다.",
         steps,
@@ -681,8 +706,10 @@ async function runFlexibleSearchTest({ request, config, store }) {
       );
     }
 
-    await tapSearchBar(config, device, xml, steps);
-    xml = await waitForUi(config, device, isSearchConditionScreen, 8000);
+    if (!isSearchConditionScreen(xml)) {
+      await tapSearchBar(config, device, xml, steps);
+      xml = await waitForUi(config, device, isSearchConditionScreen, 2500, 180);
+    }
     await saveArtifacts(config, device, store, "search-condition", xml);
     if (!isSearchConditionScreen(xml)) {
       fail(
