@@ -1,7 +1,10 @@
 const fs = require("fs");
 const path = require("path");
 const { chromium } = require("playwright-core");
-const { buildResultJudgment } = require("./slack-reporter");
+const {
+  buildResultJudgment,
+  formatFigmaValidationDetailLines
+} = require("./slack-reporter");
 
 function escapeHtml(value) {
   return String(value || "")
@@ -173,6 +176,7 @@ function buildResultSectionHtml(result, reportDir, index = 1) {
     ...objectLines(result.schedule_change, "schedule_change"),
     ...objectLines(result.toss_deposit, "toss_deposit")
   ];
+  const figmaValidationLines = formatFigmaValidationDetailLines(result.figma_validation, { maxItems: 100 });
 
   const appWarningLines = (result.app_warnings || []).flatMap((warning) => [
     `${warning.name || "warning"}: ${warning.message || ""}`,
@@ -202,6 +206,7 @@ function buildResultSectionHtml(result, reportDir, index = 1) {
     ${section("실패 정보", errorLines)}
     ${preSection("에러 스택", errorStack)}
     ${section("테스트 조건", conditionLines)}
+    ${section("Figma 기준 비교", figmaValidationLines)}
     ${section("기타 이슈", appWarningLines)}
     ${section("실행 단계", stepLines)}
     ${section("아티팩트", artifactLines)}

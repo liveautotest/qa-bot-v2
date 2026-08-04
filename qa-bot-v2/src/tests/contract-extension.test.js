@@ -88,6 +88,16 @@ function findNode(xml, labels, options = {}) {
   return nodes.find((node) => node.attrs.clickable === "true") || nodes[0];
 }
 
+function findClippedAboveNode(xml, labels) {
+  const labelList = Array.isArray(labels) ? labels : [labels];
+  return parseNodes(xml).find((node) => {
+    if (!node.bounds) return false;
+    if (node.bounds.bottom > 130 || node.bounds.bottom > node.bounds.top) return false;
+    const label = nodeLabel(node);
+    return labelList.some((value) => label.includes(value));
+  });
+}
+
 function saveXml(store, name, xml) {
   const xmlPath = path.join(store.logsDir, `${name}.xml`);
   fs.writeFileSync(xmlPath, xml);
@@ -184,6 +194,21 @@ function isContractDetail(xml) {
     (xml.includes("계약번호") || xml.includes("계약 번호") || xml.includes("계약 상세")) &&
     (xml.includes("계약 연장") || xml.includes("계약 취소") || xml.includes("결제") || xml.includes("체크아웃"))
   );
+}
+
+function isLikelyContractDetailWebView(xml) {
+  const nodes = parseNodes(xml);
+  return nodes.some((node) => (
+    node.attrs.class === "android.webkit.WebView" &&
+    node.attrs.clickable === "true" &&
+    node.bounds &&
+    node.bounds.top <= 120 &&
+    node.bounds.bottom >= 2400
+  ));
+}
+
+function isContractDetailEntry(xml) {
+  return isContractDetail(xml) || isLikelyContractDetailWebView(xml);
 }
 
 function isExtensionGuidePopup(xml) {
@@ -458,9 +483,9 @@ async function openConfirmedContractDetailFromHome(config, device, store, steps,
   await tapNode(config, device, action, "계약 확정 카드", steps);
   addStep(steps, "홈 화면 계약 확정 카드 선택");
 
-  xml = await waitForUi(config, device, isContractDetail, 12000);
+  xml = await waitForUi(config, device, isContractDetailEntry, 12000);
   saveXml(store, "extension-contract-detail-start", xml);
-  if (!isContractDetail(xml)) {
+  if (!isContractDetailEntry(xml)) {
     await saveFailureArtifacts(config, device, store, "extension-detail-not-found", xml);
     fail(
       "계약 상세 화면으로 진입하지 못했습니다.",
@@ -471,6 +496,12 @@ async function openConfirmedContractDetailFromHome(config, device, store, steps,
       ]
     );
   }
+  addStep(
+    steps,
+    "계약 상세 화면 진입 확인",
+    "pass",
+    isContractDetail(xml) ? "XML 텍스트 기준" : "WebView 전환 기준"
+  );
 
   return {
     xml,
@@ -558,6 +589,15 @@ async function tapExtensionRequestButton(config, device, store, steps, initialXm
           "리포트의 extension-request-button-did-not-open.png 화면과 runner.log를 확인해주세요."
         ]
       );
+    }
+
+    const clippedButton = findClippedAboveNode(xml, "계약 연장 요청");
+    if (clippedButton?.bounds) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "1320", "540", "1900", "180"]);
+      await new Promise((resolve) => setTimeout(resolve, 140));
+      addStep(steps, "계약 연장 요청 버튼 위치 보정", "pass", "버튼이 화면 위쪽에 잘려 보여 아래로 되돌림");
+      xml = await dumpUi(config, device);
+      continue;
     }
 
     await runAdb(config, device, ["shell", "input", "swipe", "540", "1920", "540", "1320", "180"]);

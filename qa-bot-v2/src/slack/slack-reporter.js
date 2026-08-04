@@ -399,22 +399,61 @@ function formatResultConditionSummary(result) {
 
 function formatFigmaValidationSummary(validation) {
   if (!validation) return [];
+  const passCount = validation.checked?.length || 0;
+  const manualCount = validation.manual_required?.length || 0;
+  const failCount = validation.missing?.length || 0;
 
   if (validation.status === "pass") {
-    return ["Figma 기준 비교: 자동 확인 가능 항목 PASS"];
+    return [`Figma 기준 비교: PASS ${passCount}건`];
   }
 
   if (validation.status === "manual_required") {
-    return [
-      `Figma 기준 비교: 자동 확인 가능 항목 PASS, 수동 확인 필요 ${validation.manual_required?.length || 0}건`
-    ];
+    return [`Figma 기준 비교: PASS ${passCount}건, 수동 확인 필요 ${manualCount}건`];
   }
 
   if (validation.status === "fail") {
-    return [`Figma 기준 비교: 불일치 ${validation.missing?.length || 0}건`];
+    return [`Figma 기준 비교: PASS ${passCount}건, 불일치 ${failCount}건`];
   }
 
   return [`Figma 기준 비교: ${validation.status}`];
+}
+
+function formatFigmaValidationDetailLines(validation, { maxItems = 4 } = {}) {
+  if (!validation) return [];
+
+  const lines = [];
+  if (validation.source) lines.push(`기준: ${validation.source}`);
+
+  const checked = validation.checked || [];
+  const manualRequired = validation.manual_required || [];
+  const missing = validation.missing || [];
+
+  for (const item of checked.slice(0, maxItems)) {
+    lines.push(`[PASS] ${item}`);
+  }
+  if (checked.length > maxItems) {
+    lines.push(`[PASS] 외 ${checked.length - maxItems}건은 PDF 리포트에서 확인`);
+  }
+
+  for (const item of manualRequired.slice(0, maxItems)) {
+    lines.push(`[수동 확인 필요] ${item}`);
+  }
+  if (manualRequired.length > maxItems) {
+    lines.push(`[수동 확인 필요] 외 ${manualRequired.length - maxItems}건은 PDF 리포트에서 확인`);
+  }
+
+  for (const item of missing.slice(0, maxItems)) {
+    lines.push(`[FAIL] ${item}`);
+  }
+  if (missing.length > maxItems) {
+    lines.push(`[FAIL] 외 ${missing.length - maxItems}건은 PDF 리포트에서 확인`);
+  }
+
+  if (validation.amounts?.length) {
+    lines.push(`[참고] 화면에서 확인한 금액: ${validation.amounts.join(", ")}`);
+  }
+
+  return lines;
 }
 
 function formatLastProgress(steps = []) {
@@ -553,6 +592,12 @@ function formatJudgmentLines(result) {
       lines.push("검증 완료:");
       lines.push(...judgment.verified.map((line) => `- ${line}`));
     }
+    const figmaDetailLines = formatFigmaValidationDetailLines(result.figma_validation);
+    if (figmaDetailLines.length) {
+      lines.push("");
+      lines.push("Figma 기준 비교:");
+      lines.push(...figmaDetailLines.map((line) => `- ${line}`));
+    }
     if (judgment.conditions.length) {
       lines.push("");
       lines.push("주요 조건:");
@@ -633,6 +678,7 @@ function formatResult(result) {
 
 module.exports = {
   buildResultJudgment,
+  formatFigmaValidationDetailLines,
   formatHelp,
   formatJudgmentLines,
   formatPassSummary,

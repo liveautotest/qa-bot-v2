@@ -91,11 +91,25 @@ async function saveFailureArtifacts(config, device, store, name, xml) {
   return { xmlPath, screenshotPath };
 }
 
+function isInvalidUiDump(xml) {
+  return !xml || !String(xml).includes("<hierarchy");
+}
+
+async function dumpUiStable(config, device, attempts = 4) {
+  let xml = "";
+  for (let count = 0; count < attempts; count += 1) {
+    xml = await dumpUi(config, device);
+    if (!isInvalidUiDump(xml)) return xml;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return xml;
+}
+
 async function waitForUi(config, device, predicate, timeoutMs = 12000, intervalMs = 500) {
   const startedAt = Date.now();
   let xml = "";
   while (Date.now() - startedAt < timeoutMs) {
-    xml = await dumpUi(config, device);
+    xml = await dumpUiStable(config, device);
     if (predicate(xml)) return xml;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
@@ -104,6 +118,21 @@ async function waitForUi(config, device, predicate, timeoutMs = 12000, intervalM
 
 function isHostModeShell(xml) {
   return ["집 목록", "계약", "메시지", "내 정보"].filter((label) => findBottomTab(xml, label)).length >= 3;
+}
+
+function meaningfulLabelCount(xml) {
+  return parseNodes(xml)
+    .map((node) => labelOf(node).trim())
+    .filter(Boolean)
+    .length;
+}
+
+function isAccessibilityLightUi(xml) {
+  return !isInvalidUiDump(xml) && meaningfulLabelCount(xml) <= 8;
+}
+
+function isHostHomeVisualFallbackCandidate(xml) {
+  return isHostModeShell(xml) && isAccessibilityLightUi(xml);
 }
 
 function isLoginStartScreen(xml) {
@@ -122,9 +151,18 @@ function isHostContractList(xml) {
 function isContractRequestDetail(xml) {
   return (
     xml.includes("계약 번호:") &&
-    xml.includes("수락해주세요") &&
+    (
+      xml.includes("수락해주세요") ||
+      xml.includes("수락해 주세요") ||
+      xml.includes("계약 요청") ||
+      xml.includes("계약 내역")
+    ) &&
     (xml.includes("계약 수락") || xml.includes("거절"))
   );
+}
+
+function isVisualOnlyContractDetail(xml) {
+  return !isHostModeShell(xml) && isAccessibilityLightUi(xml);
 }
 
 function hasServiceUpdateBanner(xml) {
@@ -144,17 +182,20 @@ function hasAcceptedSuccessDialog(xml) {
 }
 
 function isContractAccepted(xml) {
+  const hasAcceptedState =
+    xml.includes("결제를 기다리고 있어요") ||
+    xml.includes("결제 대기") ||
+    xml.includes("계약 진행") ||
+    xml.includes("계약 확정");
+  const stillRequesting =
+    xml.includes("수락해주세요") ||
+    xml.includes("수락해 주세요");
+
   return (
+    hasAcceptedState &&
     !hasAcceptConfirmDialog(xml) &&
     !hasAcceptedSuccessDialog(xml) &&
-    !xml.includes("계약 수락") &&
-    !xml.includes("수락해주세요") &&
-    (
-      xml.includes("결제를 기다리고 있어요") ||
-      xml.includes("결제 대기") ||
-      xml.includes("계약 진행") ||
-      xml.includes("계약 확정")
-    )
+    !stillRequesting
   );
 }
 
@@ -352,6 +393,28 @@ function findAcceptButton(xml, { dialogOnly = false } = {}) {
   return (dialogOnly ? matches[0] : matches[matches.length - 1]) || null;
 }
 
+function fixedAcceptButtonFromViewport() {
+  return {
+    bounds: {
+      x: 651,
+      y: 2376
+    }
+  };
+}
+
+async function pressPoint(config, device, x, y, durationMs = 120) {
+  await runAdb(config, device, [
+    "shell",
+    "input",
+    "swipe",
+    String(x),
+    String(y),
+    String(x),
+    String(y),
+    String(durationMs)
+  ]);
+}
+
 async function launchApp(config, device, appPackage, steps) {
   await runAdb(config, device, ["shell", "am", "force-stop", appPackage]);
   addStep(steps, "앱 완전 종료");
@@ -442,6 +505,44 @@ async function openContractRequestFromHostHome(config, device, store, steps, opt
   if (!isHostModeShell(xml)) return null;
 
   let requestCard = findHostHomeRequestCard(xml, matchSummary);
+  if (!requestCard?.bounds && isHostHomeVisualFallbackCandidate(xml)) {
+    const matchedMessage = matchSummary?.title
+      ? `${matchSummary.title} / ${matchSummary.schedule}`
+      : "호스트 홈 최상단 수락 카드";
+    const visualTargets = [
+      [540, 840, "최상단 카드 본문"],
+      [540, 730, "최상단 카드 제목"],
+      [180, 840, "최상단 카드 이미지"],
+      [540, 945, "최상단 카드 하단"]
+    ];
+
+    for (const [x, y, targetLabel] of visualTargets) {
+      await tap(config, device, x, y);
+      addStep(steps, "호스트 홈 수락 대기 카드 선택", "pass", `${matchedMessage} (${targetLabel} 시각 좌표)`);
+      xml = await waitForUi(
+        config,
+        device,
+        (candidateXml) => isContractRequestDetail(candidateXml) || isVisualOnlyContractDetail(candidateXml),
+        2600,
+        120
+      );
+      if (isContractRequestDetail(xml) || isVisualOnlyContractDetail(xml)) {
+        saveXml(store, "contract-approve-detail", xml);
+        addStep(
+          steps,
+          "호스트 계약 요청 상세 진입",
+          "pass",
+          isContractRequestDetail(xml) ? "XML 기준" : "WebView 화면 전환 기준"
+        );
+        return {
+          xml,
+          contractNumber: getContractNumber(xml),
+          visualFallback: isVisualOnlyContractDetail(xml)
+        };
+      }
+    }
+  }
+
   if (!requestCard?.bounds) {
     const homeTab = findBottomTab(xml, "홈");
     if (homeTab?.bounds) {
@@ -813,14 +914,19 @@ async function tapRejectAndConfirm(config, device, store, steps, xml) {
 }
 
 async function tapAcceptAndConfirm(config, device, store, steps, xml) {
-  const acceptButton = findAcceptButton(xml);
+  const acceptButton = findAcceptButton(xml) || (isVisualOnlyContractDetail(xml) ? fixedAcceptButtonFromViewport() : null);
   if (!acceptButton?.bounds) {
     await saveFailureArtifacts(config, device, store, "contract-accept-button-not-found", xml);
     fail("계약 상세 화면에서 '계약 수락' 버튼을 찾지 못했습니다.", steps);
   }
 
   await tap(config, device, acceptButton.bounds.x, acceptButton.bounds.y);
-  addStep(steps, "계약 수락 버튼 탭");
+  addStep(
+    steps,
+    "계약 수락 버튼 탭",
+    "pass",
+    findAcceptButton(xml) ? "XML 버튼 영역" : "하단 고정 버튼 좌표"
+  );
 
   xml = await waitForUi(
     config,
@@ -831,6 +937,46 @@ async function tapAcceptAndConfirm(config, device, store, steps, xml) {
     8000
   );
   saveXml(store, "contract-approve-after-tap", xml);
+
+  if (!isContractAccepted(xml) && !hasAcceptConfirmDialog(xml)) {
+    const retryButton = findAcceptButton(xml) || fixedAcceptButtonFromViewport();
+    await tap(config, device, retryButton.bounds.x, retryButton.bounds.y);
+    addStep(
+      steps,
+      "계약 수락 버튼 재탭",
+      "pass",
+      findAcceptButton(xml) ? "XML 버튼 중앙" : "하단 고정 버튼 중앙"
+    );
+    xml = await waitForUi(
+      config,
+      device,
+      (nextXml) =>
+        isContractAccepted(nextXml) ||
+        hasAcceptConfirmDialog(nextXml),
+      3500,
+      120
+    );
+  }
+
+  if (!isContractAccepted(xml) && !hasAcceptConfirmDialog(xml)) {
+    const retryButton = findAcceptButton(xml) || fixedAcceptButtonFromViewport();
+    await pressPoint(config, device, retryButton.bounds.x, retryButton.bounds.y, 140);
+    addStep(
+      steps,
+      "계약 수락 버튼 짧은 press 재시도",
+      "pass",
+      findAcceptButton(xml) ? "XML 버튼 중앙" : "하단 고정 버튼 중앙"
+    );
+    xml = await waitForUi(
+      config,
+      device,
+      (nextXml) =>
+        isContractAccepted(nextXml) ||
+        hasAcceptConfirmDialog(nextXml),
+      3500,
+      120
+    );
+  }
 
   if (hasAcceptConfirmDialog(xml)) {
     const confirmButton = findAcceptButton(xml, { dialogOnly: true });

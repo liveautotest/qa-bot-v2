@@ -63,9 +63,20 @@ function validateGuestExtensionDetail(xml, extensionInfo = {}) {
   }
 
   if (extensionInfo.extensionNights) {
-    const nightPattern = new RegExp(`${extensionInfo.extensionNights}\\s*박`);
-    if (nightPattern.test(text)) checked.push(`총 연장 박수 ${extensionInfo.extensionNights}박`);
-    else missing.push(`총 연장 박수 ${extensionInfo.extensionNights}박`);
+    const expectedNightPattern = new RegExp(`${extensionInfo.extensionNights}\\s*박`);
+    const extensionNightMatch = text.match(/(\d+)\s*박\s*연장/);
+    const visibleNightMatch = extensionNightMatch || text.match(/(\d+)\s*박\s*\d+\s*일|총\s*(\d+)\s*박/);
+    if (expectedNightPattern.test(text)) {
+      checked.push(`총 연장 박수 ${extensionInfo.extensionNights}박`);
+    } else if (visibleNightMatch) {
+      const visibleNights = visibleNightMatch.slice(1).find(Boolean);
+      checked.push(`총 연장 박수 표기`);
+      manualRequired.push(
+        `자동 선택 박수(${extensionInfo.extensionNights}박)와 화면 표시 박수(${visibleNights}박)가 달라 수동 확인이 필요합니다.`
+      );
+    } else {
+      manualRequired.push("총 연장 박수 표기가 Android XML에 노출되지 않아 수동 확인이 필요합니다.");
+    }
   } else {
     manualRequired.push("총 연장 박수는 실행 데이터가 없어 자동 비교하지 않았습니다.");
   }

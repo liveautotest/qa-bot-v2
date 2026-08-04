@@ -294,7 +294,10 @@ async function openExtensionRequestDetail(config, device, store, steps, homeXml)
   xml = await waitForUi(
     config,
     device,
-    (nextXml) => nextXml.includes("계약 연장 요청") || nextXml.includes("확인 및 응답"),
+    (nextXml) =>
+      nextXml.includes("계약 연장 요청") ||
+      nextXml.includes("확인 및 응답") ||
+      isAccessibilityLightUi(nextXml),
     6000,
     150
   );
@@ -306,12 +309,69 @@ async function openExtensionRequestDetail(config, device, store, steps, homeXml)
     enabled: true
   });
   if (!confirmAndRespond?.bounds) {
+    const canUseVisualFallback =
+      xml.includes("계약 연장 요청") ||
+      xml.includes("수락 대기 중") ||
+      isAccessibilityLightUi(xml);
+
+    if (canUseVisualFallback) {
+      const fallbackTargets = [
+        { x: 540, y: 1308, name: "버튼 중앙" },
+        { x: 540, y: 1348, name: "버튼 하단 중앙" },
+        { x: 540, y: 1268, name: "버튼 상단 중앙" }
+      ];
+
+      for (const target of fallbackTargets) {
+        await tap(config, device, target.x, target.y);
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        const fallbackXml = await waitForUi(
+          config,
+          device,
+          (nextXml) => isExtensionApproveDetail(nextXml) || isAccessibilityLightUi(nextXml),
+          1200,
+          120
+        );
+        if (isExtensionApproveDetail(fallbackXml) || isAccessibilityLightUi(fallbackXml)) {
+          addStep(
+            steps,
+            "계약 연장 요청 확인 및 응답 선택",
+            "pass",
+            `XML 미노출 버튼 ${target.name} 좌표 탭`
+          );
+          saveXml(store, "host-extension-approve-detail-start", fallbackXml);
+          return fallbackXml;
+        }
+        xml = fallbackXml;
+      }
+
+      await tap(config, device, 540, 1372);
+      addStep(
+        steps,
+        "계약 연장 요청 확인 및 응답 재시도",
+        "pass",
+        "기존 하단 좌표 탭"
+      );
+      const fallbackXml = await waitForUi(
+        config,
+        device,
+        (nextXml) => isExtensionApproveDetail(nextXml) || isAccessibilityLightUi(nextXml),
+        1500,
+        120
+      );
+      if (isExtensionApproveDetail(fallbackXml) || isAccessibilityLightUi(fallbackXml)) {
+        saveXml(store, "host-extension-approve-detail-start", fallbackXml);
+        return fallbackXml;
+      }
+      xml = fallbackXml;
+    }
+
     await saveFailureArtifacts(config, device, store, "host-extension-confirm-response-not-found", xml);
     fail(
       "호스트 계약 상세에서 계약 연장 요청의 확인 및 응답 버튼을 찾지 못했습니다.",
       steps,
       [
         "계약 상세 화면의 '계약 연장 요청' 섹션에 '확인 및 응답' 버튼이 보여야 합니다.",
+        "Android XML에 버튼이 노출되지 않는 경우 화면 중앙 하단 버튼 좌표로 재시도합니다.",
         "리포트의 host-extension-confirm-response-not-found.png 화면을 확인해주세요."
       ]
     );

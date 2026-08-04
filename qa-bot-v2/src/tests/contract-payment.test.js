@@ -977,7 +977,26 @@ async function inputSecureKeypadDigits(config, device, store, digits, fieldIndex
     await new Promise((resolve) => setTimeout(resolve, 120));
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  xml = await dumpUiStable(config, device);
+  const confirmButton = findNode(xml, "Confirm", {
+    visible: true,
+    clickable: true,
+    enabled: true
+  });
+
+  if (confirmButton?.bounds) {
+    await tapNode(config, device, confirmButton, "보안키패드 Confirm", steps);
+  } else {
+    await tap(config, device, 742, 2436);
+    addStep(steps, "보안키패드 Confirm", "pass", "XML 미노출 fallback 좌표");
+  }
+
+  xml = await waitForUi(config, device, (nextXml) => !hasSecureKeypad(nextXml), 2000, 120);
+  if (hasSecureKeypad(xml)) {
+    await tap(config, device, 742, 2436);
+    addStep(steps, "보안키패드 Confirm 재시도", "pass", "키패드 유지로 fallback 좌표 재탭");
+    await waitForUi(config, device, (nextXml) => !hasSecureKeypad(nextXml), 1800, 120);
+  }
 }
 
 async function openPaymentDetailFromHome(config, device, store, steps) {
