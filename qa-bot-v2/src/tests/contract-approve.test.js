@@ -447,6 +447,22 @@ async function prepareHostContractList(config, device, appPackage, store, steps,
   await launchApp(config, device, appPackage, steps);
 }
 
+async function recoverHostShell(config, device, appPackage, store, steps) {
+  let xml = await dumpUiStable(config, device);
+  saveXml(store, "host-shell-before-recover", xml);
+  if (isHostModeShell(xml)) return xml;
+
+  addStep(steps, "호스트 화면 복구 시도", "pass", "현재 화면이 호스트 홈/탭 화면이 아니어서 앱 재실행");
+  await launchApp(config, device, appPackage, steps);
+  xml = await waitForUi(config, device, isHostModeShell, 7000, 150);
+  if (isHostModeShell(xml)) return xml;
+
+  await keyEvent(config, device, 4).catch(() => {});
+  xml = await waitForUi(config, device, isHostModeShell, 3000, 150);
+  saveXml(store, "host-shell-after-recover", xml);
+  return xml;
+}
+
 async function openHostContractList(config, device, store, steps) {
   let xml = await waitForUi(config, device, (nextXml) => isHostModeShell(nextXml), 15000);
   saveXml(store, "host-approve-after-launch", xml);
@@ -505,7 +521,7 @@ async function openContractRequestFromHostHome(config, device, store, steps, opt
   if (!isHostModeShell(xml)) return null;
 
   let requestCard = findHostHomeRequestCard(xml, matchSummary);
-  if (!requestCard?.bounds && isHostHomeVisualFallbackCandidate(xml)) {
+  if (!requestCard?.bounds && isHostHomeVisualFallbackCandidate(xml) && !matchSummary) {
     const matchedMessage = matchSummary?.title
       ? `${matchSummary.title} / ${matchSummary.schedule}`
       : "호스트 홈 최상단 수락 카드";
@@ -1070,10 +1086,27 @@ async function runContractApproveTest({ request, config, store }) {
       matchSummary
     });
 
-    if (!directDetail) {
-      const xml = await dumpUi(config, device);
-      await saveFailureArtifacts(config, device, store, "host-home-approve-card-not-found", xml);
+    let detail = directDetail;
+    if (!detail && matchSummary?.title && matchSummary?.schedule) {
+      addStep(
+        steps,
+        "호스트 홈 카드 매칭 불가",
+        "pass",
+        "숙소명/일정 기준 보호를 위해 계약 탭 매칭으로 전환"
+      );
+      await recoverHostShell(config, device, appPackage, store, steps);
+      let listXml = await waitForUi(config, device, isHostModeShell, 5000, 150);
+      listXml = await openHostContractList(config, device, store, steps);
+      detail = await openContractRequest(config, device, store, steps, listXml, {
+        matchSummary,
+        requireSummaryMatch: true
+      });
+    }
+
+    if (!detail) {
+      const xml = await dumpUiStable(config, device);
       if (isLoginStartScreen(xml)) {
+        await saveFailureArtifacts(config, device, store, "host-home-approve-card-not-found", xml);
         fail(
           "호스트 로그인 세션이 풀려 계약 승인 홈 화면에 진입하지 못했습니다.",
           steps,
@@ -1084,20 +1117,20 @@ async function runContractApproveTest({ request, config, store }) {
         );
       }
 
+      await saveFailureArtifacts(config, device, store, "host-home-approve-card-not-found", xml);
       fail(
         "호스트 홈 수락 대기 계약 카드를 눌렀지만 상세 화면으로 이동하지 못했습니다.",
         steps,
         [
           "계약 승인은 호스트 홈의 '수락이 필요한 계약' 카드에서 바로 시작합니다.",
           "자동화가 카드 탭, 포커스 확정, 재탭까지 시도했습니다.",
-          "숙소명/일정 매칭이 어긋나면 다른 계약을 승인하지 않도록 계약 탭 fallback은 사용하지 않습니다.",
+          "숙소명/일정 매칭 기준이 있으면 홈 시각 좌표 대신 계약 탭 매칭으로 전환합니다.",
           "리포트의 host-home-approve-card-not-found.png 화면을 확인해주세요."
         ]
       );
     }
 
-    let xml = directDetail.xml;
-    const detail = directDetail;
+    let xml = detail.xml;
     xml = await tapAcceptAndConfirm(config, device, store, steps, detail.xml);
 
     addStep(steps, "계약 승인 완료 확인");
