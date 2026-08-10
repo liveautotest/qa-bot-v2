@@ -82,6 +82,32 @@ function formatProgressMessage(text = "") {
   ].join("\n");
 }
 
+const handledMessageKeys = new Map();
+const activeCommandKeys = new Set();
+
+function normalizeCommandText(text = "") {
+  return String(text).trim().replace(/\s+/g, " ");
+}
+
+function messageDedupeKey(message) {
+  return [message.channel || "", message.ts || "", normalizeCommandText(message.text)].join(":");
+}
+
+function activeCommandKey(message) {
+  return [message.channel || "", normalizeCommandText(message.text)].join(":");
+}
+
+function rememberMessageKey(key) {
+  const now = Date.now();
+  handledMessageKeys.set(key, now);
+
+  for (const [storedKey, storedAt] of handledMessageKeys.entries()) {
+    if (now - storedAt > 10 * 60 * 1000) {
+      handledMessageKeys.delete(storedKey);
+    }
+  }
+}
+
 async function main() {
   installSocketModeDisconnectGuard();
 
@@ -103,46 +129,66 @@ async function main() {
 
   async function handleQaMessage(message, say) {
     const threadTs = message.thread_ts || message.ts;
-    if (/기본검증/i.test(String(message.text || ""))) {
-      console.log(`[QA command] ${message.text}`);
+    const dedupeKey = messageDedupeKey(message);
+    if (handledMessageKeys.has(dedupeKey)) {
+      return;
     }
-    if (shouldPostProgressMessage(message.text)) {
+    rememberMessageKey(dedupeKey);
+
+    const commandKey = activeCommandKey(message);
+    if (activeCommandKeys.has(commandKey)) {
       await say({
-        text: formatProgressMessage(message.text),
+        text: "같은 테스트가 이미 진행 중입니다. 완료되면 이 스레드에 결과를 남길게요.",
         thread_ts: threadTs
       });
+      return;
     }
 
-    const response = await routeCommand(message.text, {
-      config,
-      user: message.user,
-      channel: message.channel,
-      threadTs
-    });
-
-    await say({
-      text: response,
-      thread_ts: threadTs
-    });
-
+    activeCommandKeys.add(commandKey);
     try {
-      await uploadPdfReports({
-        client: app.client,
+      if (/기본검증/i.test(String(message.text || ""))) {
+        console.log(`[QA command] ${message.text}`);
+      }
+      if (shouldPostProgressMessage(message.text)) {
+        await say({
+          text: formatProgressMessage(message.text),
+          thread_ts: threadTs
+        });
+      }
+
+      const response = await routeCommand(message.text, {
         config,
+        user: message.user,
         channel: message.channel,
-        threadTs,
-        responseText: response
+        threadTs
       });
-    } catch (error) {
-      console.error("Failed to upload PDF report:", error.stack || error.message);
-      const message = String(error.message || "");
-      const helpText = message.includes("missing_scope")
-        ? "PDF 리포트 첨부에 실패했습니다: Slack 앱 권한에 files:write가 필요합니다. Slack 앱 OAuth Scopes에 files:write 추가 후 앱을 다시 설치해주세요."
-        : `PDF 리포트 첨부에 실패했습니다: ${message}`;
+
       await say({
-        text: helpText,
+        text: response,
         thread_ts: threadTs
       });
+
+      try {
+        await uploadPdfReports({
+          client: app.client,
+          config,
+          channel: message.channel,
+          threadTs,
+          responseText: response
+        });
+      } catch (error) {
+        console.error("Failed to upload PDF report:", error.stack || error.message);
+        const message = String(error.message || "");
+        const helpText = message.includes("missing_scope")
+          ? "PDF 리포트 첨부에 실패했습니다: Slack 앱 권한에 files:write가 필요합니다. Slack 앱 OAuth Scopes에 files:write 추가 후 앱을 다시 설치해주세요."
+          : `PDF 리포트 첨부에 실패했습니다: ${message}`;
+        await say({
+          text: helpText,
+          thread_ts: threadTs
+        });
+      }
+    } finally {
+      activeCommandKeys.delete(commandKey);
     }
   }
 

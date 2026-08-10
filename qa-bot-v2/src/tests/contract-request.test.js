@@ -716,17 +716,24 @@ async function submitDefaultGuests(config, device, xml, store, steps) {
 }
 
 function findListingCandidates(xml) {
+  const visibleTop = 415;
+  const visibleBottom = 2320;
   return parseNodes(xml).filter((node) => {
     const label = nodeLabel(node);
+    const visibleHeight = node.bounds
+      ? Math.min(node.bounds.bottom, visibleBottom) - Math.max(node.bounds.top, visibleTop)
+      : 0;
     return (
       node.bounds &&
       node.attrs.clickable === "true" &&
       node.bounds.top >= 350 &&
-      node.bounds.top < 2300 &&
+      node.bounds.top < visibleBottom &&
       node.bounds.bottom > node.bounds.top &&
+      visibleHeight >= 520 &&
       label.includes("최소") &&
       /계약\s*가능/.test(label) &&
       (
+        label.includes("주택") ||
         label.includes("오피스텔") ||
         label.includes("독채") ||
         label.includes("아파트") ||
@@ -817,33 +824,21 @@ function listingTitle(listing) {
 }
 
 function listingTapTargets(listing) {
+  const safeTop = Math.max(listing.bounds.top + 120, 450);
+  const safeBottom = Math.min(listing.bounds.bottom - 120, 2320);
+  const point = (name, x, y) => ({
+    name,
+    x: Math.max(listing.bounds.left + 120, Math.min(listing.bounds.right - 120, x)),
+    y: Math.max(safeTop, Math.min(safeBottom, y))
+  });
+
   return [
-    {
-      name: "숙소 카드 제목 왼쪽 영역",
-      x: Math.min(listing.bounds.right - 120, listing.bounds.left + 260),
-      y: Math.min(listing.bounds.bottom - 120, listing.bounds.top + 700)
-    },
-    {
-      name: "숙소 카드 설명 왼쪽 영역",
-      x: Math.min(listing.bounds.right - 120, listing.bounds.left + 240),
-      y: Math.min(listing.bounds.bottom - 120, listing.bounds.top + 790)
-    },
-    {
-      name: "숙소 카드 이미지 영역",
-      x: listing.bounds.x,
-      y: Math.min(listing.bounds.bottom - 80, listing.bounds.top + 260)
-    },
-    {
-      name: "숙소 카드 제목 영역",
-      x: Math.min(listing.bounds.right - 120, listing.bounds.left + 320),
-      y: Math.min(listing.bounds.bottom - 80, listing.bounds.top + 620)
-    },
-    {
-      name: "숙소 카드 중앙 영역",
-      x: listing.bounds.x,
-      y: listing.bounds.y
-    }
-  ];
+    point("숙소 카드 이미지 영역", listing.bounds.x, listing.bounds.top + 260),
+    point("숙소 카드 제목 왼쪽 영역", listing.bounds.left + 260, listing.bounds.top + 700),
+    point("숙소 카드 설명 왼쪽 영역", listing.bounds.left + 240, listing.bounds.top + 790),
+    point("숙소 카드 제목 영역", listing.bounds.left + 320, listing.bounds.top + 620),
+    point("숙소 카드 중앙 영역", listing.bounds.x, listing.bounds.y)
+  ].filter((target) => target.y >= 450 && target.y <= 2320);
 }
 
 async function tryOpenListing(config, device, store, steps, listing, attemptLabel, exactDateRange) {
@@ -993,7 +988,7 @@ async function tapContractCondition(config, device, store, steps, detailXml) {
 async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
   let xml = isContractDetail(initialXml)
     ? initialXml
-    : await waitForUi(config, device, isContractDetail, 10000);
+    : await waitForUi(config, device, isContractDetail, 6000, 180);
   await saveArtifacts(config, device, store, "contract-detail-start", xml);
 
   if (!isContractDetail(xml)) {
@@ -1043,7 +1038,7 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
   }
 
   await runAdb(config, device, ["shell", "input", "swipe", "540", "2280", "540", "520", "420"]);
-  await new Promise((resolve) => setTimeout(resolve, 120));
+  await new Promise((resolve) => setTimeout(resolve, 80));
   xml = await dumpUiStable(config, device);
   addStep(steps, "계약 상세 약관 영역으로 빠르게 스크롤");
 
@@ -1053,9 +1048,9 @@ async function scrollToRequiredTerms(config, device, store, steps, initialXml) {
     return ready;
   }
 
-  for (let count = 0; count < 5; count += 1) {
-    await runAdb(config, device, ["shell", "input", "swipe", "540", "2180", "540", "1660", "150"]);
-    await new Promise((resolve) => setTimeout(resolve, 90));
+  for (let count = 0; count < 3; count += 1) {
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2160", "540", "1580", "120"]);
+    await new Promise((resolve) => setTimeout(resolve, 70));
     xml = await dumpUiStable(config, device);
     store.appendLog("runner.log", `contract-request terms reveal adjustment ${count + 1}`);
 
@@ -1224,9 +1219,9 @@ async function waitWhileContractSubmitting(config, device, store, steps, xml, ar
 async function selectAutoCardPayment(config, device, store, steps, initialXml) {
   let xml = isContractDetail(initialXml)
     ? initialXml
-    : await waitForUi(config, device, isContractDetail, 10000);
+    : await waitForUi(config, device, isContractDetail, 6000, 180);
 
-  for (let count = 0; count < 8; count += 1) {
+  for (let count = 0; count < 5; count += 1) {
     const autoCard = findAutoCardPaymentOption(xml);
     if (autoCard?.bounds) {
       await saveArtifacts(config, device, store, "contract-detail-auto-card", xml);
@@ -1237,7 +1232,7 @@ async function selectAutoCardPayment(config, device, store, steps, initialXml) {
 
       await tap(config, device, autoCard.bounds.x, autoCard.bounds.y);
       addStep(steps, "자동카드 결제 수단 선택");
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await new Promise((resolve) => setTimeout(resolve, 180));
 
       xml = await dumpUiStable(config, device);
       await saveArtifacts(config, device, store, "contract-detail-auto-card-selected", xml);
@@ -1259,14 +1254,14 @@ async function selectAutoCardPayment(config, device, store, steps, initialXml) {
       )
     ) {
       await runAdb(config, device, [
-        "shell", "input", "swipe", "540", "2060", "540", "1460", "220"
+        "shell", "input", "swipe", "540", "2060", "540", "1460", "140"
       ]);
     } else {
       await runAdb(config, device, [
-        "shell", "input", "swipe", "540", "2050", "540", "950", "260"
+        "shell", "input", "swipe", "540", "2050", "540", "900", "180"
       ]);
     }
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     xml = await dumpUiStable(config, device);
   }
 

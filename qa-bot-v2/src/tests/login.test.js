@@ -409,24 +409,26 @@ async function tapFirstLoginEntry(config, device, xml, steps) {
     return;
   }
 
-  if (xml.includes("이메일/휴대폰 번호로 시작하기")) {
-    const knownDeviceTaps = {
-      R3CR30K439K: { x: 541, y: 1269 },
-      R3CT80QJ3NL: { x: 540, y: 1471 }
-    };
-    const knownTap = knownDeviceTaps[device];
-    if (knownTap) {
-      await tap(config, device, knownTap.x, knownTap.y);
-      addStep(steps, "로그인 진입 버튼 탭", "pass", `known device ${knownTap.x},${knownTap.y}`);
-      return;
-    }
-  }
-
-  const emailButtonBounds = findButtonBoundsByLabel(xml, "이메일/휴대폰 번호로 시작하기");
+  const emailButtonBounds =
+    findBoundsByTextIncludes(xml, "이메일/휴대폰 번호로 시작하기") ||
+    findButtonBoundsByLabel(xml, "이메일/휴대폰 번호로 시작하기");
   if (emailButtonBounds) {
     await tap(config, device, emailButtonBounds.x, emailButtonBounds.y);
     addStep(steps, "로그인 진입 버튼 탭", "pass", `bounds ${emailButtonBounds.x},${emailButtonBounds.y}`);
     return;
+  }
+
+  if (xml.includes("이메일/휴대폰 번호로 시작하기")) {
+    const knownDeviceTaps = {
+      R3CR30K439K: { x: 541, y: 1269 },
+      R3CT80QJ3NL: { x: 540, y: 1576 }
+    };
+    const knownTap = knownDeviceTaps[device];
+    if (knownTap) {
+      await tap(config, device, knownTap.x, knownTap.y);
+      addStep(steps, "로그인 진입 버튼 탭", "pass", `known device fallback ${knownTap.x},${knownTap.y}`);
+      return;
+    }
   }
 
   const loginNode =
@@ -592,6 +594,37 @@ async function launchApp(config, device, appPackage, steps) {
   ]);
 }
 
+async function recoverSystemUiAfterLaunch(config, device, appPackage, store, steps, xml) {
+  if (!xml.includes('package="com.android.systemui"')) return xml;
+
+  store.appendLog("runner.log", "system UI was visible after launch; collapsing shade and relaunching app");
+  addStep(steps, "시스템 UI 닫기 재시도", "pass", "알림/퀵패널 또는 잠금 화면이 앱 위에 노출됨");
+
+  await runAdb(config, device, ["shell", "cmd", "statusbar", "collapse"]).catch((error) => {
+    store.appendLog("runner.log", `statusbar collapse failed: ${error.message}`);
+  });
+  await keyEvent(config, device, 4).catch((error) => {
+    store.appendLog("runner.log", `back key for system UI failed: ${error.message}`);
+  });
+  await keyEvent(config, device, 224).catch(() => {});
+  await runAdb(config, device, ["shell", "wm", "dismiss-keyguard"]).catch(() => {});
+
+  await runAdb(config, device, [
+    "shell",
+    "monkey",
+    "-p",
+    appPackage,
+    "-c",
+    "android.intent.category.LAUNCHER",
+    "1"
+  ]);
+
+  await new Promise((resolve) => setTimeout(resolve, 1800));
+  const recoveredXml = await dumpUi(config, device);
+  fs.writeFileSync(path.join(store.logsDir, "after-launch-system-ui-recovered.xml"), recoveredXml);
+  return recoveredXml;
+}
+
 async function runLoginTest({ request, config, store }) {
   const role = request.role || "guest";
   const env = request.env || "dev";
@@ -648,8 +681,10 @@ async function runLoginTest({ request, config, store }) {
     await new Promise((resolve) => setTimeout(resolve, 2500));
     let xml = await dumpUi(config, device);
     fs.writeFileSync(path.join(store.logsDir, "after-launch.xml"), xml);
+    xml = await recoverSystemUiAfterLaunch(config, device, appPackage, store, steps, xml);
 
     if (xml.includes('package="com.android.systemui"')) {
+      await saveFailureArtifacts(config, device, store, "system-ui-after-launch", xml);
       throw new Error("Device is still showing system UI/lock screen after app launch. Unlock the device and retry.");
     }
 
@@ -739,7 +774,15 @@ async function runLoginTest({ request, config, store }) {
 
     const editables = findEditableNodes(xml);
     if (editables.length < 2) {
-      throw new Error("Cannot find email/password inputs. Check logs/after-login-entry.xml.");
+      await saveArtifacts(config, device, store, "login-inputs-not-found", accountSecrets);
+      fail(
+        "Cannot find email/password inputs. Check logs/after-login-entry.xml.",
+        steps,
+        [
+          "이메일/휴대폰 번호로 시작하기 버튼을 누른 뒤에도 로그인 입력 화면으로 이동하지 않았습니다.",
+          "리포트의 login-inputs-not-found.png와 logs/after-login-entry.xml을 확인해주세요."
+        ]
+      );
     }
 
     await tapNode(config, device, editables[0], "email input");

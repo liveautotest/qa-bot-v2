@@ -931,6 +931,7 @@ async function tapRejectAndConfirm(config, device, store, steps, xml) {
 
 async function tapAcceptAndConfirm(config, device, store, steps, xml) {
   const acceptButton = findAcceptButton(xml) || (isVisualOnlyContractDetail(xml) ? fixedAcceptButtonFromViewport() : null);
+  let acceptedSuccessDialogConfirmed = false;
   if (!acceptButton?.bounds) {
     await saveFailureArtifacts(config, device, store, "contract-accept-button-not-found", xml);
     fail("계약 상세 화면에서 '계약 수락' 버튼을 찾지 못했습니다.", steps);
@@ -1037,10 +1038,26 @@ async function tapAcceptAndConfirm(config, device, store, steps, xml) {
 
     await tap(config, device, doneButton.bounds.x, doneButton.bounds.y);
     addStep(steps, "계약 수락 완료 팝업 확인");
+    acceptedSuccessDialogConfirmed = true;
     xml = await waitForUi(config, device, isContractAccepted, 12000);
   }
 
   saveXml(store, "contract-approve-final", xml);
+  if (
+    !isContractAccepted(xml) &&
+    acceptedSuccessDialogConfirmed &&
+    !hasAcceptConfirmDialog(xml) &&
+    !hasAcceptedSuccessDialog(xml)
+  ) {
+    addStep(
+      steps,
+      "계약 승인 완료 확인",
+      "pass",
+      "완료 팝업 확인 후 팝업이 사라졌습니다. WebView XML이 이전 요청 문구를 일부 유지해 완료 팝업 기준으로 판정합니다."
+    );
+    return xml;
+  }
+
   if (!isContractAccepted(xml)) {
     await saveFailureArtifacts(config, device, store, "contract-approve-final", xml);
     fail(

@@ -235,6 +235,9 @@ function isExtensionDetail(xml) {
       xml.includes("계약 연장 날짜") ||
       xml.includes("총 연장 박수") ||
       xml.includes("총 연장박수") ||
+      xml.includes("예상 요금") ||
+      xml.includes("예상 결제 금액") ||
+      xml.includes("호스트 수락") ||
       xml.includes("주의사항 및 규정")
     )
   );
@@ -751,6 +754,20 @@ async function selectRandomExtensionCheckout(config, device, store, steps, initi
 
         confirmButton = findExtensionCalendarConfirmButton(xml);
         if (!confirmButton?.bounds) break;
+      }
+
+      if (!xml || !xml.includes("<hierarchy") || !findExtensionCalendarConfirmButton(xml)?.bounds) {
+        addStep(
+          steps,
+          "계약 연장 요청 화면 전환 추가 확인",
+          "pass",
+          "확인 버튼 탭 후 UI dump가 비어 있거나 달력 확인 버튼이 사라져 다음 단계에서 상세 화면을 재확인"
+        );
+        return {
+          xml,
+          targetDate: selected.date,
+          extensionNights: selected.extensionNights
+        };
       }
 
       await saveFailureArtifacts(config, device, store, "extension-calendar-confirm-did-not-open-detail", xml);

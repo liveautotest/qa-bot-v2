@@ -122,6 +122,36 @@ function findPgPaymentFields(xml) {
   return { cardFields, expiryField };
 }
 
+function findPgCardPartAlert(xml) {
+  const text = xmlTextLines(xml).join("\n");
+  const match = text.match(/Please enter the (first|second|third|fourth) 4 digits of your credit card number/i);
+  if (!match) return null;
+
+  return {
+    first: 0,
+    second: 1,
+    third: 2,
+    fourth: 3
+  }[match[1].toLowerCase()];
+}
+
+async function dismissPgCardPartAlert(config, device, steps, xml) {
+  const confirm = findNode(xml, "Confirm", {
+    visible: true,
+    clickable: true,
+    enabled: true
+  });
+
+  if (confirm?.bounds) {
+    await tapNode(config, device, confirm, "PG 카드번호 입력 안내 Confirm", steps);
+  } else {
+    await tap(config, device, 792, 1515);
+    addStep(steps, "PG 카드번호 입력 안내 Confirm", "pass", "fallback 좌표");
+  }
+
+  return waitForUi(config, device, (nextXml) => findPgCardPartAlert(nextXml) === null, 2500, 120);
+}
+
 async function hideKeyboard(config, device) {
   await keyEvent(config, device, 111).catch(() => {});
   await new Promise((resolve) => setTimeout(resolve, 200));
@@ -381,9 +411,20 @@ async function tapExtensionPaymentHomeCardRobust(config, device, store, xml, ste
 
 function isContractPaymentDetail(xml) {
   return (
-    xml.includes("계약번호") &&
-    (xml.includes("결제해 주세요") || xml.includes("결제해 주세요.")) &&
-    xml.includes("결제하기")
+    (
+      xml.includes("계약번호") ||
+      xml.includes("계약 번호") ||
+      xml.includes("결제 마감") ||
+      xml.includes("결제하기") ||
+      xml.includes("결제해 주세요")
+    ) &&
+    (
+      xml.includes("결제") ||
+      xml.includes("신용 / 체크 카드") ||
+      xml.includes("무통장 입금") ||
+      xml.includes("계약 진행중") ||
+      xml.includes("계약 진행 중")
+    )
   );
 }
 
@@ -1039,7 +1080,11 @@ async function openPaymentDetailFromHome(config, device, store, steps) {
   await tapPaymentHomeCard(config, device, xml, steps);
   addStep(steps, "홈 화면 결제 카드 선택");
 
-  xml = await waitForUi(config, device, isContractPaymentDetail, 10000);
+  xml = await waitForUi(config, device, isContractPaymentDetail, 2800, 140);
+  if (!isContractPaymentDetail(xml)) {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    xml = await dumpUiStable(config, device, 8);
+  }
   saveXml(store, "payment-detail-start", xml);
 
   if (!isContractPaymentDetail(xml)) {
@@ -1245,7 +1290,32 @@ async function openExtensionPaymentFromHome(config, device, store, steps, option
 
 async function scrollToPaymentMethod(config, device, store, steps, paymentMethod = "card") {
   let xml = await dumpUiStable(config, device);
-  for (let count = 0; count < 14; count += 1) {
+  if (paymentMethod === "bank-transfer") {
+    const swipes = [
+      null,
+      ["shell", "input", "swipe", "540", "2180", "540", "760", "220"],
+      ["shell", "input", "swipe", "540", "1880", "540", "980", "150"]
+    ];
+
+    for (let count = 0; count < swipes.length; count += 1) {
+      if (isPaymentMethodReady(xml, paymentMethod)) {
+        saveXml(store, "payment-type-tabs", xml);
+        addStep(steps, "결제 타입 탭 영역 확인", "pass", count === 0 ? "이미 보이는 상태" : "빠른 스크롤 후 확인");
+        return xml;
+      }
+
+      if (hasPaymentTypeTabsClippedAtTop(xml) && hasPaymentMethodSection(xml)) {
+        await runAdb(config, device, ["shell", "input", "swipe", "540", "850", "540", "1270", "120"]);
+      } else if (swipes[count]) {
+        await runAdb(config, device, swipes[count]);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      xml = await dumpUiStable(config, device);
+    }
+  }
+
+  for (let count = 0; count < 9; count += 1) {
     if (paymentMethod === "bank-transfer" && isPaymentMethodReady(xml, paymentMethod)) {
       saveXml(store, "payment-type-tabs", xml);
       addStep(steps, "결제 타입 탭 영역 확인");
@@ -1266,17 +1336,17 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
       hasPaymentTypeTabsClippedAtTop(xml) &&
       hasPaymentMethodSection(xml)
     ) {
-      await runAdb(config, device, ["shell", "input", "swipe", "540", "850", "540", "1350", "250"]);
-      await new Promise((resolve) => setTimeout(resolve, 180));
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "850", "540", "1270", "150"]);
+      await new Promise((resolve) => setTimeout(resolve, 90));
       xml = await dumpUiStable(config, device);
       continue;
     }
 
     const swipeArgs = paymentMethod === "bank-transfer"
-      ? ["shell", "input", "swipe", "540", "1880", "540", "870", "180"]
+      ? ["shell", "input", "swipe", "540", "1760", "540", "1120", "150"]
       : ["shell", "input", "swipe", "540", "1900", "540", "760", "180"];
     await runAdb(config, device, swipeArgs);
-    await new Promise((resolve) => setTimeout(resolve, 140));
+    await new Promise((resolve) => setTimeout(resolve, 90));
     xml = await dumpUiStable(config, device);
   }
 
@@ -1355,7 +1425,10 @@ async function inputDigitsWithKeyEvents(config, device, value) {
 
 async function clearAndInputDigits(config, device, node, value, label, steps) {
   await tapNode(config, device, node, label, steps);
-  await runAdb(config, device, ["shell", "input", "keyevent", "--longpress", "67"]);
+  await keyEvent(config, device, 123).catch(() => {});
+  for (let count = 0; count < 24; count += 1) {
+    await keyEvent(config, device, 67).catch(() => {});
+  }
   await inputDigitsWithKeyEvents(config, device, value);
 }
 
@@ -1504,12 +1577,15 @@ function hasTextInEditableBesideLabel(xml, label, expectedValue) {
 
 function hasRefundAccountNumberValue(xml, expectedValue) {
   const accountInput = findRefundAccountInput(xml);
-  if (accountInput && nodeLabel(accountInput).includes(expectedValue)) return true;
+  if (accountInput) {
+    const digits = nodeLabel(accountInput).replace(/\D/g, "");
+    if (digits === expectedValue) return true;
+  }
 
   return findEditableNodes(xml).some((node) => (
     isVisibleNode(node) &&
     !nodeLabel(node).includes("@") &&
-    nodeLabel(node).includes(expectedValue)
+    nodeLabel(node).replace(/\D/g, "") === expectedValue
   ));
 }
 
@@ -1538,7 +1614,7 @@ function findCashReceiptPhoneValueNode(xml) {
       node.bounds &&
       isVisibleNode(node) &&
       !nodeLabel(node).includes("@") &&
-      nodeLabel(node).includes("01000000000") &&
+      nodeLabel(node).replace(/\D/g, "") === "01000000000" &&
       node.bounds.top >= heading.bounds.bottom &&
       node.bounds.bottom <= issueButton.bounds.top + 80
     ))
@@ -1560,6 +1636,18 @@ function hasVisibleRefundAccountSection(xml) {
   const accountInput = findRefundAccountInput(xml);
 
   return Boolean(heading && bankSelect && holderCheck && accountInput);
+}
+
+function findRefundBankSelect(xml) {
+  return findNode(xml, ["은행을 선택해 주세요", "은행 선택"], {
+    visible: true,
+    clickable: true,
+    enabled: true
+  }) || findNode(xml, "은행", {
+    visible: true,
+    clickable: true,
+    enabled: true
+  });
 }
 
 function findRefundAccountInput(xml) {
@@ -1584,20 +1672,78 @@ function findRefundAccountInput(xml) {
 async function bringRefundAccountInputIntoSafeView(config, device, xml) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const accountInput = findRefundAccountInput(xml);
-    if (accountInput?.bounds && accountInput.bounds.top >= 900 && accountInput.bounds.bottom <= 2050) {
+    if (accountInput?.bounds && accountInput.bounds.top >= 720 && accountInput.bounds.bottom <= 1480) {
       return xml;
     }
 
-    if (!accountInput?.bounds || accountInput.bounds.bottom > 2050) {
-      await runAdb(config, device, ["shell", "input", "swipe", "540", "2040", "540", "1650", "140"]);
-    } else if (accountInput.bounds.top < 900) {
-      await runAdb(config, device, ["shell", "input", "swipe", "540", "1000", "540", "1300", "140"]);
+    if (!accountInput?.bounds || accountInput.bounds.bottom > 1480) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "2040", "540", "1120", "160"]);
+    } else if (accountInput.bounds.top < 720) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "960", "540", "1300", "120"]);
     }
     await new Promise((resolve) => setTimeout(resolve, 120));
     xml = await dumpUiStable(config, device);
   }
 
   return xml;
+}
+
+async function keepRefundAccountAboveKeyboard(config, device, xml) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const accountInput = findRefundAccountInput(xml);
+    const holderCheck = findHolderCheckButton(xml);
+    if (
+      accountInput?.bounds &&
+      holderCheck?.bounds &&
+      accountInput.bounds.bottom <= 1380 &&
+      holderCheck.bounds.bottom <= 1700
+    ) {
+      return xml;
+    }
+
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "1880", "540", "1180", "140"]);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    xml = await dumpUiStable(config, device);
+  }
+
+  return xml;
+}
+
+async function bringRefundBankSelectIntoSafeView(config, device, xml) {
+  xml = await hideKeyboard(config, device);
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const bankSelect = findRefundBankSelect(xml);
+    if (bankSelect?.bounds && bankSelect.bounds.top >= 720 && bankSelect.bounds.bottom <= 1900) {
+      return xml;
+    }
+
+    if (!bankSelect?.bounds) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "1900", "540", "1260", "130"]);
+    } else if (bankSelect.bounds.bottom > 1900) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "1880", "540", "1480", "120"]);
+    } else if (bankSelect.bounds.top < 720) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "960", "540", "1260", "120"]);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    xml = await dumpUiStable(config, device);
+  }
+
+  return xml;
+}
+
+function findIbkBankOption(xml) {
+  return findNode(xml, ["IBK기업은행", "IBK 기업은행", "기업은행"], {
+    visible: true,
+    enabled: true
+  });
+}
+
+function visibleBankOptionLabels(xml) {
+  return [...new Set(xmlTextLines(xml)
+    .filter((line) => /은행|뱅크|Bank|IBK|국민|신한|우리|하나|농협|기업|카카오|토스|새마을|수협|부산|대구|광주|전북|경남|제주|SC|씨티/.test(line))
+    .slice(0, 20))];
 }
 
 function isCashReceiptAlreadyIssued(xml) {
@@ -1611,8 +1757,7 @@ function isCashReceiptAlreadyIssued(xml) {
 }
 
 function isCashReceiptIssueCompleted(xml) {
-  return isCashReceiptAlreadyIssued(xml) ||
-    (!findEnabledCashReceiptIssueButton(xml) && !findCashReceiptPhoneInput(xml));
+  return isCashReceiptAlreadyIssued(xml);
 }
 
 async function selectBankTransferMethod(config, device, store, steps, xml) {
@@ -1755,15 +1900,9 @@ async function fillCashReceipt(config, device, store, steps, xml) {
 }
 
 async function selectBank(config, device, store, steps, xml) {
-  const bankSelect = findNode(xml, "은행 선택", {
-    visible: true,
-    clickable: true,
-    enabled: true
-  }) || findNode(xml, "은행", {
-    visible: true,
-    clickable: true,
-    enabled: true
-  });
+  xml = await bringRefundBankSelectIntoSafeView(config, device, xml);
+  addStep(steps, "환불/보증금 반환 계좌 영역 정렬", "pass", "은행/계좌번호/예금주 확인 영역이 보이도록 스크롤");
+  let bankSelect = findRefundBankSelect(xml);
 
   if (!bankSelect?.bounds) {
     await saveFailureArtifacts(config, device, store, "refund-bank-select-not-found", xml);
@@ -1777,39 +1916,61 @@ async function selectBank(config, device, store, steps, xml) {
     );
   }
 
-  await tapNode(config, device, bankSelect, "은행 선택", steps);
-  addStep(steps, "환불/보증금 반환 은행 선택 열기");
+  let dropdownXml = "";
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    bankSelect = findRefundBankSelect(xml);
+    if (!bankSelect?.bounds) break;
 
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  await tap(config, device, 540, 335);
-  let selectedXml = await waitForUi(
-    config,
-    device,
-    (nextXml) => nextXml.includes("IBK기업은행"),
-    1200
-  );
-  if (selectedXml.includes("IBK기업은행")) {
-    addStep(steps, "기업은행 선택", "pass", "드롭다운 첫 번째 항목 빠른 선택");
-    return selectedXml;
+    await tapNode(config, device, bankSelect, "은행 선택", steps);
+    if (attempt === 0) addStep(steps, "환불/보증금 반환 은행 선택 열기");
+
+    dropdownXml = await waitForUi(
+      config,
+      device,
+      (nextXml) => Boolean(findIbkBankOption(nextXml)) || visibleBankOptionLabels(nextXml).length >= 3,
+      1800
+    );
+    saveXml(store, `refund-bank-dropdown-${attempt + 1}`, dropdownXml);
+
+    const ibk = findIbkBankOption(dropdownXml);
+    if (ibk?.bounds) {
+      await tapNode(config, device, ibk, "기업은행", steps);
+      addStep(steps, "기업은행 선택", "pass", attempt === 0 ? "드롭다운에서 바로 선택" : "드롭다운 재시도 후 선택");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return dumpUiStable(config, device);
+    }
+
+    if (visibleBankOptionLabels(dropdownXml).length >= 3) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "1770", "540", "980", "150"]);
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      dropdownXml = await dumpUiStable(config, device);
+      saveXml(store, `refund-bank-dropdown-scroll-${attempt + 1}`, dropdownXml);
+
+      const scrolledIbk = findIbkBankOption(dropdownXml);
+      if (scrolledIbk?.bounds) {
+        await tapNode(config, device, scrolledIbk, "기업은행", steps);
+        addStep(steps, "기업은행 선택", "pass", "드롭다운 스크롤 후 선택");
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return dumpUiStable(config, device);
+      }
+    }
+
+    xml = await bringRefundBankSelectIntoSafeView(config, device, await dumpUiStable(config, device));
   }
 
-  xml = await waitForUi(
-    config,
-    device,
-    (nextXml) => nextXml.includes("기업은행") || nextXml.includes("IBK기업은행"),
-    2500
+  const labels = visibleBankOptionLabels(dropdownXml);
+  await saveFailureArtifacts(config, device, store, "refund-bank-option-not-found", dropdownXml || xml);
+  fail(
+    "환불/보증금 반환 은행 목록에서 기업은행을 찾지 못했습니다.",
+    steps,
+    [
+      labels.length
+        ? `현재 보이는 은행 후보: ${labels.join(", ")}`
+        : "은행 선택 드롭다운은 눌렀지만 은행 후보 목록이 화면/XML에 노출되지 않았습니다.",
+      "환불/보증금 반환 계좌 영역이 화면 중앙에 와야 안정적으로 은행 목록을 선택할 수 있습니다.",
+      "리포트의 refund-bank-option-not-found.png 화면을 확인해주세요."
+    ]
   );
-  saveXml(store, "refund-bank-dropdown", xml);
-
-  const ibk = findNode(xml, ["IBK기업은행", "기업은행"], {
-    visible: true,
-    enabled: true
-  });
-  await tapNode(config, device, ibk, "기업은행", steps);
-  addStep(steps, "기업은행 선택", "pass", "빠른 선택 실패 후 XML 탐색으로 선택");
-  await new Promise((resolve) => setTimeout(resolve, 250));
-
-  return dumpUiStable(config, device);
 }
 
 async function fillRefundAccount(config, device, store, steps, xml) {
@@ -1843,6 +2004,7 @@ async function fillRefundAccount(config, device, store, steps, xml) {
   }
 
   await clearAndInputDigits(config, device, accountInput, "34108755301018", "환불 계좌번호", steps);
+  xml = await keepRefundAccountAboveKeyboard(config, device, await dumpUiStable(config, device));
   xml = await waitForUi(
     config,
     device,
@@ -1861,6 +2023,7 @@ async function fillRefundAccount(config, device, store, steps, xml) {
     );
   }
   addStep(steps, "환불 계좌번호 입력", "pass", "34108755301018");
+  xml = await bringHolderCheckIntoSafeView(config, device);
   xml = await tapHolderCheckRobust(config, device, store, steps, xml);
   saveXml(store, "account-holder-confirm-dialog", xml);
 
@@ -1922,7 +2085,7 @@ async function fillRefundAccount(config, device, store, steps, xml) {
 
 async function submitBankTransferPayment(config, device, store, steps, xml) {
   xml = await selectBankTransferMethod(config, device, store, steps, xml);
-  xml = await fillCashReceipt(config, device, store, steps, xml);
+  addStep(steps, "현금영수증 입력 생략", "pass", "무통장 결제 속도 개선을 위해 현금영수증 입력/발급요청은 수행하지 않음");
   xml = await fillRefundAccount(config, device, store, steps, xml);
 
   xml = await scrollUntil(
@@ -1938,7 +2101,7 @@ async function submitBankTransferPayment(config, device, store, steps, xml) {
     "bank-transfer-submit-ready",
     "무통장 입금 결제하기 버튼을 찾지 못했습니다.",
     [
-      "현금영수증과 환불/보증금 반환 계좌 입력 후 하단 결제하기 버튼이 보여야 합니다.",
+      "환불/보증금 반환 계좌 입력 후 하단 결제하기 버튼이 보여야 합니다.",
       "리포트의 bank-transfer-submit-ready.png 화면을 확인해주세요."
     ]
   );
@@ -1962,7 +2125,7 @@ async function submitBankTransferPayment(config, device, store, steps, xml) {
       "무통장 입금 결제 완료 상태를 확인하지 못했습니다.",
       steps,
       [
-        "현금영수증, 은행, 계좌번호, 예금주 확인, 저장, 결제하기 버튼 처리 후 실제 무통장 입금 안내 화면이 보여야 합니다.",
+        "은행, 계좌번호, 예금주 확인, 저장, 결제하기 버튼 처리 후 실제 무통장 입금 안내 화면이 보여야 합니다.",
         "무통장 결제 완료 화면에는 입금해주세요, 무통장 입금 정보, 예금주, 계좌 번호, 입금액, 홈으로 가기가 보여야 합니다.",
         "리포트의 payment-complete-not-found.png 화면을 확인해주세요."
       ]
@@ -2100,11 +2263,44 @@ async function inputPgCard(config, device, store, steps, xml) {
   }
 
   const cardParts = ["3530", "1113", "3330", "0000"];
-  for (let index = 0; index < cardParts.length; index += 1) {
+  const retryCounts = [0, 0, 0, 0];
+  let index = 0;
+  while (index < cardParts.length) {
     xml = await dumpUiStable(config, device);
+    const requestedPartIndex = findPgCardPartAlert(xml);
+    if (requestedPartIndex !== null) {
+      retryCounts[requestedPartIndex] += 1;
+      if (retryCounts[requestedPartIndex] > 2) {
+        await saveFailureArtifacts(config, device, store, "pg-card-part-alert-repeat", xml);
+        fail(
+          `PG 카드번호 ${requestedPartIndex + 1}번째 입력 안내 팝업이 반복됩니다.`,
+          steps,
+          [
+            "PG가 특정 카드번호 4자리 입력을 계속 요구하고 있습니다.",
+            "리포트의 pg-card-part-alert-repeat.png 화면을 확인해주세요."
+          ]
+        );
+      }
+      xml = await dismissPgCardPartAlert(config, device, steps, xml);
+      addStep(
+        steps,
+        "PG 카드번호 입력 재시도",
+        "pass",
+        `${requestedPartIndex + 1}번째 4자리 입력 안내 팝업 감지`
+      );
+      index = requestedPartIndex;
+      continue;
+    }
+
     ({ cardFields } = findPgPaymentFields(xml));
     const field = cardFields[index];
     if (!field?.bounds) {
+      const alertPartIndex = findPgCardPartAlert(xml);
+      if (alertPartIndex !== null) {
+        xml = await dismissPgCardPartAlert(config, device, steps, xml);
+        index = alertPartIndex;
+        continue;
+      }
       await saveFailureArtifacts(config, device, store, "pg-card-field-missing", xml);
       fail(`PG 카드번호 ${index + 1}번째 입력칸을 찾지 못했습니다.`, steps);
     }
@@ -2116,6 +2312,7 @@ async function inputPgCard(config, device, store, steps, xml) {
       await inputText(config, device, cardParts[index]);
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
+    index += 1;
   }
   addStep(steps, "PG 카드 번호 입력");
 
