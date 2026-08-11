@@ -20,6 +20,20 @@ function formatHelp() {
     "!게스트 검색 정확한일정 dev",
     "!게스트 검색 유연한일정 stg",
     "!게스트 검색 유연한일정 dev",
+    "!게스트 리브후기 프로필 stg",
+    "!게스트 리브후기 프로필 dev",
+    "!게스트 리브후기 일정 선택 stg",
+    "!게스트 리브후기 일정 선택 dev",
+    "!게스트 리브후기 상세 stg",
+    "!게스트 리브후기 상세 dev",
+    "!게스트 리뷰작성 stg",
+    "!게스트 리뷰작성 dev",
+    "!게스트 리뷰수정 stg",
+    "!게스트 리뷰수정 dev",
+    "!게스트 리뷰삭제 stg",
+    "!게스트 리뷰삭제 dev",
+    "!게스트 쿠폰함 stg",
+    "!게스트 쿠폰함 dev",
     "!게스트 계약 요청 stg (PASS 시 호스트 계약 승인 자동 실행)",
     "!게스트 계약 요청 dev (PASS 시 호스트 계약 승인 자동 실행)",
     "!게스트 계약 요청 취소 stg",
@@ -66,6 +80,13 @@ function formatHelp() {
     "!qa logout env=staging role=host",
     "!qa search env=staging role=guest",
     "!qa search-flexible env=staging role=guest",
+    "!qa review-profile env=staging role=guest",
+    "!qa review-schedule-select env=staging role=guest",
+    "!qa review-detail env=staging role=guest",
+    "!qa review-write env=staging role=guest",
+    "!qa review-edit env=staging role=guest",
+    "!qa review-delete env=staging role=guest",
+    "!qa coupon-box env=staging role=guest",
     "!qa contract-request env=staging role=guest",
     "!qa contract-request env=staging role=guest method=auto-card",
     "!qa contract-cancel-request env=staging role=guest",
@@ -165,6 +186,87 @@ function formatPassSummary(result) {
     return [
       "- 앱 재실행 후 홈 검색바를 확인했습니다.",
       "- 유연한 일정 검색 조건을 적용하고 검색 결과 목록 진입을 확인했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-INTERNAL-REFACTOR-001") {
+    return [
+      "- 앱 재실행 후 하단 리브후기 탭으로 진입했습니다.",
+      "- 오른쪽 상단 프로필 버튼을 눌러 내 리브 후기 프로필 상세 화면을 확인했습니다.",
+      `- 닉네임 '${result.review_profile?.nickname || "확인됨"}' 표시와 프로필 상세 끝까지 스크롤을 확인했습니다.`,
+      `- 게시물 많은 계정 스크롤: ${result.review_profile?.checked_screens || 0}개 화면 중 ${result.review_profile?.layout_signal_screens || 0}개 화면에서 게시물/이미지/텍스트 신호를 확인했습니다.`,
+      "- 구분선 동일 여부는 빈 화면/앱 오류/콘텐츠 소실 없는지 자동 확인하고, 픽셀 단위 동일 여부는 수동 확인 필요로 기록했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-INTERNAL-REFACTOR-002") {
+    return [
+      "- 앱 재실행 후 하단 리브후기 탭으로 진입했습니다.",
+      "- 오른쪽 하단 만년필 아이콘만 선택해 일정 선택 모달을 확인했습니다.",
+      `- 예약/일정 목록 스크롤 후 '${result.review_schedule_select?.selected_schedule || "일정 항목"}'을 선택했습니다.`,
+      result.review_schedule_select?.list_scroll_changed
+        ? "- 예약/일정 목록 스크롤 중 화면 변화가 확인되었습니다."
+        : "- 예약/일정 목록은 한 화면이거나 XML 기준 화면 변화가 없어 제한 검증으로 기록했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-INTERNAL-REFACTOR-003") {
+    return [
+      "- 앱 재실행 후 하단 리브후기 탭으로 진입했습니다.",
+      "- 상단 #추천 태그 선택 후 첫 번째 후기 카드를 선택했습니다.",
+      "- 리브후기 상세 화면 진입과 헤더 이미지/폴백 신호를 확인했습니다.",
+      `- 상세 하단 스크롤 중 ${result.review_detail?.checked_screens || 0}개 화면에서 이미지/내용 노출과 오류 문구 미노출을 확인했습니다.`
+    ];
+  }
+
+  if (result.test_id === "TC-INTERNAL-REFACTOR-004") {
+    return [
+      "- 앱 재실행 후 하단 내 정보 탭에서 쿠폰함으로 진입했습니다.",
+      `- 임의 쿠폰 '${result.coupon_box?.selected_coupon || "쿠폰"}'의 상세 다이얼로그와 확인 버튼 동작을 확인했습니다.`,
+      `- 쿠폰 그리드 스크롤 중 ${result.coupon_box?.checked_screens || 0}개 화면에서 콘텐츠 유지와 앱 오류 미노출을 확인했습니다.`,
+      "- 카드 정렬과 다이얼로그의 픽셀 단위 디자인 동일 여부는 수동 확인 필요로 기록했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-INTERNAL-REFACTOR-005") {
+    const tags = result.review_write?.selected_tags || [];
+    const reviewTextStatus = result.review_write?.generated_review_text_validation === "pass"
+      ? "오류 없음"
+      : result.review_write?.generated_review_text_validation || "확인 필요";
+    return [
+      "- 앱 재실행 후 하단 계약 탭에서 리뷰 작성 가능 계약을 선택했습니다.",
+      `- 별점 ${result.review_write?.rating || 3}개와 태그 ${tags.length}개(${tags.join(", ") || "선택됨"})를 선택했습니다.`,
+      `- 사진 ${result.review_write?.selected_photo_count || 0}장 선택 후 간편 작성/AI 리뷰 작성 대기 흐름을 확인했습니다.`,
+      `- AI 리뷰 본문 자동 검증 결과: ${reviewTextStatus} (${result.review_write?.generated_review_text_length || 0}자)`,
+      "- 리뷰 제출 후 작성 완료 팝업 확인 버튼까지 처리했습니다.",
+      "- 별 선택 색상, 사진 썸네일 품질, AI 문장 자연스러움은 수동 확인 필요로 기록했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-INTERNAL-REFACTOR-006") {
+    const keywords = result.review_edit?.changed_keywords || result.review_edit?.selected_keywords || [];
+    const ratingAction = result.review_edit?.rating_action === "decrease" ? "별점 낮춤" : "별점 올림";
+    const keywordAction = result.review_edit?.keyword_action === "remove" ? "키워드 제거" : "키워드 추가";
+    const photoAction = result.review_edit?.photo_action === "remove" ? "사진 삭제" : "사진 추가";
+    return [
+      "- 앱 재실행 후 하단 계약 탭에서 내 리뷰 보기 가능 계약을 선택했습니다.",
+      "- 내 리뷰 상세 더보기 메뉴에서 수정 화면으로 진입했습니다.",
+      `- ${ratingAction}(${result.review_edit?.rating_before || "이전"} -> ${result.review_edit?.rating_after || "변경 후"})을 확인했습니다.`,
+      `- ${keywordAction} ${keywords.length}개(${keywords.join(", ") || "변경됨"})를 확인했습니다.`,
+      `- ${photoAction}을 확인했습니다. (${result.review_edit?.before_photo_count ?? "?"}장 -> ${result.review_edit?.after_photo_count ?? "?"}장)`,
+      `- 리뷰 본문 끝에 '${result.review_edit?.appended_text || "임의 문구"}'를 추가했습니다.`,
+      "- 하단 저장 버튼 선택 후 앱 오류 문구 미노출을 확인했습니다.",
+      "- 별 선택 색상, 사진 썸네일 품질, 수정 본문 자연스러움은 수동 확인 필요로 기록했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-INTERNAL-REFACTOR-007") {
+    return [
+      "- 앱 재실행 후 하단 계약 탭에서 내 리뷰 보기 가능 계약을 선택했습니다.",
+      "- 내 리뷰 상세 더보기 메뉴에서 삭제 버튼을 선택했습니다.",
+      "- '정말 리뷰를 삭제하시겠어요?' 확인 팝업과 삭제하기 버튼을 확인했습니다.",
+      "- 삭제하기 버튼 선택 후 팝업이 닫히고 앱 오류 문구가 없는지 확인했습니다.",
+      "- 삭제 후 계약 목록의 버튼 상태 변경은 수동 확인 필요로 기록했습니다."
     ];
   }
 
@@ -392,6 +494,41 @@ function formatResultConditionSummary(result) {
     if (result.toss_deposit.amount) lines.push(`- 금액: ${result.toss_deposit.amount}`);
     if (result.toss_deposit.buyer_name) lines.push(`- 구매자: ${result.toss_deposit.buyer_name}`);
     if (result.toss_deposit.product_name) lines.push(`- 상품: ${result.toss_deposit.product_name}`);
+  }
+
+  if (result.review_write) {
+    if (result.review_write.rating) lines.push(`- 별점: ${result.review_write.rating}개`);
+    if (result.review_write.selected_tags?.length) {
+      lines.push(`- 선택 태그: ${result.review_write.selected_tags.join(", ")}`);
+    }
+    if (result.review_write.generated_review_text_validation) {
+      const status = result.review_write.generated_review_text_validation === "pass" ? "오류 없음" : "확인 필요";
+      lines.push(`- 리뷰 본문: ${status} (${result.review_write.generated_review_text_length || 0}자)`);
+    }
+  }
+
+  if (result.review_edit) {
+    if (result.review_edit.rating_changed) {
+      const ratingAction = result.review_edit.rating_action === "decrease" ? "낮춤" : "올림";
+      lines.push(`- 별점: ${ratingAction} (${result.review_edit.rating_before || "이전"} -> ${result.review_edit.rating_after || "변경 후"})`);
+    }
+    if (result.review_edit.changed_keywords?.length || result.review_edit.selected_keywords?.length) {
+      const keywordAction = result.review_edit.keyword_action === "remove" ? "제거" : "추가";
+      lines.push(`- 키워드 ${keywordAction}: ${(result.review_edit.changed_keywords || result.review_edit.selected_keywords).join(", ")}`);
+    }
+    if (result.review_edit.photo_action) {
+      const photoAction = result.review_edit.photo_action === "remove" ? "삭제" : "추가";
+      lines.push(`- 사진 ${photoAction}: ${result.review_edit.before_photo_count ?? "?"}장 -> ${result.review_edit.after_photo_count ?? "?"}장`);
+    }
+    if (result.review_edit.appended_text) {
+      lines.push(`- 추가 본문: ${result.review_edit.appended_text}`);
+    }
+  }
+
+  if (result.review_delete) {
+    lines.push("- 리뷰 상세: 내 리뷰 보기에서 진입");
+    lines.push("- 삭제 확인 팝업: 확인");
+    lines.push(result.review_delete.deleted ? "- 삭제 처리: 완료" : "- 삭제 처리: 확인 필요");
   }
 
   return lines.slice(0, 6);

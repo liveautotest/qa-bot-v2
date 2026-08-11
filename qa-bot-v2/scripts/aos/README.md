@@ -9,6 +9,8 @@
 | `!기본검증 일반결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
 | `!기본검증 무통장 결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
 | `!기본검증 자동결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
+| `!기본검증 연장결제 카드` | 개별 스크립트 조합 | `src/slack/command-router.js` |
+| `!기본검증 연장결제 무통장` | 개별 스크립트 조합 | `src/slack/command-router.js` |
 | `!게스트 로그인` | `login.guest.yaml` | `src/tests/login.test.js` |
 | `!게스트 로그아웃` | `logout.guest.yaml` | `src/tests/logout.test.js` |
 | `!게스트 집검색` | `search.guest.yaml` | `src/tests/search.test.js` |
@@ -18,6 +20,16 @@
 | `!게스트 계약 결제 자동카드` | `contract-request.guest.yaml` | `src/tests/contract-request.test.js` |
 | `!게스트 계약 결제 일반카드` | `contract-payment.guest.yaml` | `src/tests/contract-payment.test.js` |
 | `!게스트 계약 결제 무통장` | `contract-payment.guest.yaml` | `src/tests/contract-payment.test.js` |
+| `!게스트 연장요청` | 코드 기반 시나리오 | `src/tests/contract-extension.test.js` |
+| `!게스트 연장결제 카드` | 코드 기반 시나리오 | `src/tests/contract-payment.test.js` |
+| `!게스트 연장결제 무통장` | 코드 기반 시나리오 | `src/tests/contract-payment.test.js` |
+| `!게스트 리브후기 프로필` | 코드 기반 시나리오 | `src/tests/review-profile.test.js` |
+| `!게스트 리브후기 일정 선택` | 코드 기반 시나리오 | `src/tests/review-schedule-select.test.js` |
+| `!게스트 리브후기 상세` | 코드 기반 시나리오 | `src/tests/review-detail.test.js` |
+| `!게스트 쿠폰함` | 코드 기반 시나리오 | `src/tests/coupon-box.test.js` |
+| `!게스트 리뷰작성` | 코드 기반 시나리오 | `src/tests/review-write.test.js` |
+| `!게스트 리뷰수정` | 코드 기반 시나리오 | `src/tests/review-edit.test.js` |
+| `!게스트 리뷰삭제` | 코드 기반 시나리오 | `src/tests/review-delete.test.js` |
 | `!무통장 입금 승인` | `toss-deposit-approve.web.yaml` | `src/tests/toss-deposit-approve.test.js` |
 | `!146183 계약 변경 일주일 후` | API 명령 | `src/tests/schedule-change.test.js` |
 | `!게스트 계약 요청 취소` | `contract-cancel-request.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
@@ -26,6 +38,8 @@
 | `!호스트 로그아웃` | `logout.host.yaml` | `src/tests/logout.test.js` |
 | `!호스트 계약 승인` | `contract-approve.host.yaml` | `src/tests/contract-approve.test.js` |
 | `!호스트 계약 요청 거절` | `contract-reject.host.yaml` | `src/tests/contract-approve.test.js` |
+| `!호스트 연장수락` | 코드 기반 시나리오 | `src/tests/contract-extension-approve.test.js` |
+| `!호스트 연장승인` | 코드 기반 시나리오 | `src/tests/contract-extension-approve.test.js` |
 
 ## 작성 규칙
 
@@ -55,6 +69,8 @@
 | `!기본검증 일반결제` | `login.guest` -> `contract-request.guest` -> `contract-approve.host` -> `contract-payment.guest(method=card)` |
 | `!기본검증 무통장 결제` | `login.guest` -> `contract-request.guest` -> `contract-approve.host` -> `contract-payment.guest(method=bank-transfer)` -> `toss-deposit-approve.web` |
 | `!기본검증 자동결제` | `login.guest` -> `contract-request.guest(method=auto-card)` -> `contract-approve.host` |
+| `!기본검증 연장결제 카드` | `login.guest` -> `contract-extension.guest` -> `contract-extension-approve.host` -> `contract-payment.guest(extension, method=card)` |
+| `!기본검증 연장결제 무통장` | `login.guest` -> `contract-extension.guest` -> `contract-extension-approve.host` -> `contract-payment.guest(extension, method=bank-transfer)` |
 
 운영 기준:
 
@@ -72,10 +88,15 @@
 !기본검증 일반결제 dev
 !기본검증 무통장 결제 dev
 !기본검증 자동결제 dev
+!기본검증 연장결제 카드 dev
+!기본검증 연장결제 무통장 dev
 !호스트 계약 승인 dev
 !호스트 계약 승인 stg
 !호스트 연장수락 dev
 !호스트 연장수락 stg
+!게스트 리뷰작성 dev
+!게스트 리뷰수정 dev
+!게스트 리뷰삭제 dev
 ```
 
 환경을 생략하면 `stg`로 실행한다.

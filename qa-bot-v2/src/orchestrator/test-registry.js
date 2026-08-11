@@ -15,6 +15,13 @@ const { runContractExtensionTest } = require("../tests/contract-extension.test")
 const { runContractRequestTest } = require("../tests/contract-request.test");
 const { runScheduleChangeTest } = require("../tests/schedule-change.test");
 const { runTossDepositApproveTest } = require("../tests/toss-deposit-approve.test");
+const { runReviewProfileTest } = require("../tests/review-profile.test");
+const { runReviewScheduleSelectTest } = require("../tests/review-schedule-select.test");
+const { runReviewDetailTest } = require("../tests/review-detail.test");
+const { runReviewDeleteTest } = require("../tests/review-delete.test");
+const { runCouponBoxTest } = require("../tests/coupon-box.test");
+const { runReviewEditTest } = require("../tests/review-edit.test");
+const { runReviewWriteTest } = require("../tests/review-write.test");
 
 const registry = {
   login: runLoginTest,
@@ -30,7 +37,14 @@ const registry = {
   "contract-payment": runContractPaymentTest,
   "contract-request": runContractRequestTest,
   "schedule-change": runScheduleChangeTest,
-  "toss-deposit-approve": runTossDepositApproveTest
+  "toss-deposit-approve": runTossDepositApproveTest,
+  "review-detail": runReviewDetailTest,
+  "review-delete": runReviewDeleteTest,
+  "review-profile": runReviewProfileTest,
+  "review-schedule-select": runReviewScheduleSelectTest,
+  "coupon-box": runCouponBoxTest,
+  "review-edit": runReviewEditTest,
+  "review-write": runReviewWriteTest
 };
 
 function getTest(name) {

@@ -174,7 +174,10 @@ function buildResultSectionHtml(result, reportDir, index = 1) {
     ...objectLines(result.approved_contract, "approved_contract"),
     ...objectLines(result.rejected_contract, "rejected_contract"),
     ...objectLines(result.schedule_change, "schedule_change"),
-    ...objectLines(result.toss_deposit, "toss_deposit")
+    ...objectLines(result.toss_deposit, "toss_deposit"),
+    ...objectLines(result.review_write, "review_write"),
+    ...objectLines(result.review_edit, "review_edit"),
+    ...objectLines(result.review_delete, "review_delete")
   ];
   const figmaValidationLines = formatFigmaValidationDetailLines(result.figma_validation, { maxItems: 100 });
 

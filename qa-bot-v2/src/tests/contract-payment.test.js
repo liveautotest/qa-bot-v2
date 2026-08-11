@@ -693,9 +693,19 @@ function isPaymentComplete(xml) {
   return (
     xml.includes("결제 완료") ||
     xml.includes("Payment complete") ||
+    xml.includes("결제가 완료되었습니다") ||
     xml.includes("결제가 완료") ||
     xml.includes("결제되었습니다") ||
     xml.includes("계약이 확정")
+  );
+}
+
+function isVisualOnlyPaymentCompleteCandidate(xml) {
+  return (
+    xml.includes("<hierarchy") &&
+    xmlTextLines(xml).length === 0 &&
+    !isPgPaymentScreen(xml) &&
+    !hasSecureKeypad(xml)
   );
 }
 
@@ -771,19 +781,24 @@ async function returnHomeFromPaymentComplete(config, device, store, steps, xml, 
     enabled: true
   });
   if (!homeButton?.bounds) {
-    await saveFailureArtifacts(config, device, store, `${artifactPrefix}-home-button-not-found`, xml);
-    fail(
-      "결제 완료 화면에서 홈으로 버튼을 찾지 못했습니다.",
-      steps,
-      [
-        "결제 완료 후 홈 화면으로 이동하는 버튼이 보여야 합니다.",
-        `리포트의 ${artifactPrefix}-home-button-not-found.png 화면을 확인해주세요.`
-      ]
-    );
+    if (isVisualOnlyPaymentCompleteCandidate(xml)) {
+      await tap(config, device, 150, 2375);
+      addStep(steps, "결제 완료 화면 홈으로 버튼 탭", "pass", "완료 화면 XML 텍스트 미노출 fallback 좌표");
+    } else {
+      await saveFailureArtifacts(config, device, store, `${artifactPrefix}-home-button-not-found`, xml);
+      fail(
+        "결제 완료 화면에서 홈으로 버튼을 찾지 못했습니다.",
+        steps,
+        [
+          "결제 완료 후 홈 화면으로 이동하는 버튼이 보여야 합니다.",
+          `리포트의 ${artifactPrefix}-home-button-not-found.png 화면을 확인해주세요.`
+        ]
+      );
+    }
+  } else {
+    await tapNode(config, device, homeButton, "홈으로 버튼", steps);
+    addStep(steps, "결제 완료 화면 홈으로 버튼 탭");
   }
-
-  await tapNode(config, device, homeButton, "홈으로 버튼", steps);
-  addStep(steps, "결제 완료 화면 홈으로 버튼 탭");
 
   const homeXml = await waitForUi(config, device, isHomeScreen, 8000);
   saveXml(store, "payment-return-home", homeXml);
@@ -2366,6 +2381,16 @@ async function inputPgCard(config, device, store, steps, xml) {
   saveXml(store, "payment-final", xml);
 
   if (!isPaymentComplete(xml)) {
+    if (isVisualOnlyPaymentCompleteCandidate(xml)) {
+      addStep(
+        steps,
+        "결제 완료 화면 확인",
+        "pass",
+        "완료 화면의 Android XML 텍스트가 노출되지 않아 홈으로 버튼 fallback으로 검증"
+      );
+      return returnHomeFromPaymentComplete(config, device, store, steps, xml, "card-payment");
+    }
+
     await saveFailureArtifacts(config, device, store, "payment-final", xml);
     fail(
       "PG NEXT 이후 결제 완료 상태를 확인하지 못했습니다.",

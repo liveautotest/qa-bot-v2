@@ -9,6 +9,8 @@ node_modules/
 
 # Generated reports and artifacts
 reports/
+output/
+tmp/
 
 # macOS
 .DS_Store

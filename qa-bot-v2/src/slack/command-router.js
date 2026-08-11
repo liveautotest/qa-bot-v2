@@ -2,7 +2,7 @@ const { runTest } = require("../orchestrator/run-test");
 const { buildResultJudgment, formatHelp, formatResult } = require("./slack-reporter");
 
 const KOREAN_SHORTCUT_PATTERN =
-  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장결제|연장 결제|계약연장결제|계약 연장 결제|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
+  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|리브후기 프로필|리브 후기 프로필|리브후기 일정선택|리브후기 일정 선택|리브 후기 일정선택|리브 후기 일정 선택|리브후기 상세|리브 후기 상세|리뷰작성|리뷰 작성|리뷰수정|리뷰 수정|리뷰삭제|리뷰 삭제|쿠폰함|쿠폰 함|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장결제|연장 결제|계약연장결제|계약 연장 결제|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const SCHEDULE_CHANGE_PATTERN =
@@ -37,6 +37,22 @@ function parseKoreanShortcut(text) {
     "검색 유연한 일정": "search-flexible",
     "유연한일정 검색": "search-flexible",
     "유연한 일정 검색": "search-flexible",
+    "리브후기 프로필": "review-profile",
+    "리브 후기 프로필": "review-profile",
+    "리브후기 일정선택": "review-schedule-select",
+    "리브후기 일정 선택": "review-schedule-select",
+    "리브 후기 일정선택": "review-schedule-select",
+    "리브 후기 일정 선택": "review-schedule-select",
+    "리브후기 상세": "review-detail",
+    "리브 후기 상세": "review-detail",
+    리뷰작성: "review-write",
+    "리뷰 작성": "review-write",
+    리뷰수정: "review-edit",
+    "리뷰 수정": "review-edit",
+    리뷰삭제: "review-delete",
+    "리뷰 삭제": "review-delete",
+    쿠폰함: "coupon-box",
+    "쿠폰 함": "coupon-box",
     계약요청: "contract-request",
     "계약 요청": "contract-request",
     계약요청취소: "contract-cancel-request",
@@ -155,7 +171,14 @@ function roleForShortcut(test, requestedRoleLabel) {
     test === "contract-request" ||
     test === "contract-payment" ||
     test === "contract-cancel-request" ||
-    test === "contract-cancel-confirmed"
+    test === "contract-cancel-confirmed" ||
+    test === "review-detail" ||
+    test === "review-profile" ||
+    test === "review-schedule-select" ||
+    test === "review-delete" ||
+    test === "review-edit" ||
+    test === "review-write" ||
+    test === "coupon-box"
   ) {
     return "guest";
   }
@@ -190,7 +213,14 @@ function requiredLoginRoleForTest(test) {
     "contract-payment",
     "contract-cancel-request",
     "contract-cancel-confirmed",
-    "contract-extension"
+    "contract-extension",
+    "review-detail",
+    "review-profile",
+    "review-schedule-select",
+    "review-delete",
+    "review-edit",
+    "review-write",
+    "coupon-box"
   ];
   if (guestRequired.includes(test)) return "guest";
   if (test === "contract-approve" || test === "contract-reject" || test === "contract-extension-approve") return "host";
@@ -660,6 +690,13 @@ async function routeCommand(text, context) {
     command === "contract-extension-approve" ||
     command === "contract-payment" ||
     command === "contract-request" ||
+    command === "review-detail" ||
+    command === "review-profile" ||
+    command === "review-schedule-select" ||
+    command === "review-delete" ||
+    command === "review-edit" ||
+    command === "review-write" ||
+    command === "coupon-box" ||
     command === "basic-validation" ||
     command === "schedule-change" ||
     command === "toss-deposit-approve"

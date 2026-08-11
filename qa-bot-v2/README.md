@@ -39,6 +39,9 @@ CLI 실행 예시:
 세션이 풀려 있으면 자동 로그인 후 원래 동작을 이어서 진행합니다.
 
 ```text
+!기본검증 일반결제 stg
+!기본검증 무통장 결제 stg
+!기본검증 자동결제 stg
 !기본검증 연장결제 카드 stg
 !기본검증 연장결제 무통장 stg
 !게스트 로그인 stg
@@ -49,9 +52,18 @@ CLI 실행 예시:
 !게스트 계약 요청 취소 stg
 !게스트 계약 확정 취소 stg
 !게스트 연장요청 stg
+!게스트 연장결제 카드 stg
+!게스트 연장결제 무통장 stg
 !게스트 계약 결제 일반카드 stg
 !게스트 계약 결제 자동카드 stg
 !게스트 계약 결제 무통장 stg
+!게스트 리브후기 프로필 stg
+!게스트 리브후기 일정 선택 stg
+!게스트 리브후기 상세 stg
+!게스트 쿠폰함 stg
+!게스트 리뷰작성 stg
+!게스트 리뷰수정 stg
+!게스트 리뷰삭제 stg
 !무통장 입금 승인
 !146183 계약 변경 일주일 전
 !146183 계약 변경 2주일전
@@ -64,17 +76,31 @@ CLI 실행 예시:
 !호스트 계약 승인 stg
 !호스트 계약 요청 거절 stg
 !호스트 연장수락 stg
+!호스트 연장승인 stg
 ```
 
 `dev` 환경 예시:
 
 ```text
+!기본검증 일반결제 dev
+!기본검증 무통장 결제 dev
+!기본검증 자동결제 dev
 !기본검증 연장결제 카드 dev
 !기본검증 연장결제 무통장 dev
 !게스트 계약 요청 dev
 !게스트 연장요청 dev
+!게스트 연장결제 카드 dev
+!게스트 연장결제 무통장 dev
 !게스트 계약 결제 무통장 dev
+!게스트 리브후기 프로필 dev
+!게스트 리브후기 일정 선택 dev
+!게스트 리브후기 상세 dev
+!게스트 쿠폰함 dev
+!게스트 리뷰작성 dev
+!게스트 리뷰수정 dev
+!게스트 리뷰삭제 dev
 !호스트 연장수락 dev
+!호스트 연장승인 dev
 !무통장 입금 승인
 !호스트 계약 승인 dev
 !호스트 계약 요청 거절 dev
@@ -85,6 +111,9 @@ CLI 실행 예시:
 ```text
 !qa basic-validation env=staging method=extension-card
 !qa basic-validation env=staging method=extension-bank-transfer
+!qa basic-validation env=staging method=card
+!qa basic-validation env=staging method=bank-transfer
+!qa basic-validation env=staging method=auto-card
 !qa login env=staging role=guest
 !qa logout env=staging role=guest
 !qa search env=staging role=guest
@@ -99,12 +128,22 @@ CLI 실행 예시:
 !qa contract-reject env=staging role=host
 !qa schedule-change reservation_id=146183 offset=일주일후
 !qa toss-deposit-approve
+!qa review-profile env=staging role=guest
+!qa review-schedule-select env=staging role=guest
+!qa review-detail env=staging role=guest
+!qa coupon-box env=staging role=guest
+!qa review-write env=staging role=guest
+!qa review-edit env=staging role=guest
+!qa review-delete env=staging role=guest
 ```
 
 ## 구현된 시나리오
 
 | 테스트 ID | 명령어 | 기준 |
 | --- | --- | --- |
+| `FLOW-BASIC-CARD-001` | `!기본검증 일반결제` | 게스트 계약 요청, 호스트 승인, 게스트 일반카드 결제 1사이클 |
+| `FLOW-BASIC-BANK-001` | `!기본검증 무통장 결제` | 게스트 계약 요청, 호스트 승인, 게스트 무통장 결제, 토스 입금 승인 1사이클 |
+| `FLOW-BASIC-AUTO-001` | `!기본검증 자동결제` | 게스트 자동카드 계약 요청, 호스트 승인 1사이클 |
 | `FLOW-EXTENSION-CARD-001` | `!기본검증 연장결제 카드` | 게스트 연장요청, 호스트 연장수락, 게스트 카드 연장결제 1사이클 |
 | `FLOW-EXTENSION-BANK-001` | `!기본검증 연장결제 무통장` | 게스트 연장요청, 호스트 연장수락, 게스트 무통장 연장결제 1사이클 |
 | `TC-LOGIN-001` | `!게스트 로그인`, `!호스트 로그인` | 게스트는 홈 화면 진입, 호스트는 호스트모드 계약 탭 진입 |
@@ -121,6 +160,13 @@ CLI 실행 예시:
 | `TC-SCHEDULE-CHANGE-001` | `!146183 계약 변경 일주일 후` | 현재 날짜 기준으로 변경 기간을 계산하고 날짜만 변경하는 계약 일정 변경 API 호출 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | `!게스트 계약 요청 취소` | 요청 상태 카드에서 계약 요청 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | `!게스트 계약 확정 취소` | 확정 계약 취소, 취소 내역 확인, 완료 팝업, 홈 복귀 |
+| `TC-INTERNAL-REFACTOR-001` | `!게스트 리브후기 프로필` | 리브후기 프로필 진입, 게시물 많은 계정 스크롤, 레이아웃/구분선 신호 확인 |
+| `TC-INTERNAL-REFACTOR-002` | `!게스트 리브후기 일정 선택` | 리브후기 작성 일정 선택 모달, 예약/일정 목록 스크롤과 선택 확인 |
+| `TC-INTERNAL-REFACTOR-003` | `!게스트 리브후기 상세` | 추천 태그 선택, 후기 상세 진입, 헤더 이미지와 상세 내용 스크롤 확인 |
+| `TC-INTERNAL-REFACTOR-004` | `!게스트 쿠폰함` | 내 정보 쿠폰함, 쿠폰 그리드, 상세 다이얼로그, 목록 스크롤 확인 |
+| `TC-INTERNAL-REFACTOR-005` | `!게스트 리뷰작성` | 별점 3개, 랜덤 태그 3개, 사진 3장, AI 리뷰 생성, 제출 완료 확인 |
+| `TC-INTERNAL-REFACTOR-006` | `!게스트 리뷰수정` | 별점 변경, 키워드 추가/제거, 사진 추가/삭제, 리뷰 본문 변경, 저장 확인 |
+| `TC-INTERNAL-REFACTOR-007` | `!게스트 리뷰삭제` | 내 리뷰 상세에서 삭제 확인 팝업 처리와 오류 미노출 확인 |
 
 ## 환경 설정
 
@@ -190,7 +236,9 @@ reports/{run_id}/
 - 스크린샷은 실패 화면 중심으로 저장합니다.
 - ADB/UI dump 기반 탐색을 우선하고, XML에서 버튼이 분리되지 않는 팝업은 제한된 화면 조건에서만 좌표 fallback을 사용합니다.
 - 계약 계열은 실행 전 필요한 게스트/호스트 로그인 상태를 확인하고, 세션이 풀려 있으면 자동 로그인 후 이어서 진행합니다.
-- 기본검증은 연장요청, 호스트 연장수락, 게스트 연장결제 1사이클만 지원합니다.
+- 기본검증은 일반결제, 무통장 결제, 자동결제, 연장결제 카드/무통장 1사이클을 지원합니다.
+- 리뷰/쿠폰 계열은 TargetSdk/UI 리팩토링 영향권을 빠르게 확인하는 내부 리팩토링 검증 케이스입니다.
+- 리뷰 삭제는 삭제 확인 팝업 닫힘과 앱 오류 미노출까지 자동 확인하고, 계약 목록 버튼 상태 변화는 수동 확인 항목으로 남깁니다.
 
 ## 파일 구조
 
@@ -214,9 +262,17 @@ src/
     contract-cancel-request.test.js
     contract-payment.test.js
     contract-request.test.js
+    coupon-box.test.js
     login.test.js
     logout.test.js
+    review-delete.test.js
+    review-detail.test.js
+    review-edit.test.js
+    review-profile.test.js
+    review-schedule-select.test.js
+    review-write.test.js
     search.test.js
+    helpers/
 docs/
 scripts/aos/
 reports/

@@ -1,6 +1,67 @@
 const { getTest } = require("./test-registry");
 const { createRunStore } = require("./run-store");
 const { ensureLatestAppBuild } = require("../infra/app-build-check");
+const { runAdb } = require("../infra/adb");
+
+function getAndroidPostTestTarget(request, config) {
+  if (request.test === "schedule-change" || request.test === "toss-deposit-approve") return null;
+  if (request.env === "api" || request.env === "toss") return null;
+
+  const role = request.role || "guest";
+  const device = config.devices && config.devices[role];
+  const appPackage = config.androidPackages && config.androidPackages[request.env];
+  if (!device || !appPackage) return null;
+
+  return { device, appPackage };
+}
+
+async function relaunchAndroidAppAfterPass({ request, config, result, store }) {
+  const target = getAndroidPostTestTarget(request, config);
+  if (!target) return { status: "skipped" };
+
+  try {
+    await runAdb(config, target.device, ["shell", "am", "force-stop", target.appPackage]);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await runAdb(config, target.device, [
+      "shell",
+      "monkey",
+      "-p",
+      target.appPackage,
+      "-c",
+      "android.intent.category.LAUNCHER",
+      "1"
+    ]);
+
+    if (Array.isArray(result.steps)) {
+      result.steps.push({
+        name: "테스트 완료 후 앱 종료 및 재실행",
+        status: "pass"
+      });
+    }
+
+    return {
+      status: "pass",
+      device: target.device,
+      app_package: target.appPackage
+    };
+  } catch (error) {
+    store.appendLog("runner.log", `post-test app relaunch failed: ${error.message}`);
+    if (Array.isArray(result.steps)) {
+      result.steps.push({
+        name: "테스트 완료 후 앱 종료 및 재실행",
+        status: "warning",
+        message: error.message
+      });
+    }
+
+    return {
+      status: "warning",
+      device: target.device,
+      app_package: target.appPackage,
+      message: error.message
+    };
+  }
+}
 
 async function runTest(request, config) {
   const test = getTest(request.test);
@@ -29,10 +90,25 @@ async function runTest(request, config) {
       config,
       store
     });
+    const postTestAppRelaunch = result.status === "pass"
+      ? await relaunchAndroidAppAfterPass({
+        request: store.request,
+        config,
+        result,
+        store
+      })
+      : { status: "skipped" };
 
     const finalResult = {
       ...result,
       app_build: appBuild,
+      post_test_app_relaunch: postTestAppRelaunch,
+      app_warnings: [
+        ...(result.app_warnings || []),
+        ...(postTestAppRelaunch.status === "warning"
+          ? [`테스트 완료 후 앱 재실행 실패: ${postTestAppRelaunch.message}`]
+          : [])
+      ],
       requested_by: store.request.requested_by,
       source: store.request.source,
       run_id: store.runId,
@@ -61,7 +137,14 @@ async function runTest(request, config) {
       "contract-extension-approve": "TC-CONTRACT-EXTENSION-APPROVE-001",
       "contract-payment": "TC-CONTRACT-PAYMENT-001",
       "schedule-change": "TC-SCHEDULE-CHANGE-001",
-      "toss-deposit-approve": "TC-TOSS-DEPOSIT-APPROVE-001"
+      "toss-deposit-approve": "TC-TOSS-DEPOSIT-APPROVE-001",
+      "review-detail": "TC-INTERNAL-REFACTOR-003",
+      "review-delete": "TC-INTERNAL-REFACTOR-007",
+      "review-profile": "TC-INTERNAL-REFACTOR-001",
+      "review-schedule-select": "TC-INTERNAL-REFACTOR-002",
+      "coupon-box": "TC-INTERNAL-REFACTOR-004",
+      "review-edit": "TC-INTERNAL-REFACTOR-006",
+      "review-write": "TC-INTERNAL-REFACTOR-005"
     };
     const testNames = {
       login: "로그인",
@@ -77,7 +160,14 @@ async function runTest(request, config) {
       "contract-extension-approve": "계약 연장 수락",
       "contract-payment": "계약 결제",
       "schedule-change": "계약 일정 변경",
-      "toss-deposit-approve": "무통장 입금 승인"
+      "toss-deposit-approve": "무통장 입금 승인",
+      "review-detail": "리브후기 상세",
+      "review-delete": "리뷰 삭제",
+      "review-profile": "리브후기 프로필",
+      "review-schedule-select": "리브후기 일정 선택",
+      "coupon-box": "쿠폰함",
+      "review-edit": "리뷰 수정",
+      "review-write": "리뷰 작성"
     };
     const finalResult = {
       run_id: store.runId,
