@@ -55,12 +55,6 @@ function formatHelp() {
     "!게스트 계약 결제 무통장 stg",
     "!게스트 계약 결제 무통장 dev",
     "!무통장 입금 승인 (단독 실행용, 무통장 결제 PASS 시에는 자동 실행)",
-    "!146183 계약 변경 일주일 전",
-    "!146183 계약 변경 2주일전",
-    "!146183 계약 변경 한달전",
-    "!146183 계약 변경 일주일 후",
-    "!146183 계약 변경 2주 후",
-    "!146183 계약 변경 한달 후",
     "!호스트 로그인 stg",
     "!호스트 로그인 dev",
     "!호스트 로그아웃 stg",
@@ -99,7 +93,6 @@ function formatHelp() {
     "!qa contract-payment env=staging role=guest method=bank-transfer (PASS 시 무통장 입금 승인 자동 실행)",
     "!qa contract-approve env=staging role=host",
     "!qa contract-reject env=staging role=host",
-    "!qa schedule-change reservation_id=146183 offset=일주일후",
     "!qa toss-deposit-approve"
   ].join("\n");
 }
@@ -367,15 +360,6 @@ function formatPassSummary(result) {
     ];
   }
 
-  if (result.test_id === "TC-SCHEDULE-CHANGE-001") {
-    return [
-      "- 현재 날짜 기준으로 변경할 계약 기간을 계산했습니다.",
-      "- 날짜만 변경하는 예약 일정 변경 API를 호출했습니다.",
-      "- API 응답이 성공 상태인지 확인했습니다. 앱 새로고침 후 계약 기간 반영 여부를 확인할 수 있습니다.",
-      "- 이 명령은 세부가격/총결제금액 재계산 검증은 하지 않습니다."
-    ];
-  }
-
   return [];
 }
 
@@ -478,16 +462,6 @@ function formatResultConditionSummary(result) {
     if (!fastExtensionApprove && result.contract_extension_approval.guest_payment_amount) {
       lines.push(`- 게스트 결제 예정: ${result.contract_extension_approval.guest_payment_amount}`);
     }
-  }
-
-  if (result.schedule_change) {
-    lines.push(`- 예약 번호: ${result.schedule_change.reservation_id}`);
-    lines.push(`- 변경 기간: ${result.schedule_change.start_date} ~ ${result.schedule_change.end_date}`);
-    lines.push(
-      result.schedule_change.applies_price_recalculation
-        ? "- 반영 범위: 날짜/금액 재계산"
-        : "- 반영 범위: 날짜 변경만, 금액 재계산 없음"
-    );
   }
 
   if (result.toss_deposit) {

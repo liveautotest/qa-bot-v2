@@ -4,7 +4,6 @@ const { loadConfig } = require("./config");
 const {
   BASIC_VALIDATION_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
-  SCHEDULE_CHANGE_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand
 } = require("./slack/command-router");
@@ -201,10 +200,6 @@ async function main() {
   });
 
   app.message(KOREAN_SHORTCUT_PATTERN, async ({ message, say }) => {
-    await handleQaMessage(message, say);
-  });
-
-  app.message(SCHEDULE_CHANGE_PATTERN, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
 

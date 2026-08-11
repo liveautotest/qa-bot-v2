@@ -4,7 +4,7 @@ const { ensureLatestAppBuild } = require("../infra/app-build-check");
 const { runAdb } = require("../infra/adb");
 
 function getAndroidPostTestTarget(request, config) {
-  if (request.test === "schedule-change" || request.test === "toss-deposit-approve") return null;
+  if (request.test === "toss-deposit-approve") return null;
   if (request.env === "api" || request.env === "toss") return null;
 
   const role = request.role || "guest";
@@ -136,7 +136,6 @@ async function runTest(request, config) {
       "contract-extension": "TC-CONTRACT-EXTENSION-001",
       "contract-extension-approve": "TC-CONTRACT-EXTENSION-APPROVE-001",
       "contract-payment": "TC-CONTRACT-PAYMENT-001",
-      "schedule-change": "TC-SCHEDULE-CHANGE-001",
       "toss-deposit-approve": "TC-TOSS-DEPOSIT-APPROVE-001",
       "review-detail": "TC-INTERNAL-REFACTOR-003",
       "review-delete": "TC-INTERNAL-REFACTOR-007",
@@ -159,7 +158,6 @@ async function runTest(request, config) {
       "contract-extension": "계약 연장",
       "contract-extension-approve": "계약 연장 수락",
       "contract-payment": "계약 결제",
-      "schedule-change": "계약 일정 변경",
       "toss-deposit-approve": "무통장 입금 승인",
       "review-detail": "리브후기 상세",
       "review-delete": "리뷰 삭제",
@@ -177,9 +175,7 @@ async function runTest(request, config) {
       status: "fail",
       device: request.test === "toss-deposit-approve"
         ? "browser"
-        : request.test === "schedule-change"
-          ? "api"
-          : config.devices && config.devices[role] ? config.devices[role] : "unknown",
+        : config.devices && config.devices[role] ? config.devices[role] : "unknown",
       duration_ms: Date.now() - startedAt,
       failed_step: "runner",
       error: error.message,

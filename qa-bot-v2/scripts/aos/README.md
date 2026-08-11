@@ -31,7 +31,6 @@
 | `!게스트 리뷰수정` | 코드 기반 시나리오 | `src/tests/review-edit.test.js` |
 | `!게스트 리뷰삭제` | 코드 기반 시나리오 | `src/tests/review-delete.test.js` |
 | `!무통장 입금 승인` | `toss-deposit-approve.web.yaml` | `src/tests/toss-deposit-approve.test.js` |
-| `!146183 계약 변경 일주일 후` | API 명령 | `src/tests/schedule-change.test.js` |
 | `!게스트 계약 요청 취소` | `contract-cancel-request.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
 | `!게스트 계약 확정 취소` | `contract-cancel-confirmed.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
 | `!호스트 로그인` | `login.host.yaml` | `src/tests/login.test.js` |
@@ -100,4 +99,3 @@
 ```
 
 환경을 생략하면 `stg`로 실행한다.
-단, `!146183 계약 변경 일주일 후` 같은 계약 일정 변경 API 명령은 앱 환경과 무관하므로 `dev`/`stg`를 붙이지 않는다.
