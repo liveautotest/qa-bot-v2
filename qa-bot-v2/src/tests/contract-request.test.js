@@ -745,6 +745,38 @@ function findListingCandidates(xml) {
   }).sort((a, b) => a.bounds.top - b.bounds.top);
 }
 
+async function scrollPastFirstListing(config, device, store, steps, xml, exactDateRange) {
+  const firstListings = findListingCandidates(xml);
+  const skippedTitle = firstListings[0] ? listingTitle(firstListings[0]) : "";
+  if (skippedTitle) {
+    store.appendLog("runner.log", `contract-request skipping first visible listing: ${skippedTitle}`);
+  }
+
+  await runAdb(config, device, [
+    "shell", "input", "swipe", "540", "2070", "540", "1250", "420"
+  ]);
+  addStep(
+    steps,
+    "검색 결과 첫 번째 숙소 제외 후 스크롤",
+    "pass",
+    skippedTitle ? `제외: ${skippedTitle}` : "첫 번째 후보 미확인, 다음 화면 후보 사용"
+  );
+  await new Promise((resolve) => setTimeout(resolve, 220));
+
+  const scrolledXml = await waitForUi(
+    config,
+    device,
+    (nextXml) => isContractSearchResults(nextXml, exactDateRange),
+    2500,
+    180
+  );
+
+  return {
+    xml: isContractSearchResults(scrolledXml, exactDateRange) ? scrolledXml : await dumpUiStable(config, device),
+    skippedTitle
+  };
+}
+
 async function selectNewestSort(config, device, store, steps, xml, exactDateRange) {
   if (xml.includes("신규 집 순")) {
     addStep(steps, "검색 결과 정렬 확인", "pass", "신규 집 순");
@@ -875,6 +907,10 @@ async function openContractableListing(config, device, store, steps, exactDateRa
   let xml = await dumpUiStable(config, device);
   await saveArtifacts(config, device, store, "search-results-expanded", xml);
 
+  const scrolled = await scrollPastFirstListing(config, device, store, steps, xml, exactDateRange);
+  xml = scrolled.xml;
+  await saveArtifacts(config, device, store, "search-results-after-first-skip", xml);
+
   let lastXml = xml;
   for (let scrollCount = 0; scrollCount < 4; scrollCount += 1) {
     const listings = findListingCandidates(xml);
@@ -908,7 +944,7 @@ async function openContractableListing(config, device, store, steps, exactDateRa
     "검색 결과 숙소 카드를 눌렀지만 상세 화면으로 이동하지 않았습니다.",
     steps,
     [
-      "자동화가 현재 화면에 보이는 계약 가능 숙소 후보 중 하나를 랜덤 선택했습니다.",
+      "자동화가 첫 번째 숙소를 제외하고, 스크롤 후 보이는 계약 가능 숙소 후보 중 하나를 랜덤 선택했습니다.",
       "상세 화면의 '계약 조건 확인' 버튼이 나타나야 다음 단계로 진행합니다.",
       "리포트의 listing-tap-did-not-open-detail.png 화면을 확인해주세요.",
       "실제 탭 좌표는 runner.log에 기록됩니다."
