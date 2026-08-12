@@ -5,6 +5,8 @@ const KOREAN_SHORTCUT_PATTERN =
   /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|리브후기 프로필|리브 후기 프로필|리브후기 일정선택|리브후기 일정 선택|리브 후기 일정선택|리브 후기 일정 선택|리브후기 상세|리브 후기 상세|리뷰작성|리뷰 작성|리뷰수정|리뷰 수정|리뷰삭제|리뷰 삭제|쿠폰함|쿠폰 함|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장결제|연장 결제|계약연장결제|계약 연장 결제|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
+const CONSOLE_SCHEDULE_CHANGE_PATTERN =
+  /^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경\s+(\d+)\s+((?:일|1|2)주일|한\s*달|한달|1개월)\s*(전|후)\s+(dev|stg|staging)\s*$/i;
 const BASIC_VALIDATION_PATTERN =
   /^\s*![\s\u200b\u200c\u200d\ufeff]*기본검증\s+(일반결제|일반\s*결제|무통장결제|무통장\s*결제|자동결제|자동\s*결제|연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?\s*$/i;
 
@@ -149,6 +151,29 @@ function parseBasicValidation(text) {
   };
 }
 
+function parseConsoleScheduleChange(text) {
+  const normalized = text.trim().replace(/[\u200b\u200c\u200d\ufeff]/g, "").replace(/\s+/g, " ");
+  const match = normalized.match(CONSOLE_SCHEDULE_CHANGE_PATTERN);
+  if (!match) return null;
+
+  const envByShortcut = {
+    dev: "dev",
+    stg: "staging",
+    staging: "staging"
+  };
+  const amount = match[2].replace(/\s+/g, "");
+  const label = `${amount === "1주일" ? "일주일" : amount} ${match[3]}`;
+
+  return {
+    test: "console-schedule-change",
+    env: envByShortcut[String(match[4] || "stg").toLowerCase()],
+    role: "admin",
+    reservation_id: match[1],
+    schedule_shift_label: label,
+    skip_app_build_check: true
+  };
+}
+
 function roleForShortcut(test, requestedRoleLabel) {
   if (test === "contract-approve" || test === "contract-reject" || test === "contract-extension-approve") return "host";
   if (
@@ -170,7 +195,7 @@ function roleForShortcut(test, requestedRoleLabel) {
 }
 
 function defaultRoleForTest(test) {
-  if (test === "toss-deposit-approve") return "admin";
+  if (test === "toss-deposit-approve" || test === "console-schedule-change") return "admin";
   return test === "contract-approve" || test === "contract-reject" || test === "contract-extension-approve" ? "host" : "guest";
 }
 
@@ -241,6 +266,8 @@ async function runSingleQaCommand(command, context) {
       env,
       role,
       payment_method: paymentMethod,
+      reservation_id: command.reservation_id,
+      schedule_shift_label: command.schedule_shift_label,
       host_home_only: command.host_home_only,
       skip_fresh_launch: command.skip_fresh_launch,
       skip_app_build_check: command.skip_app_build_check,
@@ -625,6 +652,11 @@ async function runBasicValidation({ env, payment_method: paymentMethod }, contex
 }
 
 async function routeCommand(text, context) {
+  const consoleScheduleChange = parseConsoleScheduleChange(text);
+  if (consoleScheduleChange) {
+    return runQaCommand(consoleScheduleChange, context);
+  }
+
   const basicValidation = parseBasicValidation(text);
   if (basicValidation) {
     return runBasicValidation(basicValidation, context);
@@ -674,7 +706,8 @@ async function routeCommand(text, context) {
     command === "review-write" ||
     command === "coupon-box" ||
     command === "basic-validation" ||
-    command === "toss-deposit-approve"
+    command === "toss-deposit-approve" ||
+    command === "console-schedule-change"
   ) {
     const args = parseKeyValues(parts.slice(2));
     const paymentMethod = args.method || args.payment_method;
@@ -696,7 +729,9 @@ async function routeCommand(text, context) {
         test,
         env: args.env || (test === "toss-deposit-approve" ? "toss" : "staging"),
         role: args.role || defaultRoleForTest(test),
-        payment_method: paymentMethod
+        payment_method: paymentMethod,
+        reservation_id: args.reservation_id,
+        schedule_shift_label: args.shift || args.schedule_shift_label
       },
       context
     );
@@ -711,6 +746,7 @@ async function routeCommand(text, context) {
 
 module.exports = {
   BASIC_VALIDATION_PATTERN,
+  CONSOLE_SCHEDULE_CHANGE_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand

@@ -18,7 +18,7 @@ async function main() {
   const args = parseArgs(rest);
 
   if (!testName) {
-    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|toss-deposit-approve> --env=staging --role=guest");
+    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|toss-deposit-approve|console-schedule-change> --env=staging --role=guest");
   }
 
   const hostDefaultTests = new Set(["contract-approve", "contract-reject", "contract-extension-approve"]);
@@ -26,8 +26,10 @@ async function main() {
   const request = {
     test: testName,
     env: args.env || (testName === "toss-deposit-approve" ? "toss" : "staging"),
-    role: args.role || (testName === "toss-deposit-approve" ? "admin" : hostDefaultTests.has(testName) ? "host" : "guest"),
+    role: args.role || (testName === "toss-deposit-approve" || testName === "console-schedule-change" ? "admin" : hostDefaultTests.has(testName) ? "host" : "guest"),
     payment_method: args.method || args.payment_method,
+    reservation_id: args.reservation_id,
+    schedule_shift_label: args.shift || args.schedule_shift_label,
     requested_by: "local-cli",
     source: "cli"
   };

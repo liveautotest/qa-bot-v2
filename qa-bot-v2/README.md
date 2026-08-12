@@ -29,6 +29,7 @@ CLI 실행 예시:
 ```bash
 /opt/homebrew/bin/node src/cli.js login --env=staging --role=guest
 /opt/homebrew/bin/node src/cli.js contract-payment --env=dev --role=guest --payment_method=bank-transfer
+/opt/homebrew/bin/node src/cli.js console-schedule-change --env=dev --role=admin --reservation_id=146628 --shift="일주일 전"
 ```
 
 ## Slack 명령어
@@ -64,6 +65,7 @@ CLI 실행 예시:
 !게스트 리뷰수정 stg
 !게스트 리뷰삭제 stg
 !무통장 입금 승인
+!일정변경 146628 일주일 전 stg
 !호스트 로그인 stg
 !호스트 로그아웃 stg
 !호스트 계약 승인 stg
@@ -95,6 +97,7 @@ CLI 실행 예시:
 !호스트 연장수락 dev
 !호스트 연장승인 dev
 !무통장 입금 승인
+!일정변경 146628 일주일 전 dev
 !호스트 계약 승인 dev
 !호스트 계약 요청 거절 dev
 ```
@@ -120,6 +123,7 @@ CLI 실행 예시:
 !qa contract-approve env=staging role=host
 !qa contract-reject env=staging role=host
 !qa toss-deposit-approve
+!qa console-schedule-change env=staging role=admin reservation_id=146628 shift=일주일전
 !qa review-profile env=staging role=guest
 !qa review-schedule-select env=staging role=guest
 !qa review-detail env=staging role=guest
@@ -149,6 +153,7 @@ CLI 실행 예시:
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 일반카드` | JCB 카드 테스트 결제 후 홈 복귀 |
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 무통장` | 현금영수증, 환불 계좌, 무통장 결제 완료 후 홈 복귀. PASS 시 `!무통장 입금 승인`을 자동 연결 실행 |
 | `TC-TOSS-DEPOSIT-APPROVE-001` | `!무통장 입금 승인` | 토스 테스트 결제내역에서 최근 무통장 입금대기 건 입금처리 |
+| `TC-CONSOLE-SCHEDULE-CHANGE-001` | `!일정변경 146628 일주일 전 dev` | 콘솔 예약 상세에서 체크인/체크아웃 변경, 세부 가격 모달, 변경 완료 팝업 처리 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | `!게스트 계약 요청 취소` | 요청 상태 카드에서 계약 요청 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | `!게스트 계약 확정 취소` | 확정 계약 취소, 취소 내역 확인, 완료 팝업, 홈 복귀 |
 | `TC-INTERNAL-REFACTOR-001` | `!게스트 리브후기 프로필` | 리브후기 프로필 진입, 게시물 많은 계정 스크롤, 레이아웃/구분선 신호 확인 |
@@ -185,6 +190,13 @@ TOSS_ADMIN_EMAIL=...
 TOSS_ADMIN_PASSWORD=...
 TOSS_ADMIN_HEADLESS=true
 TOSS_ADMIN_KEEP_OPEN_ON_FAIL=false
+
+CONSOLE_DEV_URL_BASE=https://dev-console.liveanywhere.me/reservations
+CONSOLE_STAGING_URL_BASE=https://staging-console.liveanywhere.me/reservations
+CONSOLE_ADMIN_EMAIL=...
+CONSOLE_ADMIN_PASSWORD=...
+CONSOLE_ADMIN_HEADLESS=true
+CONSOLE_ADMIN_KEEP_OPEN_ON_FAIL=false
 ```
 
 기본 환경은 `staging`입니다.
@@ -224,6 +236,7 @@ reports/{run_id}/
 - 기본검증은 일반결제, 무통장 결제, 자동결제, 연장결제 카드/무통장 1사이클을 지원합니다.
 - 리뷰/쿠폰 계열은 TargetSdk/UI 리팩토링 영향권을 빠르게 확인하는 내부 리팩토링 검증 케이스입니다.
 - 리뷰 삭제는 삭제 확인 팝업 닫힘과 앱 오류 미노출까지 자동 확인하고, 계약 목록 버튼 상태 변화는 수동 확인 항목으로 남깁니다.
+- 콘솔 일정 변경은 앱/ADB를 사용하지 않는 Playwright 브라우저 자동화이며, 안정화 전까지 화면이 보이는 Chrome으로 실행합니다.
 
 ## 파일 구조
 
@@ -247,6 +260,7 @@ src/
     contract-cancel-request.test.js
     contract-payment.test.js
     contract-request.test.js
+    console-schedule-change.test.js
     coupon-box.test.js
     login.test.js
     logout.test.js

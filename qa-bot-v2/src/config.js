@@ -70,6 +70,16 @@ function loadConfig() {
       profileDir: env.TOSS_ADMIN_PROFILE_DIR || ".tmp/toss-admin-profile",
       keepOpenOnFail: env.TOSS_ADMIN_KEEP_OPEN_ON_FAIL === "true"
     },
+    consoleAdmin: {
+      devUrlBase: env.CONSOLE_DEV_URL_BASE || "https://dev-console.liveanywhere.me/reservations",
+      stagingUrlBase: env.CONSOLE_STAGING_URL_BASE || "https://staging-console.liveanywhere.me/reservations",
+      email: env.CONSOLE_ADMIN_EMAIL || env.TOSS_ADMIN_EMAIL || "",
+      password: env.CONSOLE_ADMIN_PASSWORD || env.TOSS_ADMIN_PASSWORD || "",
+      headless: env.CONSOLE_ADMIN_HEADLESS === "true",
+      chromePath: env.CONSOLE_ADMIN_CHROME_PATH || env.TOSS_ADMIN_CHROME_PATH || "",
+      profileDir: env.CONSOLE_ADMIN_PROFILE_DIR || ".tmp/console-admin-profile",
+      keepOpenOnFail: env.CONSOLE_ADMIN_KEEP_OPEN_ON_FAIL === "true"
+    },
     accounts: {
       guest: {
         email: env.GUEST_EMAIL || "",

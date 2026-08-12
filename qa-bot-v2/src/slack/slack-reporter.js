@@ -55,6 +55,8 @@ function formatHelp() {
     "!게스트 계약 결제 무통장 stg",
     "!게스트 계약 결제 무통장 dev",
     "!무통장 입금 승인 (단독 실행용, 무통장 결제 PASS 시에는 자동 실행)",
+    "!일정변경 146628 일주일 전 dev",
+    "!일정변경 146628 2주일 후 stg",
     "!호스트 로그인 stg",
     "!호스트 로그인 dev",
     "!호스트 로그아웃 stg",
@@ -360,6 +362,17 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001") {
+    return [
+      "- 콘솔 예약 상세 화면에 브라우저로 진입했습니다.",
+      "- 일정 변경 영역에서 체크인/체크아웃 달력 버튼을 선택했습니다.",
+      "- 계산된 변경 날짜를 선택하고 일정 변경, 다음, 변경 완료 버튼을 처리했습니다.",
+      result.console_schedule_change?.final_verification === "manual_required"
+        ? "- 최종 화면 날짜 반영은 자동 확정하지 못해 수동 확인 필요로 기록했습니다."
+        : "- 콘솔 화면에서 변경된 일정 반영을 확인했습니다."
+    ];
+  }
+
   return [];
 }
 
@@ -468,6 +481,18 @@ function formatResultConditionSummary(result) {
     if (result.toss_deposit.amount) lines.push(`- 금액: ${result.toss_deposit.amount}`);
     if (result.toss_deposit.buyer_name) lines.push(`- 구매자: ${result.toss_deposit.buyer_name}`);
     if (result.toss_deposit.product_name) lines.push(`- 상품: ${result.toss_deposit.product_name}`);
+  }
+
+  if (result.console_schedule_change) {
+    lines.push(`- 예약 번호: ${result.console_schedule_change.reservation_id}`);
+    lines.push(`- 변경 기준: ${result.console_schedule_change.change_label}`);
+    if (result.console_schedule_change.previous_start_date && result.console_schedule_change.previous_end_date) {
+      lines.push(`- 기존 일정: ${result.console_schedule_change.previous_start_date} ~ ${result.console_schedule_change.previous_end_date}`);
+    }
+    lines.push(`- 변경 일정: ${result.console_schedule_change.start_date} ~ ${result.console_schedule_change.end_date}`);
+    if (result.console_schedule_change.nights && result.console_schedule_change.period_days) {
+      lines.push(`- 기간: ${result.console_schedule_change.nights}박 ${result.console_schedule_change.period_days}일`);
+    }
   }
 
   if (result.review_write) {
@@ -659,6 +684,7 @@ function buildResultJudgment(result) {
   const lastPassed = getLastPassedStep(result.steps || []);
   const lastStep = getLastStep(result.steps || []);
   const details = (result.error_details || []).filter(Boolean).slice(0, 3);
+  const shouldMentionPdf = result.test_id !== "TC-CONSOLE-SCHEDULE-CHANGE-001";
 
   return {
     status,
@@ -680,7 +706,7 @@ function buildResultJudgment(result) {
     nextChecks: result.status === "fail"
       ? [
         ...details,
-        result.artifacts?.report_dir ? "PDF 리포트와 실패 화면/로그를 함께 확인해주세요." : ""
+        shouldMentionPdf && result.artifacts?.report_dir ? "PDF 리포트와 실패 화면/로그를 함께 확인해주세요." : ""
       ].filter(Boolean).slice(0, 4)
       : [],
     reportDir: result.artifacts?.report_dir || ""

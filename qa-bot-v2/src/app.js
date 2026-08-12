@@ -3,6 +3,7 @@ const { SocketModeClient } = require("@slack/socket-mode");
 const { loadConfig } = require("./config");
 const {
   BASIC_VALIDATION_PATTERN,
+  CONSOLE_SCHEDULE_CHANGE_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand
@@ -74,7 +75,15 @@ function shouldPostProgressMessage(text = "") {
   return !(/^!qa$/i.test(normalized) || /^!qa help$/i.test(normalized));
 }
 
+function isConsoleScheduleChangeCommand(text = "") {
+  return /^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경/i.test(String(text || ""));
+}
+
 function formatProgressMessage(text = "") {
+  if (isConsoleScheduleChangeCommand(text)) {
+    return "일정 변경 진행중입니다. 잠시만 기다려주세요.";
+  }
+
   return [
     "테스트를 시작했습니다.",
     "완료되면 이 스레드에 결과를 남길게요."
@@ -141,12 +150,18 @@ async function openResultThread({ client, resultTarget, sourceMessage }) {
 
   const posted = await client.chat.postMessage({
     channel: resultTarget.id,
-    text: [
-      "테스트를 시작했습니다.",
-      "완료되면 이 스레드에 결과를 남길게요.",
-      `요청자: <@${sourceMessage.user}>`,
-      `검증 대상: ${sourceMessage.text || ""}`
-    ].join("\n")
+    text: isConsoleScheduleChangeCommand(sourceMessage.text)
+      ? [
+        "일정 변경 진행중입니다. 잠시만 기다려주세요.",
+        `요청자: <@${sourceMessage.user}>`,
+        `검증 대상: ${sourceMessage.text || ""}`
+      ].join("\n")
+      : [
+        "테스트를 시작했습니다.",
+        "완료되면 이 스레드에 결과를 남길게요.",
+        `요청자: <@${sourceMessage.user}>`,
+        `검증 대상: ${sourceMessage.text || ""}`
+      ].join("\n")
   });
 
   return {
@@ -277,32 +292,34 @@ async function main() {
         thread_ts: resultThread.threadTs
       });
 
-      try {
-        const uploadedPdfs = await uploadPdfReports({
-          client: app.client,
-          config,
-          channel: resultThread.channel,
-          threadTs: resultThread.threadTs,
-          responseText: response
-        });
-        if (shouldPostProgressMessage(message.text) && uploadedPdfs.length === 0) {
+      if (!isConsoleScheduleChangeCommand(message.text)) {
+        try {
+          const uploadedPdfs = await uploadPdfReports({
+            client: app.client,
+            config,
+            channel: resultThread.channel,
+            threadTs: resultThread.threadTs,
+            responseText: response
+          });
+          if (shouldPostProgressMessage(message.text) && uploadedPdfs.length === 0) {
+            await app.client.chat.postMessage({
+              channel: resultThread.channel,
+              text: "PDF 리포트 생성 대상을 찾지 못했습니다. 결과 메시지의 run_id와 reports 폴더를 확인해주세요.",
+              thread_ts: resultThread.threadTs
+            });
+          }
+        } catch (error) {
+          console.error("Failed to upload PDF report:", error.stack || error.message);
+          const message = String(error.message || "");
+          const helpText = message.includes("missing_scope")
+            ? "PDF 리포트 첨부에 실패했습니다: Slack 앱 권한에 files:write가 필요합니다. Slack 앱 OAuth Scopes에 files:write 추가 후 앱을 다시 설치해주세요."
+            : `PDF 리포트 첨부에 실패했습니다: ${message}`;
           await app.client.chat.postMessage({
             channel: resultThread.channel,
-            text: "PDF 리포트 생성 대상을 찾지 못했습니다. 결과 메시지의 run_id와 reports 폴더를 확인해주세요.",
+            text: helpText,
             thread_ts: resultThread.threadTs
           });
         }
-      } catch (error) {
-        console.error("Failed to upload PDF report:", error.stack || error.message);
-        const message = String(error.message || "");
-        const helpText = message.includes("missing_scope")
-          ? "PDF 리포트 첨부에 실패했습니다: Slack 앱 권한에 files:write가 필요합니다. Slack 앱 OAuth Scopes에 files:write 추가 후 앱을 다시 설치해주세요."
-          : `PDF 리포트 첨부에 실패했습니다: ${message}`;
-        await app.client.chat.postMessage({
-          channel: resultThread.channel,
-          text: helpText,
-          thread_ts: resultThread.threadTs
-        });
       }
     } catch (error) {
       console.error("QA command failed before result message was posted:", error.stack || error.message);
@@ -346,6 +363,10 @@ async function main() {
   });
 
   app.message(TOSS_DEPOSIT_APPROVE_PATTERN, async ({ message, say }) => {
+    await handleQaMessage(message, say);
+  });
+
+  app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경/i, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
 

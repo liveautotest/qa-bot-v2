@@ -14,6 +14,7 @@ const { runContractPaymentTest } = require("../tests/contract-payment.test");
 const { runContractExtensionTest } = require("../tests/contract-extension.test");
 const { runContractRequestTest } = require("../tests/contract-request.test");
 const { runTossDepositApproveTest } = require("../tests/toss-deposit-approve.test");
+const { runConsoleScheduleChangeTest } = require("../tests/console-schedule-change.test");
 const { runReviewProfileTest } = require("../tests/review-profile.test");
 const { runReviewScheduleSelectTest } = require("../tests/review-schedule-select.test");
 const { runReviewDetailTest } = require("../tests/review-detail.test");
@@ -36,6 +37,7 @@ const registry = {
   "contract-payment": runContractPaymentTest,
   "contract-request": runContractRequestTest,
   "toss-deposit-approve": runTossDepositApproveTest,
+  "console-schedule-change": runConsoleScheduleChangeTest,
   "review-detail": runReviewDetailTest,
   "review-delete": runReviewDeleteTest,
   "review-profile": runReviewProfileTest,

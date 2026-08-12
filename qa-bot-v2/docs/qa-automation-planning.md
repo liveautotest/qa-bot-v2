@@ -51,7 +51,7 @@ Slack 명령어
 -> command-router
 -> test orchestrator
 -> test runner
--> Android 단말 조작
+-> Android 단말 조작 또는 콘솔 브라우저 조작
 -> reports/{run_id} 저장
 -> Slack 결과 응답
 ```
@@ -184,6 +184,8 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 !게스트 리뷰삭제 stg
 !게스트 리뷰삭제 dev
 !무통장 입금 승인
+!일정변경 146628 일주일 전 stg
+!일정변경 146628 일주일 전 dev
 !호스트 로그인 stg
 !호스트 로그인 dev
 !호스트 로그아웃 stg
@@ -218,6 +220,7 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 !qa contract-cancel-request env=staging role=guest
 !qa contract-cancel-confirmed env=staging role=guest
 !qa contract-payment env=staging role=guest method=card
+!qa console-schedule-change env=staging role=admin reservation_id=146628 shift=일주일전
 !qa contract-payment env=staging role=guest method=bank-transfer
 !qa contract-approve env=staging role=host
 !qa contract-reject env=staging role=host
