@@ -76,9 +76,83 @@ function shouldPostProgressMessage(text = "") {
 
 function formatProgressMessage(text = "") {
   return [
-    "테스트 진행 중입니다.",
+    "테스트를 시작했습니다.",
     "완료되면 이 스레드에 결과를 남길게요."
   ].join("\n");
+}
+
+function formatDelegatedProgressMessage(resultTarget) {
+  return [
+    "테스트를 시작했습니다.",
+    `결과는 ${resultTarget.label} 채널에 새 스레드로 남길게요.`
+  ].join("\n");
+}
+
+function normalizeSlackChannel(value = "") {
+  const raw = String(value || "").trim();
+  const mention = raw.match(/^<#([A-Z0-9]+)(?:\|[^>]+)?>$/);
+  if (mention) return mention[1];
+  return raw.replace(/^#/, "").trim();
+}
+
+function isSlackChannelId(value = "") {
+  return /^[CGD][A-Z0-9]+$/.test(String(value || "").trim());
+}
+
+async function resolveSlackChannel(client, channelValue) {
+  const normalized = normalizeSlackChannel(channelValue);
+  if (!normalized) return null;
+
+  if (isSlackChannelId(normalized)) {
+    return {
+      id: normalized,
+      label: `<#${normalized}>`
+    };
+  }
+
+  let cursor;
+  do {
+    const response = await client.conversations.list({
+      types: "public_channel,private_channel",
+      exclude_archived: true,
+      limit: 200,
+      cursor
+    });
+    const channel = (response.channels || []).find((item) => item.name === normalized);
+    if (channel) {
+      return {
+        id: channel.id,
+        label: `<#${channel.id}>`
+      };
+    }
+    cursor = response.response_metadata?.next_cursor;
+  } while (cursor);
+
+  throw new Error(`결과 채널을 찾지 못했습니다: ${channelValue}`);
+}
+
+async function openResultThread({ client, resultTarget, sourceMessage }) {
+  if (!resultTarget) {
+    return {
+      channel: sourceMessage.channel,
+      threadTs: sourceMessage.thread_ts || sourceMessage.ts
+    };
+  }
+
+  const posted = await client.chat.postMessage({
+    channel: resultTarget.id,
+    text: [
+      "테스트를 시작했습니다.",
+      "완료되면 이 스레드에 결과를 남길게요.",
+      `요청자: <@${sourceMessage.user}>`,
+      `검증 대상: ${sourceMessage.text || ""}`
+    ].join("\n")
+  });
+
+  return {
+    channel: resultTarget.id,
+    threadTs: posted.ts
+  };
 }
 
 const handledMessageKeys = new Map();
@@ -86,6 +160,19 @@ const activeCommandKeys = new Set();
 
 function normalizeCommandText(text = "") {
   return String(text).trim().replace(/\s+/g, " ");
+}
+
+function resultChannelAllowlist(config) {
+  return String(config.slackResultChannelAllowlist || "")
+    .split(/[,\n]/)
+    .map((item) => normalizeCommandText(item))
+    .filter(Boolean);
+}
+
+function shouldUseResultChannel(text = "", config = {}) {
+  if (!shouldPostProgressMessage(text) || !config.slackResultChannel) return false;
+  const normalized = normalizeCommandText(text);
+  return resultChannelAllowlist(config).includes(normalized);
 }
 
 function messageDedupeKey(message) {
@@ -144,13 +231,35 @@ async function main() {
     }
 
     activeCommandKeys.add(commandKey);
+    let resultThread = {
+      channel: message.channel,
+      threadTs
+    };
     try {
+      let resultTarget = null;
+      if (shouldUseResultChannel(message.text, config)) {
+        try {
+          resultTarget = await resolveSlackChannel(app.client, config.slackResultChannel);
+        } catch (error) {
+          await say({
+            text: `결과 채널 설정을 확인하지 못했습니다: ${error.message}`,
+            thread_ts: threadTs
+          });
+          return;
+        }
+      }
+      resultThread = await openResultThread({
+        client: app.client,
+        resultTarget,
+        sourceMessage: message
+      });
+
       if (/기본검증/i.test(String(message.text || ""))) {
         console.log(`[QA command] ${message.text}`);
       }
       if (shouldPostProgressMessage(message.text)) {
         await say({
-          text: formatProgressMessage(message.text),
+          text: resultTarget ? formatDelegatedProgressMessage(resultTarget) : formatProgressMessage(message.text),
           thread_ts: threadTs
         });
       }
@@ -158,31 +267,64 @@ async function main() {
       const response = await routeCommand(message.text, {
         config,
         user: message.user,
-        channel: message.channel,
-        threadTs
+        channel: resultThread.channel,
+        threadTs: resultThread.threadTs
       });
 
-      await say({
+      await app.client.chat.postMessage({
+        channel: resultThread.channel,
         text: response,
-        thread_ts: threadTs
+        thread_ts: resultThread.threadTs
       });
 
       try {
-        await uploadPdfReports({
+        const uploadedPdfs = await uploadPdfReports({
           client: app.client,
           config,
-          channel: message.channel,
-          threadTs,
+          channel: resultThread.channel,
+          threadTs: resultThread.threadTs,
           responseText: response
         });
+        if (shouldPostProgressMessage(message.text) && uploadedPdfs.length === 0) {
+          await app.client.chat.postMessage({
+            channel: resultThread.channel,
+            text: "PDF 리포트 생성 대상을 찾지 못했습니다. 결과 메시지의 run_id와 reports 폴더를 확인해주세요.",
+            thread_ts: resultThread.threadTs
+          });
+        }
       } catch (error) {
         console.error("Failed to upload PDF report:", error.stack || error.message);
         const message = String(error.message || "");
         const helpText = message.includes("missing_scope")
           ? "PDF 리포트 첨부에 실패했습니다: Slack 앱 권한에 files:write가 필요합니다. Slack 앱 OAuth Scopes에 files:write 추가 후 앱을 다시 설치해주세요."
           : `PDF 리포트 첨부에 실패했습니다: ${message}`;
-        await say({
+        await app.client.chat.postMessage({
+          channel: resultThread.channel,
           text: helpText,
+          thread_ts: resultThread.threadTs
+        });
+      }
+    } catch (error) {
+      console.error("QA command failed before result message was posted:", error.stack || error.message);
+      const failureText = [
+        "[FAIL] QA 자동화 실행",
+        `검증 대상: ${message.text || ""}`,
+        `실패 사유: ${error.message || error}`,
+        "",
+        "자동화 실행 중 예외가 발생해서 정상 결과 리포트를 만들지 못했습니다.",
+        "봇 로그와 최신 reports 폴더를 확인해주세요."
+      ].join("\n");
+
+      try {
+        await app.client.chat.postMessage({
+          channel: resultThread.channel,
+          text: failureText,
+          thread_ts: resultThread.threadTs
+        });
+      } catch (postError) {
+        console.error("Failed to post QA command failure message:", postError.stack || postError.message);
+        await say({
+          text: failureText,
           thread_ts: threadTs
         });
       }

@@ -37,6 +37,8 @@ function loadConfig() {
     reportBaseDir: path.resolve(projectRoot, env.QA_REPORT_BASE_DIR || "reports"),
     slackBotToken: env.SLACK_BOT_TOKEN || "",
     slackAppToken: env.SLACK_APP_TOKEN || "",
+    slackResultChannel: env.SLACK_RESULT_CHANNEL || "",
+    slackResultChannelAllowlist: env.SLACK_RESULT_CHANNEL_ALLOWLIST || "",
     adbPath: env.ADB_PATH || "adb",
     devices: {
       guest: env.ADB_GUEST_DEVICE || "",

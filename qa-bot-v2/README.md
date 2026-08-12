@@ -167,6 +167,8 @@ CLI 실행 예시:
 QA_DRY_RUN=false
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
+SLACK_RESULT_CHANNEL=C01KLGVHMD3
+SLACK_RESULT_CHANNEL_ALLOWLIST=!기본검증 연장결제 stg,!기본검증 연장결제 dev,!기본검증 일반결제 stg,!기본검증 일반결제 dev,!기본검증 무통장 결제 stg,!기본검증 무통장 결제 dev,!기본검증 자동결제 stg,!기본검증 자동결제 dev,!기본검증 연장결제 카드 stg,!기본검증 연장결제 카드 dev,!기본검증 연장결제 무통장 stg,!기본검증 연장결제 무통장 dev,!게스트 연장요청 stg,!게스트 연장요청 dev,!호스트 연장수락 stg,!호스트 연장수락 dev,!게스트 연장결제 카드 stg,!게스트 연장결제 카드 dev,!게스트 연장결제 무통장 stg,!게스트 연장결제 무통장 dev,!게스트 리뷰작성 stg,!게스트 리뷰작성 dev,!게스트 리뷰수정 stg,!게스트 리뷰수정 dev,!게스트 리뷰삭제 stg,!게스트 리뷰삭제 dev
 ADB_PATH=/Users/liveanywhere_test/Library/Android/sdk/platform-tools/adb
 ADB_GUEST_DEVICE=R3CT80QJ3NL
 ADB_HOST_DEVICE=R3CR30K439K
