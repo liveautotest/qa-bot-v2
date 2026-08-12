@@ -553,7 +553,57 @@ async function clickButtonByText(page, patterns) {
   }, patterns.map((pattern) => pattern.source));
 }
 
+async function extractSchedulePriceChangeSummary(page) {
+  return page.evaluate(() => {
+    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const moneyPattern = /-?\s*[\d,]+\s*원/g;
+    const titlePattern = /(일정 변경 및 세부 가격 변경|세부 가격|가격 변경|게스트 기준 가격 차이)/;
+    const dialog = Array.from(document.querySelectorAll("[role='dialog'], .MuiDialog-root, .MuiModal-root, .MuiPaper-root, section, div"))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        if (!rect.width || !rect.height) return false;
+        const text = normalize(element.textContent);
+        return titlePattern.test(text) && text.includes("정산 필요 금액");
+      })
+      .sort((a, b) => normalize(a.textContent).length - normalize(b.textContent).length)[0];
+
+    const text = normalize(dialog?.textContent || document.body.innerText || "");
+    const settlement = {};
+
+    for (const label of ["호스트 추가 정산", "호스트 지불", "게스트 추가 결제", "게스트 환불"]) {
+      const pattern = `${label.replace(/\s+/g, "\\s*")}\\s*(-?\\s*[\\d,]+\\s*원)`;
+      const match = text.match(new RegExp(pattern));
+      if (match) settlement[label] = normalize(match[1]);
+    }
+
+    const unique = [];
+    for (const label of ["호스트 추가 정산", "호스트 지불", "게스트 추가 결제", "게스트 환불"]) {
+      const value = settlement[label];
+      if (!value) continue;
+      const chunk = `${label}: ${value}`;
+      const compact = chunk.replace(/\s+/g, " ");
+      if (!unique.includes(compact)) unique.push(compact);
+    }
+
+    const moneyValues = Array.from(text.matchAll(moneyPattern)).map((match) => normalize(match[0]));
+    return {
+      settlement,
+      summary_lines: unique,
+      money_values: [...new Set(moneyValues)].slice(0, 8),
+      raw_text: text.slice(0, 1200)
+    };
+  }).catch((error) => ({
+    settlement: {},
+    summary_lines: [],
+    money_values: [],
+    raw_text: "",
+    error: String(error?.message || error || "")
+  }));
+}
+
 async function submitScheduleChange(page, store, steps) {
+  let priceChangeSummary = null;
+
   if (!(await clickButtonByText(page, [/일정\s*변경/]))){
     await saveHtml(page, store, "console-schedule-change-button-not-found");
     await saveScreenshot(page, store, "console-schedule-change-button-not-found");
@@ -570,6 +620,20 @@ async function submitScheduleChange(page, store, steps) {
 
   const bodyAfterSubmit = normalizeText(await page.locator("body").innerText({ timeout: 15000 }).catch(() => ""));
   if (/일정 변경 및 세부 가격 변경|세부 가격|가격 변경/.test(bodyAfterSubmit)) {
+    await saveHtml(page, store, "console-price-change-modal");
+    await saveScreenshot(page, store, "console-price-change-modal");
+    priceChangeSummary = await extractSchedulePriceChangeSummary(page);
+    if (priceChangeSummary.summary_lines.length || priceChangeSummary.money_values.length) {
+      addStep(
+        steps,
+        "일정 변경 정산 금액 확인",
+        "pass",
+        priceChangeSummary.summary_lines[0] || priceChangeSummary.money_values.join(", ")
+      );
+    } else {
+      addStep(steps, "일정 변경 정산 금액 확인", "warning", "자동 추출 불가, 콘솔 모달 수동 확인 필요");
+    }
+
     if (!(await clickButtonByText(page, [/다음/]))){
       await saveHtml(page, store, "console-price-change-next-not-found");
       await saveScreenshot(page, store, "console-price-change-next-not-found");
@@ -608,6 +672,7 @@ async function submitScheduleChange(page, store, steps) {
 
   await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
   await page.waitForTimeout(1200);
+  return priceChangeSummary;
 }
 
 async function verifyChangedSchedule(page, store, steps, range) {
@@ -722,7 +787,7 @@ async function runConsoleScheduleChangeTest({ request, config, store }) {
     await changeDateField(page, store, steps, "체크인", range.startDate);
     await changeDateField(page, store, steps, "체크아웃", range.endDate);
     await assertScheduleInputsChanged(page, store, steps, range);
-    await submitScheduleChange(page, store, steps);
+    const priceChangeSummary = await submitScheduleChange(page, store, steps);
     const verificationStatus = await verifyChangedSchedule(page, store, steps, range);
     addStep(steps, "콘솔 일정 변경 완료");
 
@@ -743,6 +808,7 @@ async function runConsoleScheduleChangeTest({ request, config, store }) {
         previous_end_date: currentSchedule.checkout,
         start_date: range.startDateText,
         end_date: range.endDateText,
+        price_change_summary: priceChangeSummary,
         url: consoleReservationUrl(config, request.env, reservationId),
         visual_browser: !config.consoleAdmin.headless,
         final_verification: verificationStatus

@@ -493,6 +493,24 @@ function formatResultConditionSummary(result) {
     if (result.console_schedule_change.nights && result.console_schedule_change.period_days) {
       lines.push(`- 기간: ${result.console_schedule_change.nights}박 ${result.console_schedule_change.period_days}일`);
     }
+    const priceSummary = result.console_schedule_change.price_change_summary;
+    const settlementLabels = ["호스트 추가 정산", "호스트 지불", "게스트 추가 결제", "게스트 환불"];
+    const settlementLines = settlementLabels
+      .filter((label) => priceSummary?.settlement?.[label])
+      .map((label) => `${label}: ${priceSummary.settlement[label]}`);
+    if (settlementLines.length) {
+      lines.push("- 정산/가격 변경:");
+      for (const line of settlementLines) {
+        lines.push(`  - ${line}`);
+      }
+    } else if (priceSummary?.summary_lines?.length) {
+      lines.push("- 정산/가격 변경:");
+      for (const line of priceSummary.summary_lines.slice(0, 4)) {
+        lines.push(`  - ${line}`);
+      }
+    } else if (priceSummary) {
+      lines.push("- 정산/가격 변경: 자동 추출 불가, 콘솔 모달 수동 확인 필요");
+    }
   }
 
   if (result.review_write) {
@@ -530,7 +548,7 @@ function formatResultConditionSummary(result) {
     lines.push(result.review_delete.deleted ? "- 삭제 처리: 완료" : "- 삭제 처리: 확인 필요");
   }
 
-  return lines.slice(0, 6);
+  return lines.slice(0, result.console_schedule_change ? 10 : 6);
 }
 
 function formatFigmaValidationSummary(validation) {
@@ -676,11 +694,12 @@ function buildResultJudgment(result) {
   const status = String(result.status || "unknown").toUpperCase();
   const passSummary = formatPassSummary(result).map((line) => line.replace(/^- /, ""));
   const figmaSummary = formatFigmaValidationSummary(result.figma_validation);
+  const conditionLimit = result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001" ? 10 : 6;
   const conditionSummary = [
     ...formatSearchConditions(result.search_conditions).slice(0, 3),
     ...formatSearchConditions(result.contract_conditions).slice(0, 3),
     ...formatResultConditionSummary(result)
-  ].slice(0, 6);
+  ].slice(0, conditionLimit);
   const lastPassed = getLastPassedStep(result.steps || []);
   const lastStep = getLastStep(result.steps || []);
   const details = (result.error_details || []).filter(Boolean).slice(0, 3);
@@ -714,6 +733,36 @@ function buildResultJudgment(result) {
 }
 
 function formatJudgmentLines(result) {
+  if (result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001") {
+    const judgment = buildResultJudgment(result);
+    const lines = [
+      `[${judgment.status}] ${judgment.title}`,
+      `요청자: ${judgment.requester} / 환경: ${judgment.env} / 소요시간: ${judgment.duration}`,
+      `run_id: ${judgment.runId}`
+    ];
+
+    if (judgment.conditions.length) {
+      lines.push("");
+      lines.push("주요 조건:");
+      lines.push(...judgment.conditions);
+    }
+
+    if (result.status === "fail") {
+      lines.push("");
+      lines.push("실패 요약:");
+      lines.push(`- ${judgment.conclusion}`);
+      if (judgment.lastPassed && judgment.lastPassed !== "-") lines.push(`- 마지막 성공: ${judgment.lastPassed}`);
+      if (judgment.lastProgress && judgment.lastProgress !== "-") lines.push(`- 마지막 진행: ${judgment.lastProgress}`);
+      if (judgment.nextChecks.length) {
+        lines.push("");
+        lines.push("다음 확인:");
+        lines.push(...judgment.nextChecks.map((line) => `- ${line}`));
+      }
+    }
+
+    return lines;
+  }
+
   const judgment = buildResultJudgment(result);
   const lines = [
     `[${judgment.status}] ${judgment.title}`,
