@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { chromium } = require("playwright-core");
+const { runAdb } = require("../infra/adb");
 
 function addStep(steps, name, status = "pass", message) {
   const step = { name, status };
@@ -121,6 +122,7 @@ function findLatestBankTransferPayment(reportBaseDir) {
 
       return {
         run_id: result.run_id,
+        env: result.env,
         report_dir: item.runDir,
         target: result.payment_conditions.toss_approval_target || recoverApprovalTarget(item.runDir),
         payment_conditions: result.payment_conditions
@@ -302,14 +304,70 @@ async function loginIfNeeded(page, config, steps) {
   await page.waitForTimeout(1000);
 }
 
-async function preparePaymentLogs(page, config, store, steps) {
-  await page.goto(config.tossAdmin.url, { waitUntil: "domcontentloaded", timeout: 45000 });
+async function gotoPaymentLogs(page, url) {
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+  } catch (error) {
+    const message = String(error && error.message ? error.message : error);
+    // 토스 콘솔이 로그인/세션 복구 중 같은 결제내역 URL로 자체 이동하는 경우가 있어,
+    // 최종 URL이 맞으면 실패로 보지 않고 다음 안정화 단계로 넘긴다.
+    if (!message.includes("interrupted by another navigation") || !page.url().includes("/payment-logs")) {
+      throw error;
+    }
+  }
   await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+}
+
+async function relaunchGuestAppFromPayment(config, latestPayment, store, steps) {
+  const env = latestPayment.env;
+  const device = config.devices?.guest;
+  const appPackage = config.androidPackages?.[env];
+
+  if (!env || !device || !appPackage) {
+    return {
+      status: "skipped",
+      reason: "무통장 결제 기준 리포트에서 guest 앱 재실행 대상을 확인하지 못했습니다."
+    };
+  }
+
+  try {
+    await runAdb(config, device, ["shell", "am", "force-stop", appPackage]);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await runAdb(config, device, [
+      "shell",
+      "monkey",
+      "-p",
+      appPackage,
+      "-c",
+      "android.intent.category.LAUNCHER",
+      "1"
+    ]);
+    addStep(steps, "무통장 입금 승인 후 guest 앱 재실행", "pass", `${env} / ${device}`);
+    return {
+      status: "pass",
+      env,
+      device,
+      app_package: appPackage
+    };
+  } catch (error) {
+    store.appendLog("runner.log", `post toss deposit guest app relaunch failed: ${error.message}`);
+    addStep(steps, "무통장 입금 승인 후 guest 앱 재실행", "warning", error.message);
+    return {
+      status: "warning",
+      env,
+      device,
+      app_package: appPackage,
+      message: error.message
+    };
+  }
+}
+
+async function preparePaymentLogs(page, config, store, steps) {
+  await gotoPaymentLogs(page, config.tossAdmin.url);
   await loginIfNeeded(page, config, steps);
 
   if (!page.url().includes("/payment-logs")) {
-    await page.goto(config.tossAdmin.url, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+    await gotoPaymentLogs(page, config.tossAdmin.url);
   }
 
   if (await page.locator("input[type='password']").count().catch(() => 0)) {
@@ -545,6 +603,8 @@ async function runTossDepositApproveTest({ config, store }) {
     }
   }
 
+  const guestAppRelaunch = await relaunchGuestAppFromPayment(config, latestPayment, store, steps);
+
   return {
     test_id: "TC-TOSS-DEPOSIT-APPROVE-001",
     name: "무통장 입금 승인",
@@ -560,6 +620,7 @@ async function runTossDepositApproveTest({ config, store }) {
       product_name: target.product_name,
       contract_number_suffix: target.contract_number_suffix
     },
+    guest_app_relaunch: guestAppRelaunch,
     artifacts: {
       screenshots: [],
       logs: [

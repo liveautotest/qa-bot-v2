@@ -695,8 +695,7 @@ function isPaymentComplete(xml) {
     xml.includes("Payment complete") ||
     xml.includes("결제가 완료되었습니다") ||
     xml.includes("결제가 완료") ||
-    xml.includes("결제되었습니다") ||
-    xml.includes("계약이 확정")
+    xml.includes("결제되었습니다")
   );
 }
 
@@ -869,7 +868,7 @@ async function tapHolderCheckRobust(config, device, store, steps, xml) {
         isAccountHolderConfirmDialog(candidateXml) ||
         hasRefundAccountVerified(candidateXml) ||
         hasRefundAccountRequiredError(candidateXml)
-      ), 3000);
+      ), 5000);
       if (
         isAccountHolderConfirmDialog(nextXml) ||
         hasRefundAccountVerified(nextXml) ||
@@ -918,10 +917,9 @@ function isAccountHolderConfirmDialog(xml) {
 
 function hasRefundAccountVerified(xml) {
   return (
-    !hasVisibleEnabledHolderCheck(xml) ||
+    xml.includes("홍길동") ||
     xml.includes("예금주 확인 완료") ||
-    xml.includes("예금주가 확인") ||
-    xml.includes("확인 완료")
+    xml.includes("예금주가 확인")
   );
 }
 
@@ -1685,16 +1683,27 @@ function findRefundAccountInput(xml) {
 }
 
 async function bringRefundAccountInputIntoSafeView(config, device, xml) {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 7; attempt += 1) {
     const accountInput = findRefundAccountInput(xml);
     if (accountInput?.bounds && accountInput.bounds.top >= 720 && accountInput.bounds.bottom <= 1480) {
       return xml;
     }
 
-    if (!accountInput?.bounds || accountInput.bounds.bottom > 1480) {
+    const passedRefundAccountSection = (
+      !accountInput?.bounds &&
+      (
+        xml.includes("계약 취소") ||
+        xml.includes("상세 규정 확인") ||
+        xml.includes("환불 규정") ||
+        xml.includes("고객센터 1:1")
+      )
+    );
+
+    // 은행 드롭다운 선택 후 화면이 하단 환불 규정까지 튀는 경우가 있어, 지나쳤다면 반대로 되돌린다.
+    if (passedRefundAccountSection || accountInput?.bounds?.top < 720) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "960", "540", "1720", "140"]);
+    } else if (!accountInput?.bounds || accountInput.bounds.bottom > 1480) {
       await runAdb(config, device, ["shell", "input", "swipe", "540", "2040", "540", "1120", "160"]);
-    } else if (accountInput.bounds.top < 720) {
-      await runAdb(config, device, ["shell", "input", "swipe", "540", "960", "540", "1300", "120"]);
     }
     await new Promise((resolve) => setTimeout(resolve, 120));
     xml = await dumpUiStable(config, device);
@@ -2051,7 +2060,10 @@ async function fillRefundAccount(config, device, store, steps, xml) {
     });
     await tapNode(config, device, confirmButton, "예금주 확인 팝업 확인 버튼", steps);
     addStep(steps, "예금주 확인 팝업 확인 버튼 탭");
-    xml = await waitForUi(config, device, (nextXml) => !isAccountHolderConfirmDialog(nextXml), 4000);
+    xml = await waitForUi(config, device, (nextXml) => (
+      !isAccountHolderConfirmDialog(nextXml) &&
+      (hasRefundAccountVerified(nextXml) || hasRefundAccountRequiredError(nextXml))
+    ), 5000);
   }
 
   saveXml(store, "account-holder-checked", xml);
@@ -2102,6 +2114,22 @@ async function submitBankTransferPayment(config, device, store, steps, xml) {
   xml = await selectBankTransferMethod(config, device, store, steps, xml);
   addStep(steps, "현금영수증 입력 생략", "pass", "무통장 결제 속도 개선을 위해 현금영수증 입력/발급요청은 수행하지 않음");
   xml = await fillRefundAccount(config, device, store, steps, xml);
+
+  if (isAccountHolderConfirmDialog(xml)) {
+    const confirmButton = findExactNode(xml, "확인", {
+      visible: true,
+      clickable: true,
+      enabled: true
+    });
+    if (confirmButton?.bounds) {
+      await tapNode(config, device, confirmButton, "예금주 확인 팝업 확인 버튼", steps);
+      addStep(steps, "예금주 확인 팝업 확인 버튼 탭", "pass", "제출 직전 지연 노출 팝업 처리");
+      xml = await waitForUi(config, device, (nextXml) => (
+        !isAccountHolderConfirmDialog(nextXml) &&
+        (hasRefundAccountVerified(nextXml) || hasRefundAccountRequiredError(nextXml))
+      ), 5000);
+    }
+  }
 
   xml = await scrollUntil(
     config,

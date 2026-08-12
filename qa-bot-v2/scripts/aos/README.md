@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `!기본검증 일반결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
 | `!기본검증 무통장 결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
-| `!기본검증 자동결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
+| `!기본검증 등록카드결제` | 개별 스크립트 조합 | `src/slack/command-router.js` |
 | `!기본검증 연장결제 카드` | 개별 스크립트 조합 | `src/slack/command-router.js` |
 | `!기본검증 연장결제 무통장` | 개별 스크립트 조합 | `src/slack/command-router.js` |
 | `!게스트 로그인` | `login.guest.yaml` | `src/tests/login.test.js` |
@@ -67,7 +67,7 @@
 | --- | --- |
 | `!기본검증 일반결제` | `login.guest` -> `contract-request.guest` -> `contract-approve.host` -> `contract-payment.guest(method=card)` |
 | `!기본검증 무통장 결제` | `login.guest` -> `contract-request.guest` -> `contract-approve.host` -> `contract-payment.guest(method=bank-transfer)` -> `toss-deposit-approve.web` |
-| `!기본검증 자동결제` | `login.guest` -> `contract-request.guest(method=auto-card)` -> `contract-approve.host` |
+| `!기본검증 등록카드결제` | `login.guest` -> `contract-request.guest(method=auto-card)` -> `contract-approve.host` |
 | `!기본검증 연장결제 카드` | `login.guest` -> `contract-extension.guest` -> `contract-extension-approve.host` -> `contract-payment.guest(extension, method=card)` |
 | `!기본검증 연장결제 무통장` | `login.guest` -> `contract-extension.guest` -> `contract-extension-approve.host` -> `contract-payment.guest(extension, method=bank-transfer)` |
 
@@ -86,7 +86,7 @@
 !게스트 계약 요청 stg
 !기본검증 일반결제 dev
 !기본검증 무통장 결제 dev
-!기본검증 자동결제 dev
+!기본검증 등록카드결제 dev
 !기본검증 연장결제 카드 dev
 !기본검증 연장결제 무통장 dev
 !호스트 계약 승인 dev

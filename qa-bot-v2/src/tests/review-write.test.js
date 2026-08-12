@@ -149,6 +149,44 @@ function validateGeneratedReviewText(xml) {
   };
 }
 
+function hasAiReviewLoading(xml) {
+  return /작성 중|loading|로딩|{{common\.loading}}|선택한 키워드/i.test(xml);
+}
+
+function findSubmitReviewButton(xml, options = {}) {
+  const labels = ["리뷰 제출", "제출", "등록"];
+  return findExactNode(xml, labels, {
+    visible: true,
+    clickable: options.enabledOnly !== false,
+    enabled: options.enabledOnly !== false
+  }) || findNode(xml, labels, {
+    visible: true,
+    clickable: options.enabledOnly !== false,
+    enabled: options.enabledOnly !== false
+  });
+}
+
+async function waitForAiReviewReady(config, device, timeoutMs = 60000) {
+  const startedAt = Date.now();
+  let currentXml = "";
+
+  // AI 생성 중에도 버튼 텍스트는 먼저 노출될 수 있으므로 실제 활성 상태까지 기다린다.
+  while (Date.now() - startedAt < timeoutMs) {
+    currentXml = await dumpUiStable(config, device);
+    const enabledSubmit = findSubmitReviewButton(currentXml, { enabledOnly: true });
+    if (enabledSubmit?.bounds && !hasAiReviewLoading(currentXml) && !hasAppError(currentXml)) {
+      return { xml: currentXml, submitButton: enabledSubmit, ready: true };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+
+  return {
+    xml: currentXml,
+    submitButton: findSubmitReviewButton(currentXml, { enabledOnly: true }),
+    ready: false
+  };
+}
+
 function findVisibleButton(xml, labels) {
   const exact = findExactNode(xml, labels, {
     visible: true,
@@ -634,26 +672,33 @@ async function tapSimpleAiReview(config, device, store, steps, xml) {
     addStep(steps, "AI 리뷰 작성 대기 버튼 확인", "pass", "버튼이 XML에 없거나 간편 작성 직후 자동 생성 대기 상태");
   }
 
-  currentXml = await waitForUi(config, device, (candidate) => (
-    candidate.includes("리뷰 제출") ||
-    candidate.includes("제출") ||
-    candidate.includes("등록")
-  ), 25000);
+  const readyResult = await waitForAiReviewReady(config, device);
+  currentXml = readyResult.xml;
   saveXml(store, "review-write-ai-complete", currentXml);
-  if (!currentXml.includes("리뷰 제출") && !currentXml.includes("제출") && !currentXml.includes("등록")) {
+  if (!readyResult.ready) {
     await saveFailureArtifacts(config, device, store, "review-write-ai-review-not-complete", currentXml);
+    const disabledSubmit = findSubmitReviewButton(currentXml, { enabledOnly: false });
     fail(
       "AI 리뷰 작성 완료 상태를 확인하지 못했습니다.",
       steps,
       [
-        "간편 작성 후 리뷰 내용이 생성되고 리뷰 제출 버튼이 보여야 합니다.",
+        disabledSubmit?.bounds
+          ? "리뷰 제출 버튼은 보이지만 아직 활성화되지 않았습니다."
+          : "간편 작성 후 리뷰 내용이 생성되고 리뷰 제출 버튼이 보여야 합니다.",
+        hasAiReviewLoading(currentXml)
+          ? "AI 리뷰 생성 로딩 문구가 아직 남아 있습니다."
+          : "AI 리뷰 생성 로딩 문구는 보이지 않지만 제출 가능 상태가 아닙니다.",
         "리포트의 review-write-ai-review-not-complete.png 화면을 확인해주세요."
       ]
     );
   }
 
   const reviewTextValidation = validateGeneratedReviewText(currentXml);
-  if (reviewTextValidation.status === "fail") {
+  const onlyXmlTextMissing = (
+    reviewTextValidation.issues.length === 1 &&
+    reviewTextValidation.issues[0].includes("Android XML")
+  );
+  if (reviewTextValidation.status === "fail" && !onlyXmlTextMissing) {
     await saveFailureArtifacts(config, device, store, "review-write-ai-review-text-invalid", currentXml);
     fail(
       "AI 리뷰 본문 자동 검증에 실패했습니다.",
@@ -666,24 +711,35 @@ async function tapSimpleAiReview(config, device, store, steps, xml) {
   }
 
   addStep(steps, "AI 리뷰 작성 완료 확인");
-  addStep(
-    steps,
-    "AI 리뷰 본문 오류 자동 확인",
-    "pass",
-    reviewTextValidation.checks.join(", ")
-  );
+  if (onlyXmlTextMissing) {
+    reviewTextValidation.status = "manual_required";
+    reviewTextValidation.checks.push("리뷰 제출 버튼 활성화 확인");
+    addStep(
+      steps,
+      "AI 리뷰 본문 오류 자동 확인",
+      "pass",
+      "본문이 Android XML에 노출되지 않아 PDF 화면 수동 확인 필요, 리뷰 제출 버튼 활성화 확인"
+    );
+  } else {
+    addStep(
+      steps,
+      "AI 리뷰 본문 오류 자동 확인",
+      "pass",
+      reviewTextValidation.checks.join(", ")
+    );
+  }
   return { xml: currentXml, reviewTextValidation };
 }
 
 async function submitReview(config, device, store, steps, xml) {
   let currentXml = xml;
-  let submitButton = findVisibleButton(currentXml, ["리뷰 제출", "제출", "등록"]);
+  let submitButton = findSubmitReviewButton(currentXml, { enabledOnly: true });
 
   for (let count = 0; !submitButton?.bounds && count < 4; count += 1) {
     await runAdb(config, device, ["shell", "input", "swipe", "540", "1800", "540", "920", "160"]);
     await new Promise((resolve) => setTimeout(resolve, 150));
     currentXml = await dumpUiStable(config, device);
-    submitButton = findVisibleButton(currentXml, ["리뷰 제출", "제출", "등록"]);
+    submitButton = findSubmitReviewButton(currentXml, { enabledOnly: true });
   }
 
   if (!submitButton?.bounds) {

@@ -137,8 +137,8 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 !기본검증 일반결제 dev
 !기본검증 무통장 결제 stg
 !기본검증 무통장 결제 dev
-!기본검증 자동결제 stg
-!기본검증 자동결제 dev
+!기본검증 등록카드결제 stg
+!기본검증 등록카드결제 dev
 !기본검증 연장결제 카드 stg
 !기본검증 연장결제 카드 dev
 !기본검증 연장결제 무통장 stg
@@ -242,7 +242,7 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 | --- | --- | --- | --- |
 | `FLOW-BASIC-CARD-001` | 기본검증 일반결제 | guest, host | 게스트 계약 요청부터 호스트 승인, 게스트 일반카드 결제까지 1사이클 검증 |
 | `FLOW-BASIC-BANK-001` | 기본검증 무통장 결제 | guest, host, admin | 게스트 계약 요청부터 호스트 승인, 게스트 무통장 결제, Toss 입금 승인까지 1사이클 검증 |
-| `FLOW-BASIC-AUTO-001` | 기본검증 자동결제 | guest, host | 게스트 자동카드 계약 요청부터 호스트 승인까지 1사이클 검증 |
+| `FLOW-BASIC-AUTO-001` | 기본검증 등록카드결제 | guest, host | 게스트 자동카드 계약 요청부터 호스트 승인까지 1사이클 검증 |
 | `FLOW-EXTENSION-CARD-001` | 기본검증 연장결제 카드 | guest, host | 게스트 연장요청부터 호스트 연장수락, 게스트 카드 연장결제까지 1사이클 검증 |
 | `FLOW-EXTENSION-BANK-001` | 기본검증 연장결제 무통장 | guest, host | 게스트 연장요청부터 호스트 연장수락, 게스트 무통장 연장결제까지 1사이클 검증 |
 | `TC-LOGIN-001` | 로그인 | guest, host | 이메일 로그인 및 역할별 완료 상태 확인 |
@@ -297,7 +297,7 @@ caffeinate -i /opt/homebrew/bin/node src/app.js
 -> Toss 테스트 결제내역 입금 승인
 ```
 
-자동결제:
+등록카드결제:
 
 ```text
 게스트 로그인

@@ -1,3 +1,4 @@
+const { runAdb } = require("../infra/adb");
 const { runTest } = require("../orchestrator/run-test");
 const { buildResultJudgment, formatHelp, formatResult } = require("./slack-reporter");
 
@@ -8,7 +9,7 @@ const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const CONSOLE_SCHEDULE_CHANGE_PATTERN =
   /^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경\s+(\d+)\s+((?:일|1|2)주일|한\s*달|한달|1개월)\s*(전|후)\s+(dev|stg|staging)\s*$/i;
 const BASIC_VALIDATION_PATTERN =
-  /^\s*![\s\u200b\u200c\u200d\ufeff]*기본검증\s+(일반결제|일반\s*결제|무통장결제|무통장\s*결제|자동결제|자동\s*결제|연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?\s*$/i;
+  /^\s*![\s\u200b\u200c\u200d\ufeff]*기본검증\s+(일반결제|일반\s*결제|무통장결제|무통장\s*결제|등록카드결제|등록카드\s*결제|연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?\s*$/i;
 
 function parseKeyValues(parts) {
   const values = {};
@@ -129,8 +130,8 @@ function parseBasicValidation(text) {
     "일반 결제": "card",
     무통장결제: "bank-transfer",
     "무통장 결제": "bank-transfer",
-    자동결제: "auto-card",
-    "자동 결제": "auto-card",
+    등록카드결제: "auto-card",
+    "등록카드 결제": "auto-card",
     연장결제: "extension-card",
     "연장 결제": "extension-card",
     "연장결제 카드": "extension-card",
@@ -390,6 +391,57 @@ function appendFlowSection(sections, title, result) {
   sections.push(compactFlowSection(title, result));
 }
 
+async function relaunchGuestAppForFlow(env, context) {
+  const device = context.config.devices?.guest;
+  const appPackage = context.config.androidPackages?.[env];
+  const startedAt = Date.now();
+
+  if (!device || !appPackage) {
+    return {
+      status: "fail",
+      name: "guest 앱 재실행",
+      env,
+      device: device || "unknown",
+      duration_ms: Date.now() - startedAt,
+      error: "게스트 단말 또는 앱 패키지 설정을 찾지 못했습니다.",
+      steps: []
+    };
+  }
+
+  try {
+    await runAdb(context.config, device, ["shell", "am", "force-stop", appPackage]);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await runAdb(context.config, device, [
+      "shell",
+      "monkey",
+      "-p",
+      appPackage,
+      "-c",
+      "android.intent.category.LAUNCHER",
+      "1"
+    ]);
+
+    return {
+      status: "pass",
+      name: "guest 앱 재실행",
+      env,
+      device,
+      duration_ms: Date.now() - startedAt,
+      steps: [{ name: "호스트 승인 후 게스트 앱 재실행", status: "pass" }]
+    };
+  } catch (error) {
+    return {
+      status: "fail",
+      name: "guest 앱 재실행",
+      env,
+      device,
+      duration_ms: Date.now() - startedAt,
+      error: error.message,
+      steps: []
+    };
+  }
+}
+
 function looksLikeLoginSessionFailure(result) {
   const message = String(result?.error || "");
   return (
@@ -493,7 +545,7 @@ function basicValidationLabel(paymentMethod) {
   if (paymentMethod === "extension-bank-transfer") return "연장결제 무통장";
   if (paymentMethod === "extension-card") return "연장결제";
   if (paymentMethod === "bank-transfer") return "무통장 결제";
-  if (paymentMethod === "auto-card") return "자동결제";
+  if (paymentMethod === "auto-card") return "등록카드결제";
   return "일반결제";
 }
 
@@ -563,7 +615,7 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
   const sections = [
     `[기본검증] ${flowLabel} 1사이클 (${env})`,
     paymentMethod === "auto-card"
-      ? "게스트 로그인 > 게스트 자동결제 계약 요청 > 호스트 계약 승인 순서로 실행합니다."
+      ? "게스트 로그인 > 게스트 등록카드 계약 요청 > 호스트 계약 승인 순서로 실행합니다."
       : `게스트 로그인 > 게스트 계약 요청 > 호스트 계약 승인 > 게스트 ${flowLabel} 순서로 실행합니다.`
   ];
 
@@ -605,7 +657,11 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
   if (contractApprove.result.status !== "pass") return sections.join("\n\n");
 
   if (paymentMethod === "auto-card") {
-    sections.push("[기본검증 PASS] 자동결제 계약 요청부터 호스트 승인까지 1사이클이 완료되었습니다.");
+    const guestRelaunch = await relaunchGuestAppForFlow(env, context);
+    sections.push(compactFlowSection("4. 게스트 앱 재실행", guestRelaunch));
+    if (guestRelaunch.status !== "pass") return sections.join("\n\n");
+
+    sections.push("[기본검증 PASS] 등록카드결제 계약 요청부터 호스트 승인까지 1사이클이 완료되었습니다.");
     return sections.join("\n\n");
   }
 
