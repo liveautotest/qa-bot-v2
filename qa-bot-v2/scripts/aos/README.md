@@ -33,6 +33,7 @@
 | `!게스트 리뷰수정` | 코드 기반 시나리오 | `src/tests/review-edit.test.js` |
 | `!게스트 리뷰삭제` | 코드 기반 시나리오 | `src/tests/review-delete.test.js` |
 | `!무통장 입금 승인` | `toss-deposit-approve.web.yaml` | `src/tests/toss-deposit-approve.test.js` |
+| `!일정변경` | 코드 기반 브라우저 시나리오 | `src/tests/console-schedule-change.test.js` |
 | `!게스트 계약 요청 취소` | `contract-cancel-request.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
 | `!게스트 계약 확정 취소` | `contract-cancel-confirmed.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
 | `!호스트 로그인` | `login.host.yaml` | `src/tests/login.test.js` |
@@ -79,6 +80,8 @@
 - 중간 단계가 FAIL이면 이후 단계는 실행하지 않는다.
 - 계약 요청/승인/결제/취소 계열은 필요한 게스트/호스트 로그인 상태를 먼저 확인하고, 풀려 있으면 자동 로그인 후 이어서 진행한다.
 - 기본검증 내부에서는 계약 요청의 자동 승인 연결을 우회해 호스트 승인을 한 번만 실행한다.
+- 일반카드 결제는 PG 화면에 Email 필드가 보이면 `alvin@liveanywhere.me`를 입력한 뒤 필수 동의와 Next를 처리한다.
+- 콘솔 일정 변경은 로그인 직후 빈 예약 상세 화면이 보일 수 있어 같은 예약 URL을 재진입/재대기한 뒤 상세 본문을 판정한다.
 
 ## 환경 선택
 

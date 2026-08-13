@@ -114,6 +114,7 @@ async function saveHtml(page, store, name) {
 }
 
 async function loginIfNeeded(page, config, steps) {
+  let didLogin = false;
   const accountEntryButton = page.getByText("이메일/휴대폰 번호로 시작하기", { exact: true }).first();
   if (await accountEntryButton.count().catch(() => 0)) {
     await accountEntryButton.click();
@@ -123,7 +124,7 @@ async function loginIfNeeded(page, config, steps) {
   }
 
   const passwordInput = page.locator("input[type='password']").first();
-  if (!(await passwordInput.count().catch(() => 0))) return;
+  if (!(await passwordInput.count().catch(() => 0))) return didLogin;
 
   if (!config.consoleAdmin.email || !config.consoleAdmin.password) {
     fail(
@@ -152,9 +153,11 @@ async function loginIfNeeded(page, config, steps) {
   }
 
   addStep(steps, "콘솔 로그인 시도");
+  didLogin = true;
   await page.waitForLoadState("networkidle", { timeout: 25000 }).catch(() => {});
   await page.waitForURL(/console\.liveanywhere\.me\/reservations\/\d+/, { timeout: 25000 }).catch(() => {});
   await page.waitForTimeout(1200);
+  return didLogin;
 }
 
 function consoleReservationUrl(config, env, reservationId) {
@@ -168,7 +171,7 @@ async function ensureReservationPage(page, config, store, steps, request) {
   const url = consoleReservationUrl(config, request.env, request.reservation_id);
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
   await page.waitForLoadState("networkidle", { timeout: 25000 }).catch(() => {});
-  await loginIfNeeded(page, config, steps);
+  const didLogin = await loginIfNeeded(page, config, steps);
 
   if (!page.url().includes(`/reservations/${request.reservation_id}`)) {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
@@ -189,7 +192,23 @@ async function ensureReservationPage(page, config, store, steps, request) {
     );
   }
 
-  const bodyText = normalizeText(await page.locator("body").innerText({ timeout: 10000 }).catch(() => ""));
+  let bodyText = normalizeText(await page.locator("body").innerText({ timeout: 10000 }).catch(() => ""));
+  // 로그인 직후 콘솔 shell만 뜨고 예약 상세 fetch가 비는 경우가 있어
+  // 동일 URL을 다시 진입한 뒤에만 실제 예약 없음으로 판정한다.
+  for (let attempt = 1; attempt <= 2 && !bodyText.includes(String(request.reservation_id)); attempt += 1) {
+    const isBlankDetail =
+      bodyText.includes("매니저 계약 관리") &&
+      !bodyText.includes("예약 정보") &&
+      !bodyText.includes("일정 변경");
+    if (!didLogin && !isBlankDetail) break;
+
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForLoadState("networkidle", { timeout: 25000 }).catch(() => {});
+    await page.waitForTimeout(1800 + attempt * 700);
+    bodyText = normalizeText(await page.locator("body").innerText({ timeout: 10000 }).catch(() => ""));
+    addStep(steps, `콘솔 예약 상세 빈 화면 재확인 ${attempt}회`, "pass", url);
+  }
+
   if (!bodyText.includes(String(request.reservation_id))) {
     await saveHtml(page, store, "console-reservation-not-found");
     await saveScreenshot(page, store, "console-reservation-not-found");

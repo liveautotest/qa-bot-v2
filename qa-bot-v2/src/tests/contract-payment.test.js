@@ -76,6 +76,8 @@ function findEditableNodes(xml) {
   });
 }
 
+const PG_PAYMENT_EMAIL = "alvin@liveanywhere.me";
+
 function findPgPaymentFields(xml) {
   const cardNumberLabel = findNode(xml, "Card number", { visible: true });
   const expiryLabel = findNode(xml, "Expiry date", { visible: true });
@@ -119,7 +121,36 @@ function findPgPaymentFields(xml) {
       })
       .sort((leftNode, rightNode) => leftNode.bounds.top - rightNode.bounds.top)[0];
 
-  return { cardFields, expiryField };
+  return { cardFields, expiryField, emailField: findPgEmailField(xml) };
+}
+
+function findPgEmailField(xml) {
+  const emailLabel = findNode(xml, "Email", { visible: true });
+  const editableNodes = findEditableNodes(xml).filter((node) => (
+    isVisibleNode(node) &&
+    node.attrs["resource-id"] !== "cardExpiry" &&
+    node.attrs["resource-id"] !== "cardCompany"
+  ));
+
+  if (emailLabel?.bounds) {
+    const emailTop = emailLabel.bounds.top;
+    const field = editableNodes
+      .filter((node) => {
+        const width = node.bounds.right - node.bounds.left;
+        return (
+          width >= 600 &&
+          node.bounds.top >= emailTop &&
+          node.bounds.top <= emailTop + 420
+        );
+      })
+      .sort((leftNode, rightNode) => leftNode.bounds.top - rightNode.bounds.top)[0];
+    if (field) return field;
+  }
+
+  return editableNodes.find((node) => {
+    const label = nodeLabel(node);
+    return label.includes("@") || label.trim().toLowerCase() === "email";
+  }) || null;
 }
 
 function findPgCardPartAlert(xml) {
@@ -1097,6 +1128,52 @@ async function inputSecureKeypadDigits(config, device, store, digits, fieldIndex
     addStep(steps, "보안키패드 Confirm 재시도", "pass", "키패드 유지로 fallback 좌표 재탭");
     await waitForUi(config, device, (nextXml) => !hasSecureKeypad(nextXml), 1800, 120);
   }
+}
+
+async function inputPgEmailIfPresent(config, device, store, steps, xml) {
+  if (!xml.includes("Email")) return xml;
+
+  let emailField = findPgEmailField(xml);
+  if (!emailField?.bounds) {
+    await saveFailureArtifacts(config, device, store, "pg-email-field-missing", xml);
+    fail(
+      "PG 이메일 입력칸을 찾지 못했습니다.",
+      steps,
+      [
+        "PG 결제 화면에 Email 라벨이 노출되면 이메일 입력칸도 함께 확인되어야 합니다.",
+        "리포트의 pg-email-field-missing.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  const currentValue = nodeLabel(emailField).trim();
+  if (currentValue.includes(PG_PAYMENT_EMAIL)) {
+    addStep(steps, "PG 이메일 입력", "pass", "이미 입력된 상태");
+    return xml;
+  }
+
+  await tap(config, device, emailField.bounds.x, emailField.bounds.y);
+  await inputText(config, device, PG_PAYMENT_EMAIL);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  xml = await dumpUiStable(config, device);
+  emailField = findPgEmailField(xml);
+  if (!emailField || !nodeLabel(emailField).includes(PG_PAYMENT_EMAIL)) {
+    await saveFailureArtifacts(config, device, store, "pg-email-input-failed", xml);
+    fail(
+      "PG 이메일 입력이 반영되지 않았습니다.",
+      steps,
+      [
+        `입력값: ${PG_PAYMENT_EMAIL}`,
+        "리포트의 pg-email-input-failed.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await keyEvent(config, device, 111).catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  addStep(steps, "PG 이메일 입력", "pass", PG_PAYMENT_EMAIL);
+  return dumpUiStable(config, device);
 }
 
 async function openPaymentDetailFromHome(config, device, store, steps) {
@@ -2531,6 +2608,7 @@ async function inputPgCard(config, device, store, steps, xml) {
   addStep(steps, "PG 만료일 입력");
 
   xml = await waitForUi(config, device, isPgPaymentScreen, 8000);
+  xml = await inputPgEmailIfPresent(config, device, store, steps, xml);
   saveXml(store, "pg-payment-after-card", xml);
 
   if (!isPgPaymentScreen(xml)) {
