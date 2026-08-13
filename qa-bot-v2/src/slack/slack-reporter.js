@@ -524,6 +524,14 @@ function formatResultConditionSummary(result) {
     }
   }
 
+  if (result.console_deposit_return) {
+    lines.push(`- 예약 번호: ${result.console_deposit_return.reservation_id}`);
+    lines.push(`- 처리: ${result.console_deposit_return.action}`);
+    if (result.console_deposit_return.reason) {
+      lines.push(`- 보류 사유: ${result.console_deposit_return.reason}`);
+    }
+  }
+
   if (result.review_write) {
     if (result.review_write.rating) lines.push(`- 별점: ${result.review_write.rating}개`);
     if (result.review_write.selected_tags?.length) {
@@ -559,7 +567,7 @@ function formatResultConditionSummary(result) {
     lines.push(result.review_delete.deleted ? "- 삭제 처리: 완료" : "- 삭제 처리: 확인 필요");
   }
 
-  return lines.slice(0, result.console_schedule_change ? 10 : 6);
+  return lines.slice(0, result.console_schedule_change || result.console_deposit_return ? 10 : 6);
 }
 
 function formatFigmaValidationSummary(validation) {
@@ -705,7 +713,10 @@ function buildResultJudgment(result) {
   const status = String(result.status || "unknown").toUpperCase();
   const passSummary = formatPassSummary(result).map((line) => line.replace(/^- /, ""));
   const figmaSummary = formatFigmaValidationSummary(result.figma_validation);
-  const conditionLimit = result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001" ? 10 : 6;
+  const conditionLimit = result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001" ||
+    result.test_id === "TC-CONSOLE-DEPOSIT-RETURN-001"
+    ? 10
+    : 6;
   const conditionSummary = [
     ...formatSearchConditions(result.search_conditions).slice(0, 3),
     ...formatSearchConditions(result.contract_conditions).slice(0, 3),
@@ -714,7 +725,8 @@ function buildResultJudgment(result) {
   const lastPassed = getLastPassedStep(result.steps || []);
   const lastStep = getLastStep(result.steps || []);
   const details = (result.error_details || []).filter(Boolean).slice(0, 3);
-  const shouldMentionPdf = result.test_id !== "TC-CONSOLE-SCHEDULE-CHANGE-001";
+  const shouldMentionPdf = result.test_id !== "TC-CONSOLE-SCHEDULE-CHANGE-001" &&
+    result.test_id !== "TC-CONSOLE-DEPOSIT-RETURN-001";
 
   return {
     status,

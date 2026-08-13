@@ -3,6 +3,7 @@ const { SocketModeClient } = require("@slack/socket-mode");
 const { loadConfig } = require("./config");
 const {
   BASIC_VALIDATION_PATTERN,
+  CONSOLE_DEPOSIT_RETURN_PATTERN,
   CONSOLE_SCHEDULE_CHANGE_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
@@ -79,9 +80,16 @@ function isConsoleScheduleChangeCommand(text = "") {
   return /^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경/i.test(String(text || ""));
 }
 
+function isConsoleDepositReturnCommand(text = "") {
+  return /^\s*![\s\u200b\u200c\u200d\ufeff]*보증금\s+(반환|보류)/i.test(String(text || ""));
+}
+
 function formatProgressMessage(text = "") {
   if (isConsoleScheduleChangeCommand(text)) {
     return "일정 변경 진행중입니다. 잠시만 기다려주세요.";
+  }
+  if (isConsoleDepositReturnCommand(text)) {
+    return "보증금 반환 처리 진행중입니다. 잠시만 기다려주세요.";
   }
 
   return [
@@ -150,9 +158,11 @@ async function openResultThread({ client, resultTarget, sourceMessage }) {
 
   const posted = await client.chat.postMessage({
     channel: resultTarget.id,
-    text: isConsoleScheduleChangeCommand(sourceMessage.text)
+    text: isConsoleScheduleChangeCommand(sourceMessage.text) || isConsoleDepositReturnCommand(sourceMessage.text)
       ? [
-        "일정 변경 진행중입니다. 잠시만 기다려주세요.",
+        isConsoleDepositReturnCommand(sourceMessage.text)
+          ? "보증금 반환 처리 진행중입니다. 잠시만 기다려주세요."
+          : "일정 변경 진행중입니다. 잠시만 기다려주세요.",
         `요청자: <@${sourceMessage.user}>`,
         `검증 대상: ${sourceMessage.text || ""}`
       ].join("\n")
@@ -194,6 +204,7 @@ function testResultChannelAllowlist(config) {
 function shouldRouteToPrimaryResultChannel(text = "") {
   const normalized = normalizeCommandText(text);
   if (CONSOLE_SCHEDULE_CHANGE_PATTERN.test(normalized)) return true;
+  if (CONSOLE_DEPOSIT_RETURN_PATTERN.test(normalized)) return true;
 
   const basicValidation = normalized.match(BASIC_VALIDATION_PATTERN);
   if (!basicValidation) return false;
@@ -323,7 +334,7 @@ async function main() {
         thread_ts: resultThread.threadTs
       });
 
-      if (!isConsoleScheduleChangeCommand(message.text)) {
+      if (!isConsoleScheduleChangeCommand(message.text) && !isConsoleDepositReturnCommand(message.text)) {
         try {
           const uploadedPdfs = await uploadPdfReports({
             client: app.client,
@@ -398,6 +409,10 @@ async function main() {
   });
 
   app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경/i, async ({ message, say }) => {
+    await handleQaMessage(message, say);
+  });
+
+  app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*보증금\s+(?:반환|보류)/i, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
 

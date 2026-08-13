@@ -6,6 +6,7 @@ const { runAdb } = require("../infra/adb");
 function getAndroidPostTestTarget(request, config) {
   if (request.test === "toss-deposit-approve") return null;
   if (request.test === "console-schedule-change") return null;
+  if (request.test === "console-deposit-return") return null;
   if (request.env === "api" || request.env === "toss") return null;
 
   const role = request.role || "guest";
@@ -75,7 +76,9 @@ async function runTest(request, config) {
   let appBuild = null;
 
   try {
-    appBuild = store.request.skip_app_build_check || store.request.test === "console-schedule-change"
+    appBuild = store.request.skip_app_build_check ||
+      store.request.test === "console-schedule-change" ||
+      store.request.test === "console-deposit-return"
       ? {
         status: "skipped",
         reason: "Skipped by parent flow after a prior app build check."
@@ -139,6 +142,7 @@ async function runTest(request, config) {
       "contract-payment": "TC-CONTRACT-PAYMENT-001",
       "toss-deposit-approve": "TC-TOSS-DEPOSIT-APPROVE-001",
       "console-schedule-change": "TC-CONSOLE-SCHEDULE-CHANGE-001",
+      "console-deposit-return": "TC-CONSOLE-DEPOSIT-RETURN-001",
       "review-detail": "TC-INTERNAL-REFACTOR-003",
       "review-delete": "TC-INTERNAL-REFACTOR-007",
       "review-profile": "TC-INTERNAL-REFACTOR-001",
@@ -162,6 +166,7 @@ async function runTest(request, config) {
       "contract-payment": "계약 결제",
       "toss-deposit-approve": "무통장 입금 승인",
       "console-schedule-change": "콘솔 계약 일정 변경",
+      "console-deposit-return": "콘솔 보증금 반환 처리",
       "review-detail": "리브후기 상세",
       "review-delete": "리뷰 삭제",
       "review-profile": "리브후기 프로필",
@@ -176,7 +181,9 @@ async function runTest(request, config) {
       name: testNames[request.test] ? `${role} ${testNames[request.test]}` : request.test,
       env: request.env,
       status: "fail",
-      device: request.test === "toss-deposit-approve" || request.test === "console-schedule-change"
+      device: request.test === "toss-deposit-approve" ||
+        request.test === "console-schedule-change" ||
+        request.test === "console-deposit-return"
         ? "browser"
         : config.devices && config.devices[role] ? config.devices[role] : "unknown",
       duration_ms: Date.now() - startedAt,

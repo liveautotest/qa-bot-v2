@@ -159,6 +159,7 @@ CLI 실행 예시:
 | `TC-CONTRACT-PAYMENT-001` | `!게스트 계약 결제 무통장` | 현금영수증, 환불 계좌, 무통장 결제 완료 후 홈 복귀. PASS 시 `!무통장 입금 승인`을 자동 연결 실행 |
 | `TC-TOSS-DEPOSIT-APPROVE-001` | `!무통장 입금 승인` | 토스 테스트 결제내역에서 최근 무통장 입금대기 건 입금처리 |
 | `TC-CONSOLE-SCHEDULE-CHANGE-001` | `!일정변경 146628 일주일 전 dev` | 콘솔 예약 상세에서 체크인/체크아웃 변경, 세부 가격 모달, 변경 완료 팝업 처리 |
+| `TC-CONSOLE-DEPOSIT-RETURN-001` | `!보증금 반환 146647 stg`, `!보증금 보류 146647 stg` | 호스트 콘솔 예약 상세에서 보증금 반환 확정 또는 보류 처리. 보류는 기타 제외 사유를 랜덤 선택 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | `!게스트 계약 요청 취소` | 요청 상태 카드에서 계약 요청 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | `!게스트 계약 확정 취소` | 확정 계약 취소, 취소 내역 확인, 완료 팝업, 홈 복귀 |
 | `TC-INTERNAL-REFACTOR-001` | `!게스트 리브후기 프로필` | 리브후기 프로필 진입, 게시물 많은 계정 스크롤, 레이아웃/구분선 신호 확인 |
@@ -202,6 +203,10 @@ CONSOLE_ADMIN_EMAIL=...
 CONSOLE_ADMIN_PASSWORD=...
 CONSOLE_ADMIN_HEADLESS=true
 CONSOLE_ADMIN_KEEP_OPEN_ON_FAIL=false
+CONSOLE_HOST_EMAIL=...
+CONSOLE_HOST_PASSWORD=...
+CONSOLE_HOST_HEADLESS=true
+CONSOLE_HOST_KEEP_OPEN_ON_FAIL=false
 ```
 
 기본 환경은 `staging`입니다.
@@ -242,6 +247,7 @@ reports/{run_id}/
 - 리뷰/쿠폰 계열은 TargetSdk/UI 리팩토링 영향권을 빠르게 확인하는 내부 리팩토링 검증 케이스입니다.
 - 리뷰 삭제는 삭제 확인 팝업 닫힘과 앱 오류 미노출까지 자동 확인하고, 계약 목록 버튼 상태 변화는 수동 확인 항목으로 남깁니다.
 - 콘솔 일정 변경은 앱/ADB를 사용하지 않는 Playwright 브라우저 자동화이며, 로그인 직후 예약 상세 본문이 비어 보이면 같은 예약 URL을 재진입/재대기한 뒤 판정합니다.
+- 콘솔 보증금 반환/보류는 호스트 콘솔 브라우저 자동화이며, 결과는 예약번호와 처리 종류, 보류 사유만 짧게 표시하고 PDF 업로드는 생략합니다.
 
 ## 파일 구조
 

@@ -82,6 +82,16 @@ function loadConfig() {
       profileDir: env.CONSOLE_ADMIN_PROFILE_DIR || ".tmp/console-admin-profile",
       keepOpenOnFail: env.CONSOLE_ADMIN_KEEP_OPEN_ON_FAIL === "true"
     },
+    consoleHost: {
+      devUrlBase: env.CONSOLE_HOST_DEV_URL_BASE || "https://dev-console.liveanywhere.me/host/reservations",
+      stagingUrlBase: env.CONSOLE_HOST_STAGING_URL_BASE || "https://staging-console.liveanywhere.me/host/reservations",
+      email: env.CONSOLE_HOST_EMAIL || env.HOST_EMAIL || "",
+      password: env.CONSOLE_HOST_PASSWORD || env.HOST_PASSWORD || "",
+      headless: env.CONSOLE_HOST_HEADLESS !== "false",
+      chromePath: env.CONSOLE_HOST_CHROME_PATH || env.CONSOLE_ADMIN_CHROME_PATH || env.TOSS_ADMIN_CHROME_PATH || "",
+      profileDir: env.CONSOLE_HOST_PROFILE_DIR || ".tmp/console-host-profile",
+      keepOpenOnFail: env.CONSOLE_HOST_KEEP_OPEN_ON_FAIL === "true"
+    },
     accounts: {
       guest: {
         email: env.GUEST_EMAIL || "",

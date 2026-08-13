@@ -8,6 +8,8 @@ const KOREAN_SHORTCUT_PATTERN =
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const CONSOLE_SCHEDULE_CHANGE_PATTERN =
   /^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경\s+(\d+)\s+((?:일|1|2)주일|한\s*달|한달|1개월)\s*(전|후)\s+(dev|stg|staging)\s*$/i;
+const CONSOLE_DEPOSIT_RETURN_PATTERN =
+  /^\s*![\s\u200b\u200c\u200d\ufeff]*보증금\s+(반환|보류)\s+(\d+)\s+(dev|stg|staging)\s*$/i;
 const BASIC_VALIDATION_PATTERN =
   /^\s*![\s\u200b\u200c\u200d\ufeff]*(?:기본검증|일반검증)\s+(일반결제|일반\s*결제|무통장결제|무통장\s*결제|등록카드결제|등록카드\s*결제|분할결제|분할\s*결제|연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?(?:\s+(.+))?\s*$/i;
 
@@ -222,6 +224,27 @@ function parseConsoleScheduleChange(text) {
   };
 }
 
+function parseConsoleDepositReturn(text) {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  const match = normalized.match(CONSOLE_DEPOSIT_RETURN_PATTERN);
+  if (!match) return null;
+
+  const envByShortcut = {
+    dev: "dev",
+    stg: "staging",
+    staging: "staging"
+  };
+
+  return {
+    test: "console-deposit-return",
+    role: "admin",
+    env: envByShortcut[String(match[3]).toLowerCase()],
+    reservation_id: match[2],
+    deposit_action: match[1] === "보류" ? "hold" : "return",
+    skip_app_build_check: true
+  };
+}
+
 function roleForShortcut(test, requestedRoleLabel) {
   if (test === "contract-approve" || test === "contract-reject" || test === "contract-extension-approve") return "host";
   if (
@@ -243,7 +266,7 @@ function roleForShortcut(test, requestedRoleLabel) {
 }
 
 function defaultRoleForTest(test) {
-  if (test === "toss-deposit-approve" || test === "console-schedule-change") return "admin";
+  if (test === "toss-deposit-approve" || test === "console-schedule-change" || test === "console-deposit-return") return "admin";
   return test === "contract-approve" || test === "contract-reject" || test === "contract-extension-approve" ? "host" : "guest";
 }
 
@@ -318,6 +341,7 @@ async function runSingleQaCommand(command, context) {
       split_end: command.split_end,
       reservation_id: command.reservation_id,
       schedule_shift_label: command.schedule_shift_label,
+      deposit_action: command.deposit_action,
       host_home_only: command.host_home_only,
       skip_fresh_launch: command.skip_fresh_launch,
       skip_app_build_check: command.skip_app_build_check,
@@ -783,6 +807,11 @@ async function runBasicValidation({ env, payment_method: paymentMethod, split_st
 }
 
 async function routeCommand(text, context) {
+  const consoleDepositReturn = parseConsoleDepositReturn(text);
+  if (consoleDepositReturn) {
+    return runQaCommand(consoleDepositReturn, context);
+  }
+
   const consoleScheduleChange = parseConsoleScheduleChange(text);
   if (consoleScheduleChange) {
     return runQaCommand(consoleScheduleChange, context);
@@ -838,7 +867,8 @@ async function routeCommand(text, context) {
     command === "coupon-box" ||
     command === "basic-validation" ||
     command === "toss-deposit-approve" ||
-    command === "console-schedule-change"
+    command === "console-schedule-change" ||
+    command === "console-deposit-return"
   ) {
     const args = parseKeyValues(parts.slice(2));
     const paymentMethod = args.method || args.payment_method;
@@ -866,7 +896,8 @@ async function routeCommand(text, context) {
         split_start: normalizeIsoDate(args.split_start),
         split_end: normalizeIsoDate(args.split_end),
         reservation_id: args.reservation_id,
-        schedule_shift_label: args.shift || args.schedule_shift_label
+        schedule_shift_label: args.shift || args.schedule_shift_label,
+        deposit_action: args.action || args.deposit_action
       },
       context
     );
@@ -881,6 +912,7 @@ async function routeCommand(text, context) {
 
 module.exports = {
   BASIC_VALIDATION_PATTERN,
+  CONSOLE_DEPOSIT_RETURN_PATTERN,
   CONSOLE_SCHEDULE_CHANGE_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
