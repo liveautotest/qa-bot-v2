@@ -191,13 +191,30 @@ function testResultChannelAllowlist(config) {
     .filter(Boolean);
 }
 
+function shouldRouteToPrimaryResultChannel(text = "") {
+  const normalized = normalizeCommandText(text);
+  if (CONSOLE_SCHEDULE_CHANGE_PATTERN.test(normalized)) return true;
+
+  const basicValidation = normalized.match(BASIC_VALIDATION_PATTERN);
+  if (!basicValidation) return false;
+
+  const flowLabel = normalizeCommandText(basicValidation[1] || "");
+  return flowLabel === "분할결제" || flowLabel === "분할 결제";
+}
+
 function resolveConfiguredResultChannel(text = "", config = {}) {
   if (!shouldPostProgressMessage(text)) return "";
   const normalized = normalizeCommandText(text);
   if (config.slackTestResultChannel && testResultChannelAllowlist(config).includes(normalized)) {
     return config.slackTestResultChannel;
   }
-  if (config.slackResultChannel && resultChannelAllowlist(config).includes(normalized)) {
+  if (
+    config.slackResultChannel &&
+    (
+      resultChannelAllowlist(config).includes(normalized) ||
+      shouldRouteToPrimaryResultChannel(normalized)
+    )
+  ) {
     return config.slackResultChannel;
   }
   return "";
@@ -368,7 +385,7 @@ async function main() {
     await handleQaMessage(message, say);
   });
 
-  app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*기본검증/i, async ({ message, say }) => {
+  app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*(?:기본검증|일반검증)/i, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
 

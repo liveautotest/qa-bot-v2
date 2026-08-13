@@ -53,6 +53,9 @@ function schedulePattern() {
 }
 
 module.exports = {
+  addDays,
+  formatDateIso,
+  formatKoreanMonthDay,
   formatMonthLabel,
   getRandomExactSearchDateRange,
   schedulePattern

@@ -3,13 +3,13 @@ const { runTest } = require("../orchestrator/run-test");
 const { buildResultJudgment, formatHelp, formatResult } = require("./slack-reporter");
 
 const KOREAN_SHORTCUT_PATTERN =
-  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|리브후기 프로필|리브 후기 프로필|리브후기 일정선택|리브후기 일정 선택|리브 후기 일정선택|리브 후기 일정 선택|리브후기 상세|리브 후기 상세|리뷰작성|리뷰 작성|리뷰수정|리뷰 수정|리뷰삭제|리뷰 삭제|쿠폰함|쿠폰 함|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장결제|연장 결제|계약연장결제|계약 연장 결제|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드))?(?:\s+(dev|stg|staging))?$/i;
+  /^!(게스트|계스트|호스트)\s+(로그인|로그아웃|집검색|집 검색|검색 정확한일정|검색 정확한 일정|검색 유연한일정|검색 유연한 일정|정확한일정 검색|정확한 일정 검색|유연한일정 검색|유연한 일정 검색|리브후기 프로필|리브 후기 프로필|리브후기 일정선택|리브후기 일정 선택|리브 후기 일정선택|리브 후기 일정 선택|리브후기 상세|리브 후기 상세|리뷰작성|리뷰 작성|리뷰수정|리뷰 수정|리뷰삭제|리뷰 삭제|쿠폰함|쿠폰 함|계약요청|계약 요청|계약요청취소|계약 요청 취소|계약확정취소|계약 확정 취소|예약확정취소|예약 확정 취소|연장요청|연장 요청|계약연장|계약 연장|연장결제|연장 결제|계약연장결제|계약 연장 결제|연장수락|연장 수락|연장승인|연장 승인|계약연장수락|계약 연장 수락|계약연장승인|계약 연장 승인|계약승인|계약 승인|계약요청거절|계약 요청 거절|계약결제|계약 결제)(?:\s+(일반카드|카드|무통장|자동카드|분할결제|분할))?(?:\s+(dev|stg|staging))?$/i;
 
 const TOSS_DEPOSIT_APPROVE_PATTERN = /^!무통장\s+입금\s+승인$/i;
 const CONSOLE_SCHEDULE_CHANGE_PATTERN =
   /^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경\s+(\d+)\s+((?:일|1|2)주일|한\s*달|한달|1개월)\s*(전|후)\s+(dev|stg|staging)\s*$/i;
 const BASIC_VALIDATION_PATTERN =
-  /^\s*![\s\u200b\u200c\u200d\ufeff]*기본검증\s+(일반결제|일반\s*결제|무통장결제|무통장\s*결제|등록카드결제|등록카드\s*결제|연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?\s*$/i;
+  /^\s*![\s\u200b\u200c\u200d\ufeff]*(?:기본검증|일반검증)\s+(일반결제|일반\s*결제|무통장결제|무통장\s*결제|등록카드결제|등록카드\s*결제|분할결제|분할\s*결제|연장결제|연장\s*결제)(?:\s+(카드|무통장))?(?:\s+(dev|stg|staging))?(?:\s+(.+))?\s*$/i;
 
 function parseKeyValues(parts) {
   const values = {};
@@ -18,6 +18,47 @@ function parseKeyValues(parts) {
     if (key && value) values[key] = value;
   }
   return values;
+}
+
+function normalizeIsoDate(value) {
+  if (!value) return null;
+  const match = String(value).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return null;
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+}
+
+function parseKoreanSplitDates(text) {
+  if (!text) return null;
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const iso = normalized.match(/(\d{4}-\d{1,2}-\d{1,2})\s+(?:부터\s*)?(\d{4}-\d{1,2}-\d{1,2})/);
+  if (iso) {
+    return {
+      split_start: normalizeIsoDate(iso[1]),
+      split_end: normalizeIsoDate(iso[2])
+    };
+  }
+
+  const korean = normalized.match(/(?:(\d{2,4})년\s*)?(\d{1,2})월\s*(\d{1,2})일\s*부터\s*(?:(\d{2,4})년\s*)?(\d{1,2})월\s*(\d{1,2})일/);
+  if (!korean) return null;
+
+  const currentYear = new Date().getFullYear();
+  const normalizeYear = (yearText) => {
+    if (!yearText) return currentYear;
+    const year = Number(yearText);
+    return year < 100 ? 2000 + year : year;
+  };
+  const startYear = normalizeYear(korean[1]);
+  let endYear = normalizeYear(korean[4]);
+  const start = `${startYear}-${korean[2].padStart(2, "0")}-${korean[3].padStart(2, "0")}`;
+  let end = `${endYear}-${korean[5].padStart(2, "0")}-${korean[6].padStart(2, "0")}`;
+  if (!korean[4] && end <= start) {
+    endYear += 1;
+    end = `${endYear}-${korean[5].padStart(2, "0")}-${korean[6].padStart(2, "0")}`;
+  }
+  return {
+    split_start: start,
+    split_end: end
+  };
 }
 
 function parseKoreanShortcut(text) {
@@ -94,7 +135,9 @@ function parseKoreanShortcut(text) {
     일반카드: "card",
     카드: "card",
     무통장: "bank-transfer",
-    자동카드: "auto-card"
+    자동카드: "auto-card",
+    분할결제: "split-payment",
+    분할: "split-payment"
   };
   const paymentMethod = paymentMethodByShortcut[match[3]];
   const isExtensionPayment = ["연장결제", "연장 결제", "계약연장결제", "계약 연장 결제"].includes(match[2]);
@@ -132,6 +175,8 @@ function parseBasicValidation(text) {
     "무통장 결제": "bank-transfer",
     등록카드결제: "auto-card",
     "등록카드 결제": "auto-card",
+    분할결제: "split-payment",
+    "분할 결제": "split-payment",
     연장결제: "extension-card",
     "연장 결제": "extension-card",
     "연장결제 카드": "extension-card",
@@ -143,12 +188,14 @@ function parseBasicValidation(text) {
   const methodLabel = match[1].replace(/\s+/g, " ").trim();
   const detailLabel = match[2] ? match[2].replace(/\s+/g, " ").trim() : "";
   const isExtensionPayment = methodLabel === "연장결제" || methodLabel === "연장 결제";
+  const splitDates = parseKoreanSplitDates(match[4] || "");
 
   return {
     env: envByShortcut[String(match[3] || "stg").toLowerCase()],
     payment_method: isExtensionPayment
       ? detailLabel === "무통장" ? "extension-bank-transfer" : "extension-card"
-      : methodByShortcut[methodLabel] || "card"
+      : methodByShortcut[methodLabel] || "card",
+    ...splitDates
   };
 }
 
@@ -267,6 +314,8 @@ async function runSingleQaCommand(command, context) {
       env,
       role,
       payment_method: paymentMethod,
+      split_start: command.split_start,
+      split_end: command.split_end,
       reservation_id: command.reservation_id,
       schedule_shift_label: command.schedule_shift_label,
       host_home_only: command.host_home_only,
@@ -399,7 +448,7 @@ async function relaunchGuestAppForFlow(env, context) {
   if (!device || !appPackage) {
     return {
       status: "fail",
-      name: "guest 앱 재실행",
+      name: "guest 앱 재실행 및 홈 풀 리프레시",
       env,
       device: device || "unknown",
       duration_ms: Date.now() - startedAt,
@@ -420,19 +469,28 @@ async function relaunchGuestAppForFlow(env, context) {
       "android.intent.category.LAUNCHER",
       "1"
     ]);
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+
+    // 등록카드/분할결제는 호스트 승인 후 게스트 홈 카드 상태 갱신이 중요하다.
+    // 앱 재실행 직후 홈에서 한 번 당겨 새로고침해 다음 검증자가 최신 상태를 바로 볼 수 있게 한다.
+    await runAdb(context.config, device, ["shell", "input", "swipe", "540", "720", "540", "1720", "260"]);
+    await new Promise((resolve) => setTimeout(resolve, 1600));
 
     return {
       status: "pass",
-      name: "guest 앱 재실행",
+      name: "guest 앱 재실행 및 홈 풀 리프레시",
       env,
       device,
       duration_ms: Date.now() - startedAt,
-      steps: [{ name: "호스트 승인 후 게스트 앱 재실행", status: "pass" }]
+      steps: [
+        { name: "호스트 승인 후 게스트 앱 재실행", status: "pass" },
+        { name: "게스트 홈 화면 풀 리프레시", status: "pass" }
+      ]
     };
   } catch (error) {
     return {
       status: "fail",
-      name: "guest 앱 재실행",
+      name: "guest 앱 재실행 및 홈 풀 리프레시",
       env,
       device,
       duration_ms: Date.now() - startedAt,
@@ -546,6 +604,7 @@ function basicValidationLabel(paymentMethod) {
   if (paymentMethod === "extension-card") return "연장결제";
   if (paymentMethod === "bank-transfer") return "무통장 결제";
   if (paymentMethod === "auto-card") return "등록카드결제";
+  if (paymentMethod === "split-payment") return "분할결제";
   return "일반결제";
 }
 
@@ -610,12 +669,12 @@ async function runExtensionPaymentValidation({ env, payment_method: paymentMetho
   return sections.join("\n\n");
 }
 
-async function runStandardContractValidation({ env, payment_method: paymentMethod }, context) {
+async function runStandardContractValidation({ env, payment_method: paymentMethod, split_start: splitStart, split_end: splitEnd }, context) {
   const flowLabel = basicValidationLabel(paymentMethod);
   const sections = [
     `[기본검증] ${flowLabel} 1사이클 (${env})`,
-    paymentMethod === "auto-card"
-      ? "게스트 로그인 > 게스트 등록카드 계약 요청 > 호스트 계약 승인 순서로 실행합니다."
+    paymentMethod === "auto-card" || paymentMethod === "split-payment"
+      ? `게스트 로그인 > 게스트 ${flowLabel} 계약 요청 > 호스트 계약 승인 순서로 실행합니다.`
       : `게스트 로그인 > 게스트 계약 요청 > 호스트 계약 승인 > 게스트 ${flowLabel} 순서로 실행합니다.`
   ];
 
@@ -635,7 +694,9 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
       test: "contract-request",
       env,
       role: "guest",
-      payment_method: paymentMethod === "auto-card" ? "auto-card" : undefined,
+      payment_method: paymentMethod === "auto-card" || paymentMethod === "split-payment" ? paymentMethod : undefined,
+      split_start: splitStart,
+      split_end: splitEnd,
       skip_fresh_launch: true,
       skip_app_build_check: true
     },
@@ -656,12 +717,12 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
   sections.push(compactFlowSection("3. 호스트 계약 승인", contractApprove.result));
   if (contractApprove.result.status !== "pass") return sections.join("\n\n");
 
-  if (paymentMethod === "auto-card") {
+  if (paymentMethod === "auto-card" || paymentMethod === "split-payment") {
     const guestRelaunch = await relaunchGuestAppForFlow(env, context);
     sections.push(compactFlowSection("4. 게스트 앱 재실행", guestRelaunch));
     if (guestRelaunch.status !== "pass") return sections.join("\n\n");
 
-    sections.push("[기본검증 PASS] 등록카드결제 계약 요청부터 호스트 승인까지 1사이클이 완료되었습니다.");
+    sections.push(`[기본검증 PASS] ${flowLabel} 계약 요청부터 호스트 승인까지 1사이클이 완료되었습니다.`);
     return sections.join("\n\n");
   }
 
@@ -695,16 +756,30 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
   return sections.join("\n\n");
 }
 
-async function runBasicValidation({ env, payment_method: paymentMethod }, context) {
-  if (!paymentMethod || paymentMethod === "card" || paymentMethod === "bank-transfer" || paymentMethod === "auto-card") {
-    return runStandardContractValidation({ env, payment_method: paymentMethod || "card" }, context);
+async function runBasicValidation({ env, payment_method: paymentMethod, split_start: splitStart, split_end: splitEnd }, context) {
+  if (
+    !paymentMethod ||
+    paymentMethod === "card" ||
+    paymentMethod === "bank-transfer" ||
+    paymentMethod === "auto-card" ||
+    paymentMethod === "split-payment"
+  ) {
+    return runStandardContractValidation(
+      {
+        env,
+        payment_method: paymentMethod || "card",
+        split_start: splitStart,
+        split_end: splitEnd
+      },
+      context
+    );
   }
 
   if (paymentMethod === "extension-card" || paymentMethod === "extension-bank-transfer") {
     return runExtensionPaymentValidation({ env, payment_method: paymentMethod }, context);
   }
 
-  throw new Error("기본검증은 일반결제 또는 연장결제 카드/무통장만 실행할 수 있습니다. 예: !기본검증 일반결제 dev");
+  throw new Error("기본검증은 일반결제, 무통장 결제, 등록카드결제, 분할결제 또는 연장결제 카드/무통장만 실행할 수 있습니다. 예: !기본검증 일반결제 dev");
 }
 
 async function routeCommand(text, context) {
@@ -771,7 +846,9 @@ async function routeCommand(text, context) {
       return runBasicValidation(
         {
           env: args.env || "staging",
-          payment_method: paymentMethod || "extension-card"
+          payment_method: paymentMethod || "extension-card",
+          split_start: normalizeIsoDate(args.split_start),
+          split_end: normalizeIsoDate(args.split_end)
         },
         context
       );
@@ -786,6 +863,8 @@ async function routeCommand(text, context) {
         env: args.env || (test === "toss-deposit-approve" ? "toss" : "staging"),
         role: args.role || defaultRoleForTest(test),
         payment_method: paymentMethod,
+        split_start: normalizeIsoDate(args.split_start),
+        split_end: normalizeIsoDate(args.split_end),
         reservation_id: args.reservation_id,
         schedule_shift_label: args.shift || args.schedule_shift_label
       },

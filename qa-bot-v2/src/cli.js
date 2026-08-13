@@ -28,6 +28,8 @@ async function main() {
     env: args.env || (testName === "toss-deposit-approve" ? "toss" : "staging"),
     role: args.role || (testName === "toss-deposit-approve" || testName === "console-schedule-change" ? "admin" : hostDefaultTests.has(testName) ? "host" : "guest"),
     payment_method: args.method || args.payment_method,
+    split_start: args.split_start,
+    split_end: args.split_end,
     reservation_id: args.reservation_id,
     schedule_shift_label: args.shift || args.schedule_shift_label,
     requested_by: "local-cli",

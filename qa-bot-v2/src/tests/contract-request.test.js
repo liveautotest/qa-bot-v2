@@ -9,6 +9,9 @@ const {
   tap
 } = require("../infra/adb");
 const {
+  addDays,
+  formatDateIso,
+  formatKoreanMonthDay,
   formatMonthLabel,
   getRandomExactSearchDateRange,
   schedulePattern
@@ -320,6 +323,68 @@ function hasAutoCardPaymentSelected(xml) {
   );
 }
 
+function isSafelyTappableSplitPaymentBounds(bounds) {
+  return Boolean(
+    bounds &&
+    bounds.bottom - bounds.top >= 40 &&
+    bounds.top >= 320 &&
+    bounds.bottom <= 2134
+  );
+}
+
+function findSplitPaymentOption(xml) {
+  const optionText = parseNodes(xml).find((node) => {
+    const label = nodeLabel(node);
+    return (
+      node.bounds &&
+      node.attrs.enabled === "true" &&
+      ["분할 결제", "분할결제", "분할 납부"].some((value) => label.includes(value)) &&
+      isSafelyTappableSplitPaymentBounds(node.bounds)
+    );
+  });
+
+  if (!optionText?.bounds) return null;
+
+  const clickableOption = parseNodes(xml).find((node) => {
+    const label = nodeLabel(node);
+    return (
+      node.bounds &&
+      node.attrs.clickable === "true" &&
+      node.attrs.enabled === "true" &&
+      ["분할 결제", "분할결제", "분할 납부"].some((value) => label.includes(value)) &&
+      isSafelyTappableSplitPaymentBounds(node.bounds)
+    );
+  });
+
+  if (clickableOption?.bounds) return clickableOption;
+
+  // 라디오 버튼이 텍스트와 별도 노드로 노출되지 않는 화면이 있어 텍스트 왼쪽 영역을 사용한다.
+  return {
+    attrs: { text: "분할 결제", clickable: "true", enabled: "true" },
+    bounds: {
+      left: Math.max(32, optionText.bounds.left - 96),
+      top: Math.max(94, optionText.bounds.top - 24),
+      right: optionText.bounds.left + 16,
+      bottom: optionText.bounds.bottom + 24,
+      x: Math.max(72, optionText.bounds.left - 48),
+      y: optionText.bounds.y
+    }
+  };
+}
+
+function hasSplitPaymentSelected(xml) {
+  return (
+    xml.includes("분할 결제 선택됨") ||
+    xml.includes("분할결제 선택됨") ||
+    xml.includes("분할 결제 (단기 월세)") ||
+    xml.includes("1회차 금액이 자동으로 결제") ||
+    (
+      (xml.includes("분할 결제") || xml.includes("분할결제")) &&
+      xml.includes("선택됨")
+    )
+  );
+}
+
 function isContractComplete(xml) {
   return (
     (xml.includes("홈으로") || xml.includes("계약 확인")) &&
@@ -608,6 +673,67 @@ function findDateNodeInMonth(xml, monthLabel, dayLabel) {
       node.bounds.right <= month.bounds.right &&
       node.bounds.top >= month.bounds.top &&
       node.bounds.bottom <= month.bounds.bottom
+    );
+  });
+}
+
+function isVisibleCalendarBounds(bounds) {
+  return Boolean(
+    bounds &&
+    bounds.bottom > 94 &&
+    bounds.bottom < 2134 &&
+    bounds.bottom > bounds.top &&
+    bounds.right > bounds.left
+  );
+}
+
+function isMonthLabelVisible(xml, monthLabel) {
+  return parseNodes(xml).some((node) => (
+    nodeLabel(node).includes(monthLabel) &&
+    isVisibleCalendarBounds(node.bounds)
+  ));
+}
+
+function parseCalendarMonthIndex(label) {
+  const [, yearText, monthText] = String(label || "").match(/(\d{4})년\s*(\d{1,2})월/) || [];
+  if (!yearText || !monthText) return null;
+  return Number(yearText) * 12 + Number(monthText) - 1;
+}
+
+function visibleCalendarMonths(xml) {
+  return parseNodes(xml)
+    .map((node) => ({
+      label: nodeLabel(node),
+      bounds: node.bounds,
+      index: parseCalendarMonthIndex(nodeLabel(node))
+    }))
+    .filter((month) => month.index !== null && isVisibleCalendarBounds(month.bounds))
+    .sort((a, b) => a.bounds.top - b.bounds.top);
+}
+
+function findVisibleDateNodeInMonth(xml, monthLabel, dayLabel) {
+  const nodes = parseNodes(xml);
+  const month = nodes.find((node) => (
+    nodeLabel(node).includes(monthLabel) &&
+    isVisibleCalendarBounds(node.bounds)
+  ));
+  if (!month) return null;
+
+  const nextMonth = nodes.find((node) => (
+    /\d{4}년\s*\d{1,2}월/.test(nodeLabel(node)) &&
+    isVisibleCalendarBounds(node.bounds) &&
+    node.bounds.top > month.bounds.top
+  ));
+  const upperBound = month.bounds.bottom;
+  const lowerBound = nextMonth?.bounds.top || 2134;
+
+  return nodes.find((node) => {
+    if (!isVisibleCalendarBounds(node.bounds)) return false;
+    if (node.attrs.clickable !== "true") return false;
+    if (nodeLabel(node).trim() !== dayLabel) return false;
+    return (
+      node.bounds.top > upperBound &&
+      node.bounds.bottom < lowerBound
     );
   });
 }
@@ -1283,6 +1409,466 @@ async function waitWhileContractSubmitting(config, device, store, steps, xml, ar
   return nextXml;
 }
 
+function makeSplitPaymentRange(checkIn = null) {
+  const base = checkIn || addDays(new Date(), 7);
+  // 기본 지정 일정이 불가능할 때 쓰는 fallback은 장기 검증 범위 안에서 빠르게 선택 가능한 날짜로 제한한다.
+  const nights = 60 + Math.floor(Math.random() * 120);
+  const checkout = addDays(base, nights);
+  return {
+    start: base,
+    end: checkout,
+    nights,
+    startIso: formatDateIso(base),
+    endIso: formatDateIso(checkout),
+    label: `${formatKoreanMonthDay(base)} ~ ${formatKoreanMonthDay(checkout)}`
+  };
+}
+
+function parseIsoDate(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function diffCalendarDays(start, end) {
+  return Math.round((end - start) / 86400000);
+}
+
+function makeRequestedSplitPaymentRange(startIso, endIso) {
+  const requestedStart = parseIsoDate(startIso);
+  const requestedEnd = parseIsoDate(endIso);
+  if (!requestedStart || !requestedEnd) return null;
+
+  const requestedNights = diffCalendarDays(requestedStart, requestedEnd);
+  if (requestedNights < 60 || requestedNights > 180) {
+    const error = new Error("분할결제 지정 일정은 60박부터 180박까지만 사용할 수 있습니다.");
+    error.details = [
+      `지정 일정: ${startIso} ~ ${endIso}`,
+      `계산 박수: ${requestedNights}박`,
+      "체크아웃 날짜는 체크인 날짜보다 60~180일 뒤여야 합니다."
+    ];
+    throw error;
+  }
+
+  const earliestStart = addDays(new Date(), 1);
+  const start = requestedStart < earliestStart ? earliestStart : requestedStart;
+  const end = addDays(start, requestedNights);
+  return {
+    start,
+    end,
+    nights: requestedNights,
+    startIso: formatDateIso(start),
+    endIso: formatDateIso(end),
+    label: `${formatKoreanMonthDay(start)} ~ ${formatKoreanMonthDay(end)}`,
+    requestedStartIso: startIso,
+    requestedEndIso: endIso,
+    adjusted: formatDateIso(start) !== startIso || formatDateIso(end) !== endIso
+  };
+}
+
+function makeSplitPaymentRangeFromVisibleCalendar(xml) {
+  const months = parseNodes(xml)
+    .filter((node) => /\d{4}년\s*\d{1,2}월/.test(nodeLabel(node)) && isVisibleCalendarBounds(node.bounds))
+    .sort((a, b) => a.bounds.top - b.bounds.top);
+  const month = months[0];
+  if (!month) return makeSplitPaymentRange();
+
+  const [, yearText, monthText] = nodeLabel(month).match(/(\d{4})년\s*(\d{1,2})월/) || [];
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  if (!year || monthIndex < 0) return makeSplitPaymentRange();
+
+  const nextMonth = months.find((candidate) => candidate.bounds.top > month.bounds.top);
+  const candidates = parseNodes(xml)
+    .filter((node) => {
+      const day = Number(nodeLabel(node).trim());
+      if (!day || node.attrs.clickable !== "true") return false;
+      if (!isVisibleCalendarBounds(node.bounds)) return false;
+      if (node.bounds.top <= month.bounds.bottom) return false;
+      if (nextMonth?.bounds && node.bounds.bottom >= nextMonth.bounds.top) return false;
+      const date = new Date(year, monthIndex, day, 12, 0, 0, 0);
+      return formatDateIso(date) >= formatDateIso(addDays(new Date(), 1));
+    })
+    .sort((a, b) => a.bounds.top - b.bounds.top || a.bounds.left - b.bounds.left);
+
+  const pool = candidates.slice(0, Math.min(10, candidates.length));
+  if (!pool.length) return makeSplitPaymentRange();
+
+  const selected = pool[Math.floor(Math.random() * pool.length)];
+  const checkIn = new Date(year, monthIndex, Number(nodeLabel(selected).trim()), 12, 0, 0, 0);
+  return makeSplitPaymentRange(checkIn);
+}
+
+function makeDefaultRequestedSplitPaymentRange() {
+  const range = makeRequestedSplitPaymentRange("2026-08-20", "2027-02-15");
+  return {
+    ...range,
+    nights: 180
+  };
+}
+
+function findScheduleChangeButton(xml) {
+  const explicit = findNode(xml, ["일정 변경", "계약 일정 변경"], {
+    clickable: true,
+    enabled: true,
+    visible: true,
+    aboveBottomAction: true
+  });
+  if (explicit?.bounds) return explicit;
+
+  return parseNodes(xml).find((node) => {
+    const label = nodeLabel(node).replace(/\s+/g, " ").trim();
+    return (
+      node.bounds &&
+      node.attrs.clickable === "true" &&
+      node.attrs.enabled === "true" &&
+      node.bounds.top > 260 &&
+      node.bounds.top < 1900 &&
+      label === "변경"
+    );
+  }) || null;
+}
+
+async function openContractScheduleChange(config, device, store, steps, initialXml) {
+  let xml = initialXml;
+  for (let count = 0; count < 5; count += 1) {
+    const changeButton = findScheduleChangeButton(xml);
+    if (changeButton?.bounds) {
+      await saveArtifacts(config, device, store, "contract-detail-split-schedule-change", xml);
+      await tap(config, device, changeButton.bounds.x, changeButton.bounds.y);
+      addStep(steps, "분할결제 일정 변경 버튼 선택");
+
+      const calendarXml = await waitForUi(
+        config,
+        device,
+        (nextXml) => /\d{4}년\s*\d{1,2}월/.test(nextXml) && (nextXml.includes("선택") || nextXml.includes("확인")),
+        6000,
+        180
+      );
+      await saveArtifacts(config, device, store, "contract-detail-split-calendar-open", calendarXml);
+      return calendarXml;
+    }
+
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "2050", "540", "980", "160"]);
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    xml = await dumpUiStable(config, device);
+  }
+
+  await saveFailureArtifacts(config, device, store, "contract-detail-split-schedule-change-not-found", xml);
+  fail(
+    "계약 요청 화면에서 일정 변경 버튼을 찾지 못했습니다.",
+    steps,
+    [
+      "분할결제 계약 요청은 먼저 계약 요청 화면에서 일정 변경을 눌러 60박 이상 일정으로 바꿔야 합니다.",
+      "리포트의 contract-detail-split-schedule-change-not-found.png 화면을 확인해주세요."
+    ]
+  );
+}
+
+async function ensureSplitCheckoutDateVisible(config, device, xml, steps, monthLabel, dayLabel) {
+  let currentXml = xml;
+  const targetMonthIndex = parseCalendarMonthIndex(monthLabel);
+  for (let count = 0; count < 14; count += 1) {
+    if (findVisibleDateNodeInMonth(currentXml, monthLabel, dayLabel)) return currentXml;
+
+    const months = visibleCalendarMonths(currentXml);
+    const firstMonth = months[0];
+    const lastMonth = months[months.length - 1];
+    const targetMonthVisible = isMonthLabelVisible(currentXml, monthLabel);
+
+    // 장기 일정 달력은 월 이동 버튼보다 세로 스크롤이 빠르고 안정적이다.
+    // 버튼 후보가 날짜 셀과 겹쳐 잡히는 경우가 있어 분할결제에서는 스크롤만 사용한다.
+    let swipe = ["shell", "input", "swipe", "540", "1880", "540", "1260", "180"];
+    let stepName = "분할결제 달력 날짜 위치 조정";
+    if (!targetMonthVisible && targetMonthIndex !== null && firstMonth && lastMonth) {
+      if (targetMonthIndex < firstMonth.index) {
+        const gap = firstMonth.index - targetMonthIndex;
+        swipe = gap <= 3
+          ? ["shell", "input", "swipe", "540", "760", "540", "1540", "160"]
+          : ["shell", "input", "swipe", "540", "620", "540", "1900", "180"];
+        stepName = "분할결제 달력 이전 월 복구 스크롤";
+      } else if (targetMonthIndex > lastMonth.index) {
+        const gap = targetMonthIndex - lastMonth.index;
+        swipe = gap <= 1
+          ? ["shell", "input", "swipe", "540", "1500", "540", "940", "130"]
+          : ["shell", "input", "swipe", "540", "1900", "540", "620", "180"];
+        stepName = "분할결제 달력 다음 월 스크롤";
+      }
+    }
+    await runAdb(config, device, swipe);
+    addStep(
+      steps,
+      stepName,
+      "pass",
+      firstMonth && lastMonth
+        ? `${monthLabel} ${dayLabel}일 탐색 / 현재 ${firstMonth.label} ~ ${lastMonth.label}`
+        : `${monthLabel} ${dayLabel}일 탐색`
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 240));
+    currentXml = await dumpUiStable(config, device);
+  }
+  return currentXml;
+}
+
+function findCalendarCompleteButton(xml) {
+  const labels = ["선택 완료", "선택완료", "확인", "완료"];
+  const candidates = parseNodes(xml).filter((node) => {
+    const label = nodeLabel(node);
+    return (
+      node.bounds &&
+      node.attrs.clickable === "true" &&
+      node.attrs.enabled === "true" &&
+      labels.some((value) => label.includes(value))
+    );
+  });
+
+  return candidates
+    .filter((node) => node.bounds.top > 1780)
+    .sort((a, b) => b.bounds.bottom - a.bounds.bottom)[0] ||
+    candidates.find((node) => nodeLabel(node).includes("선택")) ||
+    candidates[0] ||
+    null;
+}
+
+function isCalendarCompleteEnabled(xml) {
+  return Boolean(findCalendarCompleteButton(xml));
+}
+
+async function tapSplitCalendarComplete(config, device, xml) {
+  const completeButton = findCalendarCompleteButton(xml);
+  const x = completeButton?.bounds?.x || 873;
+  const y = completeButton?.bounds?.y || 2243;
+
+  // The period picker uses a fixed bottom action bar. On WebView builds the XML
+  // node is sometimes present but tap routing is more reliable at the visual
+  // button center, so prefer the known bottom-right action coordinate.
+  const visualX = Math.max(820, Math.min(930, Math.round(x)));
+  const visualY = Math.max(2200, Math.min(2260, Math.round(y)));
+  await runAdb(config, device, ["shell", "input", "tap", String(visualX), String(visualY)]);
+}
+
+async function selectSplitCalendarDate(config, device, store, steps, xml, date, stepName, artifactPrefix) {
+  const monthLabel = formatMonthLabel(date);
+  const dayLabel = String(date.getDate());
+  let currentXml = await ensureSplitCheckoutDateVisible(config, device, xml, steps, monthLabel, dayLabel);
+  await saveArtifacts(config, device, store, `${artifactPrefix}-before-date`, currentXml);
+
+  const dateNode = findVisibleDateNodeInMonth(currentXml, monthLabel, dayLabel);
+  if (!dateNode?.bounds) {
+    await saveFailureArtifacts(config, device, store, `${artifactPrefix}-date-not-found`, currentXml);
+    fail(
+      `${stepName} 날짜를 달력에서 찾지 못했습니다.`,
+      steps,
+      [
+        `선택 대상: ${formatDateIso(date)}`,
+        "기간 선택 화면에서는 체크인과 체크아웃 날짜를 모두 다시 선택합니다.",
+        `리포트의 ${artifactPrefix}-date-not-found.png 화면을 확인해주세요.`
+      ]
+    );
+  }
+
+  await tap(config, device, dateNode.bounds.x, dateNode.bounds.y);
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  currentXml = await dumpUiStable(config, device);
+  await saveArtifacts(config, device, store, `${artifactPrefix}-after-date`, currentXml);
+  addStep(steps, stepName, "pass", formatDateIso(date));
+  return currentXml;
+}
+
+function isSplitScheduleCalendarOpen(xml) {
+  return (
+    /\d{4}년\s*\d{1,2}월/.test(xml) &&
+    (xml.includes("선택 완료") || xml.includes("선택완료") || xml.includes("취소"))
+  );
+}
+
+async function selectSplitPaymentCheckoutDate(config, device, store, steps, calendarXml, splitRange) {
+  let xml = await selectSplitCalendarDate(
+    config,
+    device,
+    store,
+    steps,
+    calendarXml,
+    splitRange.start,
+    "분할결제 체크인 날짜 선택",
+    "contract-detail-split-checkin"
+  );
+  xml = await selectSplitCalendarDate(
+    config,
+    device,
+    store,
+    steps,
+    xml,
+    splitRange.end,
+    "분할결제 체크아웃 날짜 선택",
+    "contract-detail-split-checkout"
+  );
+  await saveArtifacts(config, device, store, "contract-detail-split-calendar-after-checkout", xml);
+  if (!isCalendarCompleteEnabled(xml)) {
+    await saveFailureArtifacts(config, device, store, "contract-detail-split-calendar-complete-disabled", xml);
+    fail(
+      "분할결제 체크아웃 날짜를 눌렀지만 선택 완료 버튼이 활성화되지 않았습니다.",
+      steps,
+      [
+        `선택 대상: ${splitRange.startIso} ~ ${splitRange.endIso} (${splitRange.nights}박)`,
+        "날짜가 달력에서 실제 선택 가능한지 확인해야 합니다.",
+        "리포트의 contract-detail-split-calendar-complete-disabled.png 화면을 확인해주세요."
+      ]
+    );
+  }
+  const completeButton = findCalendarCompleteButton(xml);
+  if (!completeButton?.bounds) {
+    await saveFailureArtifacts(config, device, store, "contract-detail-split-calendar-complete-not-found", xml);
+    fail(
+      "분할결제 달력에서 선택 완료 버튼을 찾지 못했습니다.",
+      steps,
+      [
+        "체크아웃 날짜 선택 후 선택 완료 버튼이 활성화되어야 합니다.",
+        "리포트의 contract-detail-split-calendar-complete-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tapSplitCalendarComplete(config, device, xml);
+  addStep(steps, "분할결제 일정 선택 완료");
+
+  xml = await waitForUi(
+    config,
+    device,
+    (nextXml) => isContractDetail(nextXml) && !isSplitScheduleCalendarOpen(nextXml),
+    5000,
+    220
+  );
+  if (isSplitScheduleCalendarOpen(xml)) {
+    for (let count = 0; count < 2; count += 1) {
+      const retryCompleteButton = findCalendarCompleteButton(xml);
+      if (retryCompleteButton?.bounds) {
+        await tapSplitCalendarComplete(config, device, xml);
+      } else {
+        await runAdb(config, device, ["shell", "input", "tap", "873", "2243"]);
+      }
+      addStep(steps, "분할결제 일정 선택 완료 재시도", "pass", `하단 우측 선택 완료 ${count + 1}회`);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      xml = await waitForUi(
+        config,
+        device,
+        (nextXml) => isContractDetail(nextXml) && !isSplitScheduleCalendarOpen(nextXml),
+        5000,
+        220
+      );
+      if (!isSplitScheduleCalendarOpen(xml)) break;
+    }
+  }
+
+  await saveArtifacts(config, device, store, "contract-detail-split-after-schedule", xml);
+  if (!isContractDetail(xml) || isSplitScheduleCalendarOpen(xml)) {
+    await saveFailureArtifacts(config, device, store, "contract-detail-split-after-schedule", xml);
+    fail(
+      "분할결제 일정 선택 후 계약 요청 화면으로 돌아오지 못했습니다.",
+      steps,
+      [
+        "장기 체크아웃 날짜 선택 후 계약 요청 상세 화면이 다시 보여야 합니다.",
+        "리포트의 contract-detail-split-after-schedule.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  return xml;
+}
+
+async function selectSplitPaymentMethod(config, device, store, steps, initialXml) {
+  let xml = initialXml;
+  for (let count = 0; count < 8; count += 1) {
+    const splitPayment = findSplitPaymentOption(xml);
+    if (splitPayment?.bounds) {
+      await saveArtifacts(config, device, store, "contract-detail-split-payment", xml);
+      if (hasSplitPaymentSelected(xml)) {
+        addStep(steps, "분할 결제 라디오 버튼 선택", "pass", "이미 선택된 상태");
+        return xml;
+      }
+
+      await tap(config, device, splitPayment.bounds.x, splitPayment.bounds.y);
+      addStep(steps, "분할 결제 라디오 버튼 선택");
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      xml = await dumpUiStable(config, device);
+      if (!hasSplitPaymentSelected(xml)) {
+        await runAdb(config, device, [
+          "shell",
+          "input",
+          "tap",
+          String(Math.max(72, Math.min(108, Math.round(splitPayment.bounds.x)))),
+          String(Math.round(splitPayment.bounds.y))
+        ]);
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        xml = await dumpUiStable(config, device);
+      }
+      await saveArtifacts(config, device, store, "contract-detail-split-payment-selected", xml);
+      if (!hasSplitPaymentSelected(xml)) {
+        await saveFailureArtifacts(config, device, store, "contract-detail-split-payment-not-selected", xml);
+        fail(
+          "분할 결제 라디오 버튼을 눌렀지만 선택 상태가 확인되지 않았습니다.",
+          steps,
+          [
+            "분할 결제 선택 후에는 분할 결제 안내 문구가 화면에 노출되어야 합니다.",
+            "리포트의 contract-detail-split-payment-not-selected.png 화면을 확인해주세요."
+          ]
+        );
+      }
+      return xml;
+    }
+
+    const clippedSplitPayment = parseNodes(xml).find((node) => {
+      const label = nodeLabel(node);
+      return (
+        node.bounds &&
+        ["분할 결제", "분할결제", "분할 납부"].some((value) => label.includes(value)) &&
+        node.bounds.bottom < 320
+      );
+    });
+
+    if (clippedSplitPayment) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "900", "540", "1250", "120"]);
+      addStep(steps, "분할 결제 영역 중앙 보정", "pass", `${count + 1}회`);
+    } else {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "1850", "540", "650", "180"]);
+      addStep(steps, "분할 결제 영역으로 빠르게 스크롤", "pass", `${count + 1}회`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    xml = await dumpUiStable(config, device);
+  }
+
+  await saveFailureArtifacts(config, device, store, "contract-detail-split-payment-not-found", xml);
+  fail(
+    "계약 요청 화면에서 분할 결제 라디오 버튼을 찾지 못했습니다.",
+    steps,
+    [
+      "60박 이상 일정으로 변경한 뒤 결제 방법에서 분할 결제를 선택해야 합니다.",
+      "리포트의 contract-detail-split-payment-not-found.png 화면을 확인해주세요."
+    ]
+  );
+}
+
+async function selectSplitPaymentContractOptions(config, device, store, steps, contractDetailXml, options = {}) {
+  const calendarXml = await openContractScheduleChange(config, device, store, steps, contractDetailXml);
+  const requestedRange =
+    makeRequestedSplitPaymentRange(options.splitStartIso, options.splitEndIso) ||
+    makeDefaultRequestedSplitPaymentRange();
+  const splitRange = options.splitRange || requestedRange || makeSplitPaymentRangeFromVisibleCalendar(calendarXml);
+  options.splitRange = splitRange;
+  addStep(
+    steps,
+    requestedRange ? "분할결제 지정 장기 일정 결정" : "분할결제 장기 일정 랜덤 결정",
+    "pass",
+    `${splitRange.label} (${splitRange.nights}박)${splitRange.adjusted ? ` / 지정일 보정: ${splitRange.requestedStartIso} ~ ${splitRange.requestedEndIso}` : ""}`
+  );
+
+  let xml = await selectSplitPaymentCheckoutDate(config, device, store, steps, calendarXml, splitRange);
+  xml = await selectSplitPaymentMethod(config, device, store, steps, xml);
+  return xml;
+}
+
 async function selectAutoCardPayment(config, device, store, steps, initialXml) {
   let xml = isContractDetail(initialXml)
     ? initialXml
@@ -1348,6 +1934,15 @@ async function submitContractRequest(config, device, store, steps, contractDetai
   let preparedContractDetailXml = contractDetailXml;
   if (options.paymentMethod === "auto-card") {
     preparedContractDetailXml = await selectAutoCardPayment(config, device, store, steps, contractDetailXml);
+  } else if (options.paymentMethod === "split-payment") {
+    preparedContractDetailXml = await selectSplitPaymentContractOptions(
+      config,
+      device,
+      store,
+      steps,
+      contractDetailXml,
+      options
+    );
   }
 
   const { terms, request } = await scrollToRequiredTerms(config, device, store, steps, preparedContractDetailXml);
@@ -1606,7 +2201,7 @@ async function runContractRequestTest({ request, config, store }) {
   const appPackage = config.androidPackages[env];
   const steps = [];
 
-  if (!["manual", "auto-card"].includes(paymentMethod)) {
+  if (!["manual", "auto-card", "split-payment"].includes(paymentMethod)) {
     throw new Error(`Unknown contract request payment method: ${paymentMethod}`);
   }
   if (!device) throw new Error(`Missing device id for role: ${role}`);
@@ -1692,12 +2287,32 @@ async function runContractRequestTest({ request, config, store }) {
     xml = await selectNewestSort(config, device, store, steps, xml, exactDateRange);
     const detailXml = await openContractableListing(config, device, store, steps, exactDateRange);
     const contractDetailXml = await tapContractCondition(config, device, store, steps, detailXml);
-    const submittedContract = await submitContractRequest(config, device, store, steps, contractDetailXml, { paymentMethod });
+    const submitOptions = {
+      paymentMethod,
+      splitStartIso: request.split_start,
+      splitEndIso: request.split_end
+    };
+    const submittedContract = await submitContractRequest(config, device, store, steps, contractDetailXml, submitOptions);
     addStep(steps, "계약 요청 완료 후 홈 화면 확인");
+
+    const splitRange = submitOptions.splitRange;
+    const contractStart = splitRange?.startIso || exactDateRange.startIso;
+    const contractEnd = splitRange?.endIso || exactDateRange.endIso;
+    const paymentMethodLabel =
+      paymentMethod === "auto-card"
+        ? "호스트 수락 즉시 자동 결제"
+        : paymentMethod === "split-payment"
+          ? "분할 결제"
+          : "호스트 승인 후 별도 결제";
 
     return {
       test_id: "TC-CONTRACT-001",
-      name: paymentMethod === "auto-card" ? `${role} 자동카드 계약 요청` : `${role} 계약 요청`,
+      name:
+        paymentMethod === "auto-card"
+          ? `${role} 등록카드 계약 요청`
+          : paymentMethod === "split-payment"
+            ? `${role} 분할결제 계약 요청`
+            : `${role} 계약 요청`,
       env,
       status: "pass",
       device,
@@ -1705,13 +2320,14 @@ async function runContractRequestTest({ request, config, store }) {
       contract_conditions: {
         region: "국내",
         schedule_type: "정확한 일정",
-        start_date: exactDateRange.startIso,
-        end_date: exactDateRange.endIso,
+        start_date: contractStart,
+        end_date: contractEnd,
+        stay_nights: splitRange?.nights,
         adult_count: 1,
         child_count: 0,
         infant_count: 0,
         pet_count: 0,
-        payment_method: paymentMethod === "auto-card" ? "호스트 수락 즉시 자동 결제" : "호스트 승인 후 별도 결제"
+        payment_method: paymentMethodLabel
       },
       contract_request: {
         contract_number: submittedContract.contractNumber || "",
