@@ -53,8 +53,12 @@ steps:
     expected: 취소가 완료되었습니다 팝업이 노출된다.
   - id: CANCEL-CONFIRMED-10
     action: close_complete_and_feedback
-    description: 완료 팝업 확인 후 리브애니웨어 취소 사유 전달 화면을 닫는다.
+    description: 완료 팝업 확인 후 리브애니웨어 취소 사유 전달 화면을 닫고 홈 화면으로 복귀한다.
     expected: 홈 화면으로 복귀한다.
+  - id: CANCEL-CONFIRMED-11
+    action: pull_to_refresh_home
+    description: 홈 화면 복귀 후 풀 리프레시를 수행한다.
+    expected: 홈 화면 최신 상태가 반영된다.
 validations:
   - id: CANCEL-CONFIRMED-V01
     description: 홈 화면에서 예약 확정 상태 카드를 찾지 못하면 FAIL 처리한다.
@@ -68,6 +72,8 @@ validations:
     description: 취소 내역 확인 화면에서 최종 취소를 완료하지 못하면 FAIL 처리한다.
   - id: CANCEL-CONFIRMED-V06
     description: 완료 팝업 확인 후 홈 화면 복귀를 확인하지 못하면 FAIL 처리한다.
+  - id: CANCEL-CONFIRMED-V07
+    description: 홈 화면 복귀 후 풀 리프레시 결과를 확인하지 못하면 FAIL 처리한다.
 artifacts:
   screenshots:
     - 실패 시점 화면만 저장한다.
@@ -79,8 +85,9 @@ artifacts:
     - cancel-confirmed-review-start.xml
     - cancel-confirmed-complete-popup.xml
     - cancel-confirmed-final-home.xml
+    - cancel-confirmed-final-home-after-refresh.xml
 pass_criteria:
   - 예약 확정 상태 카드를 선택한다.
   - 계약 취소 확인 팝업에서 계약 취소를 선택한다.
   - 호스트 전달 취소 사유와 취소 내역 확인을 완료한다.
-  - 취소 완료 팝업 확인 후 홈 화면 복귀가 확인된다.
+  - 취소 완료 팝업 확인 후 홈 화면 복귀와 풀 리프레시가 확인된다.

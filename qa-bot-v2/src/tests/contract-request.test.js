@@ -745,23 +745,28 @@ function findListingCandidates(xml) {
   }).sort((a, b) => a.bounds.top - b.bounds.top);
 }
 
-async function scrollPastFirstListing(config, device, store, steps, xml, exactDateRange) {
+async function scrollToMiddleListingArea(config, device, store, steps, xml, exactDateRange) {
   const firstListings = findListingCandidates(xml);
-  const skippedTitle = firstListings[0] ? listingTitle(firstListings[0]) : "";
-  if (skippedTitle) {
-    store.appendLog("runner.log", `contract-request skipping first visible listing: ${skippedTitle}`);
+  const skippedTitles = firstListings
+    .slice(0, 2)
+    .map((listing) => listingTitle(listing))
+    .filter(Boolean);
+  if (skippedTitles.length) {
+    store.appendLog("runner.log", `contract-request scrolling past first visible listings: ${skippedTitles.join(", ")}`);
   }
 
+  // 검색 결과 첫 카드들은 지도/바텀시트 경계에 걸리는 경우가 많아서 3~4번째 후보가
+  // 화면 중앙에 오도록 더 깊게 당긴 뒤 선택한다.
   await runAdb(config, device, [
-    "shell", "input", "swipe", "540", "2070", "540", "1250", "420"
+    "shell", "input", "swipe", "540", "2220", "540", "720", "560"
   ]);
   addStep(
     steps,
-    "검색 결과 첫 번째 숙소 제외 후 스크롤",
+    "검색 결과 3~4번째 숙소 영역까지 스크롤",
     "pass",
-    skippedTitle ? `제외: ${skippedTitle}` : "첫 번째 후보 미확인, 다음 화면 후보 사용"
+    skippedTitles.length ? `상단 후보 제외: ${skippedTitles.join(" / ")}` : "상단 후보 미확인, 중간 목록 후보 사용"
   );
-  await new Promise((resolve) => setTimeout(resolve, 220));
+  await new Promise((resolve) => setTimeout(resolve, 260));
 
   const scrolledXml = await waitForUi(
     config,
@@ -773,7 +778,7 @@ async function scrollPastFirstListing(config, device, store, steps, xml, exactDa
 
   return {
     xml: isContractSearchResults(scrolledXml, exactDateRange) ? scrolledXml : await dumpUiStable(config, device),
-    skippedTitle
+    skippedTitles
   };
 }
 
@@ -793,7 +798,7 @@ async function selectNewestSort(config, device, store, steps, xml, exactDateRang
       "검색 결과 화면에서 정렬 필터를 찾지 못했습니다.",
       steps,
       [
-        "계약 요청은 검색 결과를 '신규 집 순'으로 정렬한 뒤 첫 번째 숙소를 선택합니다.",
+        "계약 요청은 검색 결과를 '신규 집 순'으로 정렬한 뒤 3~4번째 숙소 후보를 우선 선택합니다.",
         "리포트의 search-sort-button-not-found.png 화면을 확인해주세요."
       ]
     );
@@ -873,6 +878,31 @@ function listingTapTargets(listing) {
   ].filter((target) => target.y >= 450 && target.y <= 2320);
 }
 
+function pickPreferredListing(listings) {
+  if (!listings.length) return null;
+
+  const stableListings = listings.filter((listing) => (
+    listing.bounds.top >= 560 &&
+    listing.bounds.bottom <= 2320 &&
+    listing.bounds.bottom - listing.bounds.top >= 620
+  ));
+  const source = stableListings.length ? stableListings : listings;
+  const preferred = [source[2], source[3]].filter(Boolean);
+  if (preferred.length) {
+    return {
+      listing: preferred[Math.floor(Math.random() * preferred.length)],
+      source,
+      mode: "3~4번째 후보"
+    };
+  }
+
+  return {
+    listing: source[Math.floor(Math.random() * source.length)],
+    source,
+    mode: "보이는 후보"
+  };
+}
+
 async function tryOpenListing(config, device, store, steps, listing, attemptLabel, exactDateRange) {
   const title = listingTitle(listing);
   for (const target of listingTapTargets(listing)) {
@@ -907,9 +937,9 @@ async function openContractableListing(config, device, store, steps, exactDateRa
   let xml = await dumpUiStable(config, device);
   await saveArtifacts(config, device, store, "search-results-expanded", xml);
 
-  const scrolled = await scrollPastFirstListing(config, device, store, steps, xml, exactDateRange);
+  const scrolled = await scrollToMiddleListingArea(config, device, store, steps, xml, exactDateRange);
   xml = scrolled.xml;
-  await saveArtifacts(config, device, store, "search-results-after-first-skip", xml);
+  await saveArtifacts(config, device, store, "search-results-middle-listings", xml);
 
   let lastXml = xml;
   for (let scrollCount = 0; scrollCount < 4; scrollCount += 1) {
@@ -917,16 +947,17 @@ async function openContractableListing(config, device, store, steps, exactDateRa
     if (listings.length) {
       addStep(steps, "검색 결과 계약 가능 숙소 후보 확인", "pass", `${listings.length}개`);
 
-      const randomIndex = Math.floor(Math.random() * listings.length);
-      const selectedListing = listings[randomIndex];
+      const selection = pickPreferredListing(listings);
+      const selectedListing = selection.listing;
+      const selectedIndex = selection.source.indexOf(selectedListing);
       addStep(
         steps,
-        "검색 결과 보이는 숙소 랜덤 선택",
+        "검색 결과 3~4번째 숙소 우선 랜덤 선택",
         "pass",
-        `${listingTitle(selectedListing)} (${randomIndex + 1}/${listings.length})`
+        `${listingTitle(selectedListing)} (${selection.mode}, ${selectedIndex + 1}/${selection.source.length})`
       );
 
-      const detailXml = await tryOpenListing(config, device, store, steps, selectedListing, `${scrollCount + 1}-${randomIndex + 1}`, exactDateRange);
+      const detailXml = await tryOpenListing(config, device, store, steps, selectedListing, `${scrollCount + 1}-${selectedIndex + 1}`, exactDateRange);
       if (isAccommodationDetail(detailXml)) return detailXml;
       xml = await waitForUi(config, device, (nextXml) => isContractSearchResults(nextXml, exactDateRange), 3000, 200);
     }
@@ -944,7 +975,7 @@ async function openContractableListing(config, device, store, steps, exactDateRa
     "검색 결과 숙소 카드를 눌렀지만 상세 화면으로 이동하지 않았습니다.",
     steps,
     [
-      "자동화가 첫 번째 숙소를 제외하고, 스크롤 후 보이는 계약 가능 숙소 후보 중 하나를 랜덤 선택했습니다.",
+      "자동화가 목록을 더 내려 3~4번째 계약 가능 숙소 후보를 우선 랜덤 선택했습니다.",
       "상세 화면의 '계약 조건 확인' 버튼이 나타나야 다음 단계로 진행합니다.",
       "리포트의 listing-tap-did-not-open-detail.png 화면을 확인해주세요.",
       "실제 탭 좌표는 runner.log에 기록됩니다."

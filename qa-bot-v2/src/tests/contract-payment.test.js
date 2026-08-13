@@ -195,6 +195,22 @@ async function wakeAndUnlock(config, device, steps, store) {
   addStep(steps, "단말 깨우기 및 잠금 해제 시도");
 }
 
+async function recoverFromSystemUiIfNeeded(config, device, store, steps, xml, stepName) {
+  if (!String(xml || "").includes('package="com.android.systemui"')) return xml;
+
+  store.appendLog("runner.log", `${stepName}: system UI detected, trying to recover app screen`);
+  await runAdb(config, device, ["shell", "cmd", "statusbar", "collapse"]).catch((error) => {
+    store.appendLog("runner.log", `statusbar collapse failed: ${error.message}`);
+  });
+  await runAdb(config, device, ["shell", "wm", "dismiss-keyguard"]).catch((error) => {
+    store.appendLog("runner.log", `dismiss-keyguard failed: ${error.message}`);
+  });
+  await keyEvent(config, device, 224).catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  addStep(steps, stepName, "pass", "시스템 UI 감지 후 앱 화면 복구 시도");
+  return dumpUiStable(config, device, 6);
+}
+
 async function launchFresh(config, device, appPackage, steps) {
   await runAdb(config, device, ["shell", "am", "force-stop", appPackage]);
   addStep(steps, "앱 완전 종료");
@@ -565,6 +581,18 @@ function hasVisiblePaymentTypeTabs(xml) {
   return Boolean(creditTab && bankTransferTab);
 }
 
+function hasVisibleText(xml, texts) {
+  const targets = Array.isArray(texts) ? texts : [texts];
+  return parseNodes(xml).some((node) => {
+    const label = nodeLabel(node);
+    return (
+      node.bounds &&
+      isVisibleNode(node) &&
+      targets.some((text) => label.includes(text))
+    );
+  });
+}
+
 function findVisibleExtensionBankTransferOption(xml) {
   const directOption = parseNodes(xml)
     .filter((node) => {
@@ -588,6 +616,24 @@ function isPaymentMethodReady(xml, paymentMethod) {
   }
 
   return hasPaymentMethodSection(xml) && hasVisiblePaymentMethodSection(xml);
+}
+
+function hasPassedPaymentTypeSection(xml) {
+  // Android WebView XML can contain far-offscreen nodes with collapsed bounds.
+  // Treat the user as "past" the payment tab only when lower-detail markers are
+  // actually visible; otherwise bank-transfer scrolling may reverse too early.
+  return (
+    hasVisibleText(xml, ["계약 취소", "상세 규정 확인", "환불 규정", "고객센터 1:1"])
+  );
+}
+
+function isBeforePaymentTypeSection(xml) {
+  return (
+    hasVisibleText(xml, ["입주", "퇴실", "호스트 채팅 문의", "위치"]) &&
+    !hasVisibleText(xml, "결제 방법") &&
+    !hasPaymentMethodTopTabs(xml) &&
+    !hasPassedPaymentTypeSection(xml)
+  );
 }
 
 function hasBankTransferForm(xml) {
@@ -1098,6 +1144,17 @@ async function openPaymentDetailFromHome(config, device, store, steps) {
     await new Promise((resolve) => setTimeout(resolve, 600));
     xml = await dumpUiStable(config, device, 8);
   }
+  xml = await recoverFromSystemUiIfNeeded(
+    config,
+    device,
+    store,
+    steps,
+    xml,
+    "결제 상세 진입 중 시스템 UI 복구"
+  );
+  if (!isContractPaymentDetail(xml)) {
+    xml = await waitForUi(config, device, isContractPaymentDetail, 2500, 140);
+  }
   saveXml(store, "payment-detail-start", xml);
 
   if (!isContractPaymentDetail(xml)) {
@@ -1306,8 +1363,9 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
   if (paymentMethod === "bank-transfer") {
     const swipes = [
       null,
-      ["shell", "input", "swipe", "540", "2180", "540", "760", "220"],
-      ["shell", "input", "swipe", "540", "1880", "540", "980", "150"]
+      ["shell", "input", "swipe", "540", "1680", "540", "520", "180"],
+      ["shell", "input", "swipe", "540", "1620", "540", "560", "160"],
+      ["shell", "input", "swipe", "540", "1540", "540", "720", "140"]
     ];
 
     for (let count = 0; count < swipes.length; count += 1) {
@@ -1319,6 +1377,8 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
 
       if (hasPaymentTypeTabsClippedAtTop(xml) && hasPaymentMethodSection(xml)) {
         await runAdb(config, device, ["shell", "input", "swipe", "540", "850", "540", "1270", "120"]);
+      } else if (isBeforePaymentTypeSection(xml)) {
+        await runAdb(config, device, ["shell", "input", "swipe", "540", "1680", "540", "520", "170"]);
       } else if (swipes[count]) {
         await runAdb(config, device, swipes[count]);
       }
@@ -1355,9 +1415,13 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
       continue;
     }
 
-    const swipeArgs = paymentMethod === "bank-transfer"
-      ? ["shell", "input", "swipe", "540", "1760", "540", "1120", "150"]
-      : ["shell", "input", "swipe", "540", "1900", "540", "760", "180"];
+    const swipeArgs = paymentMethod === "bank-transfer" && hasPassedPaymentTypeSection(xml)
+      ? ["shell", "input", "swipe", "540", "900", "540", "1720", "160"]
+      : paymentMethod === "bank-transfer" && isBeforePaymentTypeSection(xml)
+        ? ["shell", "input", "swipe", "540", "1680", "540", "520", "170"]
+      : paymentMethod === "bank-transfer"
+        ? ["shell", "input", "swipe", "540", "1620", "540", "760", "140"]
+        : ["shell", "input", "swipe", "540", "1900", "540", "760", "180"];
     await runAdb(config, device, swipeArgs);
     await new Promise((resolve) => setTimeout(resolve, 90));
     xml = await dumpUiStable(config, device);
@@ -1373,6 +1437,32 @@ async function scrollToPaymentMethod(config, device, store, steps, paymentMethod
     saveXml(store, "payment-method", xml);
     addStep(steps, "결제 방법 영역 확인");
     return xml;
+  }
+
+  if (paymentMethod === "bank-transfer") {
+    store.appendLog("runner.log", "payment type tabs not found in normal scan, resetting scroll and rescanning from upper detail area");
+
+    for (let count = 0; count < 4; count += 1) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "900", "540", "1900", "140"]);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+
+    xml = await dumpUiStable(config, device);
+    for (let count = 0; count < 10; count += 1) {
+      if (isPaymentMethodReady(xml, paymentMethod)) {
+        saveXml(store, "payment-type-tabs", xml);
+        addStep(steps, "결제 타입 탭 영역 확인", "pass", "상세 상단 복구 후 재탐색");
+        return xml;
+      }
+
+      if (hasPaymentTypeTabsClippedAtTop(xml) && hasPaymentMethodSection(xml)) {
+        await runAdb(config, device, ["shell", "input", "swipe", "540", "850", "540", "1270", "130"]);
+      } else {
+        await runAdb(config, device, ["shell", "input", "swipe", "540", "1740", "540", "620", "170"]);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      xml = await dumpUiStable(config, device);
+    }
   }
 
   await saveFailureArtifacts(config, device, store, "payment-method-not-found", xml);
@@ -1438,11 +1528,23 @@ async function inputDigitsWithKeyEvents(config, device, value) {
 
 async function clearAndInputDigits(config, device, node, value, label, steps) {
   await tapNode(config, device, node, label, steps);
+  await new Promise((resolve) => setTimeout(resolve, 120));
   await keyEvent(config, device, 123).catch(() => {});
-  for (let count = 0; count < 24; count += 1) {
+  // 계좌번호 입력칸은 이전 입력값/자동완성값이 남는 경우가 있어 충분히 지운 뒤 입력한다.
+  for (let count = 0; count < 80; count += 1) {
     await keyEvent(config, device, 67).catch(() => {});
   }
   await inputDigitsWithKeyEvents(config, device, value);
+}
+
+async function clearAndInputDigitsWithTextCommand(config, device, node, value, label, steps) {
+  await tapNode(config, device, node, label, steps);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  await keyEvent(config, device, 123).catch(() => {});
+  for (let count = 0; count < 80; count += 1) {
+    await keyEvent(config, device, 67).catch(() => {});
+  }
+  await inputText(config, device, value);
 }
 
 async function chooseJcbAndSubmit(config, device, store, steps, xml) {
@@ -1589,17 +1691,25 @@ function hasTextInEditableBesideLabel(xml, label, expectedValue) {
 }
 
 function hasRefundAccountNumberValue(xml, expectedValue) {
+  const digits = getRefundAccountNumberDigits(xml);
+  if (digits === expectedValue) return true;
+
+  return false;
+}
+
+function getRefundAccountNumberDigits(xml) {
   const accountInput = findRefundAccountInput(xml);
   if (accountInput) {
     const digits = nodeLabel(accountInput).replace(/\D/g, "");
-    if (digits === expectedValue) return true;
+    if (digits) return digits;
   }
 
-  return findEditableNodes(xml).some((node) => (
+  const fallback = findEditableNodes(xml).find((node) => (
     isVisibleNode(node) &&
     !nodeLabel(node).includes("@") &&
-    nodeLabel(node).replace(/\D/g, "") === expectedValue
+    nodeLabel(node).replace(/\D/g, "")
   ));
+  return fallback ? nodeLabel(fallback).replace(/\D/g, "") : "";
 }
 
 function findCashReceiptPhoneInput(xml) {
@@ -1683,7 +1793,7 @@ function findRefundAccountInput(xml) {
 }
 
 async function bringRefundAccountInputIntoSafeView(config, device, xml) {
-  for (let attempt = 0; attempt < 7; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     const accountInput = findRefundAccountInput(xml);
     if (accountInput?.bounds && accountInput.bounds.top >= 720 && accountInput.bounds.bottom <= 1480) {
       return xml;
@@ -1699,13 +1809,26 @@ async function bringRefundAccountInputIntoSafeView(config, device, xml) {
       )
     );
 
-    // 은행 드롭다운 선택 후 화면이 하단 환불 규정까지 튀는 경우가 있어, 지나쳤다면 반대로 되돌린다.
+    const beforeRefundAccountSection = (
+      !accountInput?.bounds &&
+      (
+        xml.includes("계약번호") ||
+        xml.includes("계약 진행중") ||
+        xml.includes("호스트 채팅 문의") ||
+        xml.includes("위치")
+      ) &&
+      !xml.includes("환불/보증금 반환 계좌")
+    );
+
+    // 은행 드롭다운 선택 후 화면이 위/아래로 튀는 경우가 있어 작은 폭으로 계좌 영역을 스캔한다.
     if (passedRefundAccountSection || accountInput?.bounds?.top < 720) {
-      await runAdb(config, device, ["shell", "input", "swipe", "540", "960", "540", "1720", "140"]);
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "980", "540", "1460", "130"]);
+    } else if (beforeRefundAccountSection) {
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "1720", "540", "1040", "130"]);
     } else if (!accountInput?.bounds || accountInput.bounds.bottom > 1480) {
-      await runAdb(config, device, ["shell", "input", "swipe", "540", "2040", "540", "1120", "160"]);
+      await runAdb(config, device, ["shell", "input", "swipe", "540", "1740", "540", "1180", "130"]);
     }
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await new Promise((resolve) => setTimeout(resolve, 150));
     xml = await dumpUiStable(config, device);
   }
 
@@ -2035,6 +2158,43 @@ async function fillRefundAccount(config, device, store, steps, xml) {
     (nextXml) => hasRefundAccountNumberValue(nextXml, "34108755301018"),
     2500
   );
+  if (!hasRefundAccountNumberValue(xml, "34108755301018")) {
+    const retryXml = await bringRefundAccountInputIntoSafeView(config, device, xml);
+    const retryInput = findRefundAccountInput(retryXml);
+    if (retryInput?.bounds) {
+      await clearAndInputDigitsWithTextCommand(
+        config,
+        device,
+        retryInput,
+        "34108755301018",
+        "환불 계좌번호 재입력",
+        steps
+      );
+      xml = await keepRefundAccountAboveKeyboard(config, device, await dumpUiStable(config, device));
+      xml = await waitForUi(
+        config,
+        device,
+        (nextXml) => hasRefundAccountNumberValue(nextXml, "34108755301018"),
+        2500
+      );
+    }
+  }
+
+  const actualDigits = getRefundAccountNumberDigits(xml);
+  if (actualDigits.startsWith("34108755301018") && actualDigits.length > "34108755301018".length) {
+    const extraCount = actualDigits.length - "34108755301018".length;
+    const retryInput = findRefundAccountInput(xml);
+    if (retryInput?.bounds) {
+      await tapNode(config, device, retryInput, "환불 계좌번호 초과 입력 보정", steps);
+      await keyEvent(config, device, 123).catch(() => {});
+      for (let count = 0; count < extraCount; count += 1) {
+        await keyEvent(config, device, 67).catch(() => {});
+      }
+      addStep(steps, "환불 계좌번호 초과 입력 보정", "pass", `${actualDigits} -> 34108755301018`);
+      xml = await keepRefundAccountAboveKeyboard(config, device, await dumpUiStable(config, device));
+    }
+  }
+
   if (!hasRefundAccountNumberValue(xml, "34108755301018")) {
     await saveFailureArtifacts(config, device, store, "refund-account-number-input-failed", xml);
     fail(

@@ -258,6 +258,44 @@ async function clearAndFillInput(page, input, value) {
   return currentValue === value;
 }
 
+async function selectMerchantFromSidebar(page, mid, steps) {
+  const merchantLabel = page.getByText("상점", { exact: true }).first();
+  const labelBox = await merchantLabel.boundingBox().catch(() => null);
+  const clickPoint = labelBox
+    ? { x: labelBox.x + 96, y: labelBox.y + 34 }
+    : { x: 110, y: 120 };
+
+  await page.mouse.click(clickPoint.x, clickPoint.y);
+  await page.waitForTimeout(500);
+  await page.keyboard.press("Meta+A").catch(() => {});
+  await page.keyboard.press("Control+A").catch(() => {});
+  await page.keyboard.press("Backspace").catch(() => {});
+  await page.keyboard.type(mid, { delay: 60 });
+  await page.waitForTimeout(900);
+
+  const candidates = [
+    page.getByText(mid, { exact: true }).last(),
+    page.getByText(mid, { exact: false }).last()
+  ];
+  for (const candidate of candidates) {
+    if (await candidate.count().catch(() => 0)) {
+      await candidate.click().catch(() => {});
+      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(900);
+      addStep(steps, "상점 선택 박스에서 MID 선택", "pass", mid);
+      return true;
+    }
+  }
+
+  await page.keyboard.press("Enter").catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(900);
+  const bodyText = normalizeText(await page.locator("body").innerText().catch(() => ""));
+  const didSelect = bodyText.includes(mid);
+  if (didSelect) addStep(steps, "상점 선택 박스에서 MID 선택", "pass", mid);
+  return didSelect;
+}
+
 async function resetPaymentLogSearch(page, steps) {
   const resetButton = page.getByRole("button", { name: /초기화/ }).first();
   if (await resetButton.count().catch(() => 0)) {
@@ -406,16 +444,19 @@ async function preparePaymentLogs(page, config, store, steps) {
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(1200);
   } else if (config.tossAdmin.mid) {
-    await saveHtml(page, store, "toss-mid-input-not-found");
-    await saveScreenshot(page, store, "toss-mid-input-not-found");
-    fail(
-      "토스 테스트 결제내역에서 상점 MID 입력칸을 찾지 못했습니다.",
-      steps,
-      [
-        "결제내역 화면이 아닌 다른 화면이거나 검색 필드 구조가 바뀌었을 수 있습니다.",
-        "리포트의 toss-mid-input-not-found.png 화면을 확인해주세요."
-      ]
-    );
+    const didSelectMerchant = await selectMerchantFromSidebar(page, config.tossAdmin.mid, steps);
+    if (!didSelectMerchant) {
+      await saveHtml(page, store, "toss-mid-input-not-found");
+      await saveScreenshot(page, store, "toss-mid-input-not-found");
+      fail(
+        "토스 테스트 결제내역에서 상점 MID 입력칸 또는 상점 선택 박스를 처리하지 못했습니다.",
+        steps,
+        [
+          "결제내역 화면이 아닌 다른 화면이거나 상점 선택 UI 구조가 바뀌었을 수 있습니다.",
+          "리포트의 toss-mid-input-not-found.png 화면을 확인해주세요."
+        ]
+      );
+    }
   }
 
   const searchButton = page.getByRole("button", { name: /검색/ }).first();

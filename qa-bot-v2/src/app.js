@@ -184,10 +184,23 @@ function resultChannelAllowlist(config) {
     .filter(Boolean);
 }
 
-function shouldUseResultChannel(text = "", config = {}) {
-  if (!shouldPostProgressMessage(text) || !config.slackResultChannel) return false;
+function testResultChannelAllowlist(config) {
+  return String(config.slackTestResultChannelAllowlist || "")
+    .split(/[,\n]/)
+    .map((item) => normalizeCommandText(item))
+    .filter(Boolean);
+}
+
+function resolveConfiguredResultChannel(text = "", config = {}) {
+  if (!shouldPostProgressMessage(text)) return "";
   const normalized = normalizeCommandText(text);
-  return resultChannelAllowlist(config).includes(normalized);
+  if (config.slackTestResultChannel && testResultChannelAllowlist(config).includes(normalized)) {
+    return config.slackTestResultChannel;
+  }
+  if (config.slackResultChannel && resultChannelAllowlist(config).includes(normalized)) {
+    return config.slackResultChannel;
+  }
+  return "";
 }
 
 function messageDedupeKey(message) {
@@ -252,9 +265,10 @@ async function main() {
     };
     try {
       let resultTarget = null;
-      if (shouldUseResultChannel(message.text, config)) {
+      const configuredResultChannel = resolveConfiguredResultChannel(message.text, config);
+      if (configuredResultChannel) {
         try {
-          resultTarget = await resolveSlackChannel(app.client, config.slackResultChannel);
+          resultTarget = await resolveSlackChannel(app.client, configuredResultChannel);
         } catch (error) {
           await say({
             text: `결과 채널 설정을 확인하지 못했습니다: ${error.message}`,

@@ -39,6 +39,8 @@ function loadConfig() {
     slackAppToken: env.SLACK_APP_TOKEN || "",
     slackResultChannel: env.SLACK_RESULT_CHANNEL || "",
     slackResultChannelAllowlist: env.SLACK_RESULT_CHANNEL_ALLOWLIST || "",
+    slackTestResultChannel: env.SLACK_TEST_RESULT_CHANNEL || "",
+    slackTestResultChannelAllowlist: env.SLACK_TEST_RESULT_CHANNEL_ALLOWLIST || "",
     adbPath: env.ADB_PATH || "adb",
     devices: {
       guest: env.ADB_GUEST_DEVICE || "",

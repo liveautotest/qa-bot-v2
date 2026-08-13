@@ -993,6 +993,24 @@ async function closeCompleteAndFeedback(config, device, store, steps, initialXml
       ]
     );
   }
+
+  await runAdb(config, device, ["shell", "input", "swipe", "540", "720", "540", "1650", "450"]);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  addStep(steps, "예약 확정 취소 후 홈 화면 풀 리프레시");
+
+  xml = await waitForUi(config, device, hasHomeSearchBar, 6500);
+  saveXml(store, "cancel-confirmed-final-home-after-refresh", xml);
+  if (!hasHomeSearchBar(xml)) {
+    await saveFailureArtifacts(config, device, store, "cancel-confirmed-final-home-after-refresh", xml);
+    fail(
+      "예약 확정 취소 후 홈 화면 풀 리프레시 확인에 실패했습니다.",
+      steps,
+      [
+        "취소 완료 후 홈 화면으로 복귀한 뒤 풀드리프레시까지 수행합니다.",
+        "리포트의 cancel-confirmed-final-home-after-refresh.png 화면을 확인해주세요."
+      ]
+    );
+  }
 }
 
 async function runContractCancelRequestTest({ request, config, store }) {
@@ -1084,7 +1102,8 @@ async function runContractCancelConfirmedTest({ request, config, store }) {
           path.join(store.logsDir, "cancel-confirmed-reason-selected.xml"),
           path.join(store.logsDir, "cancel-confirmed-review-bottom.xml"),
           path.join(store.logsDir, "cancel-confirmed-complete-popup.xml"),
-          path.join(store.logsDir, "cancel-confirmed-final-home.xml")
+          path.join(store.logsDir, "cancel-confirmed-final-home.xml"),
+          path.join(store.logsDir, "cancel-confirmed-final-home-after-refresh.xml")
         ]
       }
     };
