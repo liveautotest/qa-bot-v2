@@ -211,6 +211,23 @@ async function downloadReleaseBinary(release, destinationDir) {
   const buildVersion = release.buildVersion || "unknown";
   const appName = String(release.name || "app").split("/apps/")[1]?.split("/")[0] || "app";
   const destination = path.join(destinationDir, `${appName}-${buildVersion}.apk`);
+
+  // Firebase 릴리즈 바이너리는 앱 ID와 versionCode 기준으로 고정된다.
+  // 이미 정상적으로 내려받은 APK가 있으면 200MB 이상의 재다운로드를 생략한다.
+  if (fs.existsSync(destination)) {
+    const stat = fs.statSync(destination);
+    const header = Buffer.alloc(2);
+    const fd = fs.openSync(destination, "r");
+    try {
+      fs.readSync(fd, header, 0, header.length, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (stat.size > 1024 * 1024 && header.toString("utf8") === "PK") {
+      return destination;
+    }
+  }
+
   return downloadFile(release.binaryDownloadUri, destination);
 }
 

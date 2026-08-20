@@ -23,13 +23,18 @@ function releaseLabel(release, { latest = false } = {}) {
   return `${latest ? "[최신] " : ""}${version} (${build})${createdAt}`;
 }
 
-function releaseValue(release) {
-  return String(release.buildVersion || "");
+function releaseValue(release, env) {
+  return JSON.stringify({
+    env: shortEnv(env),
+    buildVersion: String(release.buildVersion || "")
+  });
 }
 
 async function buildReleaseOptions(config, env) {
   try {
-    const releases = await getFirebaseReleases(config, normalizeEnv(env), 20);
+    // 모달을 열거나 환경을 바꿀 때는 최신 목록을 강제로 받고,
+    // 선택 후 설치 단계에서는 이 결과를 재사용한다.
+    const releases = await getFirebaseReleases(config, normalizeEnv(env), 30, { forceRefresh: true });
     if (!releases.length) {
       return [{ text: plainText("Firebase 릴리즈 없음"), value: JSON.stringify({ error: "no-release" }) }];
     }
@@ -42,7 +47,7 @@ async function buildReleaseOptions(config, env) {
 
     return sortedReleases.slice(0, 20).map((release, index) => ({
       text: plainText(releaseLabel(release, { latest: index === 0 }).slice(0, 75)),
-      value: releaseValue(release)
+      value: releaseValue(release, env)
     }));
   } catch (error) {
     return [{
@@ -89,6 +94,7 @@ async function buildInstallModal(privateMetadata, config, env = "stg", { release
       {
         type: "input",
         block_id: "environment",
+        dispatch_action: true,
         label: plainText("환경"),
         element: {
           type: "static_select",
@@ -107,7 +113,9 @@ async function buildInstallModal(privateMetadata, config, env = "stg", { release
         label: plainText("빌드 버전"),
         element: {
           type: "static_select",
-          action_id: "value",
+          // Slack은 같은 block_id/action_id의 기존 선택값을 views.update 후에도 보존한다.
+          // 환경별 action_id로 staging 빌드 선택값이 dev 목록에 남지 않게 한다.
+          action_id: `build_${shortEnv(env)}`,
           placeholder: plainText("빌드 버전 선택"),
           options
         }
@@ -154,6 +162,9 @@ function parseSubmission(view) {
 
   if (build.error) {
     throw new Error(`빌드 목록을 가져오지 못했습니다: ${build.error}`);
+  }
+  if (build.env && build.env !== env) {
+    throw new Error(`${env} 환경의 빌드 목록이 아닙니다. 환경을 다시 선택한 뒤 빌드를 선택해주세요.`);
   }
 
   return {
@@ -234,28 +245,37 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
         view: await buildInstallModal(privateMetadata, config, "stg", { releaseOptions })
       });
     } catch (error) {
-      await client.chat.postMessage({
-        channel: privateMetadata.channel,
-        thread_ts: privateMetadata.threadTs,
-        text: `빌드 선택창을 열지 못했습니다: ${error.message || error}`
-      }).catch(() => undefined);
+      if (privateMetadata.channel) {
+        await client.chat.postMessage({
+          channel: privateMetadata.channel,
+          thread_ts: privateMetadata.threadTs,
+          text: `빌드 선택창을 열지 못했습니다: ${error.message || error}`
+        }).catch(() => undefined);
+      } else {
+        console.error(`빌드 선택창을 열지 못했습니다: ${error.message || error}`);
+      }
     }
   });
 
   app.action(BUILD_INSTALL_ENV_ACTION_ID, async ({ ack, body, view, client }) => {
     await ack();
     const env = body.actions?.[0]?.selected_option?.value || "stg";
+    const activeView = view || body.view;
+    if (!activeView?.id) {
+      console.error(`${env} 빌드 목록을 갱신하지 못했습니다: Slack modal view 정보가 없습니다.`);
+      return;
+    }
     let metadata = {};
     try {
-      metadata = JSON.parse(view.private_metadata || "{}");
+      metadata = JSON.parse(activeView.private_metadata || "{}");
     } catch {
       metadata = {};
     }
 
     try {
       await client.views.update({
-        view_id: view.id,
-        hash: view.hash,
+        view_id: activeView.id,
+        hash: activeView.hash,
         view: await buildInstallModal(metadata, config, env, {
           releaseOptions: buildLoadingReleaseOptions(`${env} 최신 릴리즈 조회 중`)
         })
@@ -263,19 +283,40 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
 
       const releaseOptions = await buildReleaseOptions(config, env);
       await client.views.update({
-        view_id: view.id,
+        view_id: activeView.id,
         view: await buildInstallModal(metadata, config, env, { releaseOptions })
       });
     } catch (error) {
-      await client.chat.postMessage({
-        channel: metadata.channel,
-        thread_ts: metadata.threadTs,
-        text: `${env} 빌드 목록을 갱신하지 못했습니다: ${error.message || error}`
-      }).catch(() => undefined);
+      if (metadata.channel) {
+        await client.chat.postMessage({
+          channel: metadata.channel,
+          thread_ts: metadata.threadTs,
+          text: `${env} 빌드 목록을 갱신하지 못했습니다: ${error.message || error}`
+        }).catch(() => undefined);
+      } else {
+        console.error(`${env} 빌드 목록을 갱신하지 못했습니다: ${error.message || error}`);
+      }
     }
   });
 
   app.view(BUILD_INSTALL_MODAL_CALLBACK_ID, async ({ ack, body, view, client }) => {
+    let metadata = {};
+    try {
+      metadata = JSON.parse(view.private_metadata || "{}");
+    } catch {
+      metadata = {};
+    }
+
+    if (!metadata.channel) {
+      await ack({
+        response_action: "errors",
+        errors: {
+          build: "실행 채널 정보를 찾지 못했습니다. 모달을 닫고 !빌드설치부터 다시 실행해주세요."
+        }
+      });
+      return;
+    }
+
     let submission;
     try {
       submission = parseSubmission(view);
@@ -290,7 +331,6 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
     }
     await ack();
 
-    const metadata = JSON.parse(view.private_metadata || "{}");
     const channel = metadata.channel;
     if (channel && metadata.promptTs) {
       await client.chat.update({

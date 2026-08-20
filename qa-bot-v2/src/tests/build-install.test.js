@@ -6,6 +6,9 @@ const {
   listReleases
 } = require("../infra/firebase-app-distribution");
 
+const RELEASE_CACHE_TTL_MS = 5 * 60 * 1000;
+const releaseCache = new Map();
+
 function normalizeEnv(env) {
   return env === "stg" ? "staging" : env;
 }
@@ -41,16 +44,30 @@ function formatVersion(version) {
   return `${name} (${code})`;
 }
 
-async function getFirebaseReleases(config, env, pageSize = 20) {
+async function getFirebaseReleases(config, env, pageSize = 20, { forceRefresh = false } = {}) {
   requireBuildInstallConfig(config, env);
   const appBuild = config.appBuild || {};
+  const appId = getFirebaseAppId(config, env);
+  const cacheKey = `${appBuild.firebaseProjectNumber}:${appId}`;
+  const cached = releaseCache.get(cacheKey);
+  if (
+    !forceRefresh &&
+    cached &&
+    Date.now() - cached.cachedAt < RELEASE_CACHE_TTL_MS &&
+    cached.pageSize >= pageSize
+  ) {
+    return cached.releases;
+  }
+
   const response = await listReleases({
     projectNumber: appBuild.firebaseProjectNumber,
-    appId: getFirebaseAppId(config, env),
+    appId,
     serviceAccountPath: appBuild.firebaseServiceAccountPath,
     pageSize
   });
-  return response.releases || [];
+  const releases = response.releases || [];
+  releaseCache.set(cacheKey, { cachedAt: Date.now(), pageSize, releases });
+  return releases;
 }
 
 async function findTargetRelease(config, request) {
@@ -144,7 +161,7 @@ async function runBuildInstallTest({ request, config, store }) {
   }
 
   const apkPath = await downloadReleaseBinary(target, config.appBuild.downloadDir);
-  addStep("Firebase APK 다운로드", "pass", path.basename(apkPath));
+  addStep("설치 APK 준비", "pass", path.basename(apkPath));
 
   if (installAction === "downgrade-reinstall") {
     // 낮은 versionCode 설치는 Android가 차단하므로 해당 앱 패키지만 삭제한 뒤 설치한다.
