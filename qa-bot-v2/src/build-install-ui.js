@@ -16,11 +16,11 @@ function shortEnv(env) {
   return normalizeEnv(env) === "dev" ? "dev" : "stg";
 }
 
-function releaseLabel(release) {
+function releaseLabel(release, { latest = false } = {}) {
   const version = release.displayVersion || "unknown";
   const build = release.buildVersion || "unknown";
   const createdAt = release.createTime ? ` / ${release.createTime.slice(0, 10)}` : "";
-  return `${version} (${build})${createdAt}`;
+  return `${latest ? "[최신] " : ""}${version} (${build})${createdAt}`;
 }
 
 function releaseValue(release) {
@@ -34,8 +34,14 @@ async function buildReleaseOptions(config, env) {
       return [{ text: plainText("Firebase 릴리즈 없음"), value: JSON.stringify({ error: "no-release" }) }];
     }
 
-    return releases.slice(0, 20).map((release) => ({
-      text: plainText(releaseLabel(release).slice(0, 75)),
+    const sortedReleases = [...releases].sort((left, right) => {
+      const timeDiff = Date.parse(right.createTime || 0) - Date.parse(left.createTime || 0);
+      if (timeDiff) return timeDiff;
+      return Number(right.buildVersion || 0) - Number(left.buildVersion || 0);
+    });
+
+    return sortedReleases.slice(0, 20).map((release, index) => ({
+      text: plainText(releaseLabel(release, { latest: index === 0 }).slice(0, 75)),
       value: releaseValue(release)
     }));
   } catch (error) {
@@ -47,7 +53,8 @@ async function buildReleaseOptions(config, env) {
 }
 
 function selectedValue(view, blockId) {
-  return view.state.values?.[blockId]?.value || {};
+  const block = view.state.values?.[blockId] || {};
+  return block.value || block[BUILD_INSTALL_ENV_ACTION_ID] || Object.values(block)[0] || {};
 }
 
 function buildLoadingReleaseOptions(message = "Firebase 릴리즈 조회 중") {
@@ -245,11 +252,27 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
       metadata = {};
     }
 
-    await client.views.update({
-      view_id: view.id,
-      hash: view.hash,
-      view: await buildInstallModal(metadata, config, env)
-    }).catch(() => undefined);
+    try {
+      await client.views.update({
+        view_id: view.id,
+        hash: view.hash,
+        view: await buildInstallModal(metadata, config, env, {
+          releaseOptions: buildLoadingReleaseOptions(`${env} 최신 릴리즈 조회 중`)
+        })
+      });
+
+      const releaseOptions = await buildReleaseOptions(config, env);
+      await client.views.update({
+        view_id: view.id,
+        view: await buildInstallModal(metadata, config, env, { releaseOptions })
+      });
+    } catch (error) {
+      await client.chat.postMessage({
+        channel: metadata.channel,
+        thread_ts: metadata.threadTs,
+        text: `${env} 빌드 목록을 갱신하지 못했습니다: ${error.message || error}`
+      }).catch(() => undefined);
+    }
   });
 
   app.view(BUILD_INSTALL_MODAL_CALLBACK_ID, async ({ ack, body, view, client }) => {
@@ -298,5 +321,7 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
 }
 
 module.exports = {
+  buildInstallModal,
+  parseSubmission,
   registerBuildInstallUi
 };
