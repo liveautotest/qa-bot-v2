@@ -125,9 +125,12 @@ async function runBuildInstallTest({ request, config, store }) {
   let installAction = "same-version";
   let actionLabel = "동일 버전, 설치 생략";
 
-  if (compare > 0 || !installedBefore.buildVersion) {
+  if (!installedBefore.buildVersion) {
+    installAction = "new-install";
+    actionLabel = "신규 설치";
+  } else if (compare > 0) {
     installAction = "update";
-    actionLabel = installedBefore.buildVersion ? "업데이트 설치" : "신규 설치";
+    actionLabel = "업데이트 설치";
   } else if (compare < 0) {
     installAction = "downgrade-reinstall";
     actionLabel = "삭제 후 낮은 버전 설치";

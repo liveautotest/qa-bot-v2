@@ -104,10 +104,11 @@ function formatProgressMessage(text = "") {
   ].join("\n");
 }
 
-function formatDelegatedProgressMessage(resultTarget, text = "") {
+function formatDelegatedProgressMessage(resultTarget, text = "", displayText = "") {
   if (isBuildInstallCommand(text)) {
     return [
       "빌드 설치중입니다.",
+      `설치 대상: ${displayText || formatCommandDisplayText(text)}`,
       `결과는 ${resultTarget.label} 채널에 새 스레드로 남길게요.`
     ].join("\n");
   }
@@ -379,7 +380,13 @@ async function main() {
       }
       if (shouldPostProgressMessage(message.text)) {
         await say({
-          text: resultTarget ? formatDelegatedProgressMessage(resultTarget, message.text) : formatProgressMessage(message.text),
+          text: resultTarget
+            ? formatDelegatedProgressMessage(
+              resultTarget,
+              message.text,
+              message.displayText || formatCommandDisplayText(message.text || "")
+            )
+            : formatProgressMessage(message.text),
           thread_ts: threadTs
         });
       }

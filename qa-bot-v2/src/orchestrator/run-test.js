@@ -1,9 +1,13 @@
 const { getTest } = require("./test-registry");
 const { createRunStore } = require("./run-store");
 const { ensureLatestAppBuild } = require("../infra/app-build-check");
-const { runAdb } = require("../infra/adb");
+const { dumpUi, runAdb } = require("../infra/adb");
+const { maybeDismissHostReportPopup } = require("../tests/login.test");
 
 function getAndroidPostTestTarget(request, config) {
+  // Login already launches the app and finishes on a verified home screen.
+  // Relaunching it again can recreate delayed host WebView notices.
+  if (request.test === "login") return null;
   if (request.test === "toss-deposit-approve") return null;
   if (request.test === "console-schedule-change") return null;
   if (request.test === "console-deposit-return") return null;
@@ -34,6 +38,19 @@ async function relaunchAndroidAppAfterPass({ request, config, result, store }) {
       "android.intent.category.LAUNCHER",
       "1"
     ]);
+
+    if ((request.role || "guest") === "host") {
+      // Let the native shell start; the helper observes delayed WebView notices.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const hostXml = await dumpUi(config, target.device);
+      await maybeDismissHostReportPopup(
+        config,
+        target.device,
+        hostXml,
+        store,
+        Array.isArray(result.steps) ? result.steps : []
+      );
+    }
 
     if (Array.isArray(result.steps)) {
       result.steps.push({

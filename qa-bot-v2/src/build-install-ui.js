@@ -26,6 +26,7 @@ function releaseLabel(release, { latest = false } = {}) {
 function releaseValue(release, env) {
   return JSON.stringify({
     env: shortEnv(env),
+    displayVersion: String(release.displayVersion || ""),
     buildVersion: String(release.buildVersion || "")
   });
 }
@@ -79,15 +80,15 @@ async function buildInstallModal(privateMetadata, config, env = "stg", { release
       {
         type: "input",
         block_id: "tester",
-        label: plainText("테스터/단말"),
+        label: plainText("단말"),
         element: {
           type: "static_select",
           action_id: "value",
-          placeholder: plainText("테스터/단말 선택"),
-          initial_option: { text: plainText("게스트 단말"), value: "guest" },
+          placeholder: plainText("단말 선택"),
+          initial_option: { text: plainText("게스트"), value: "guest" },
           options: [
-            { text: plainText("게스트 단말"), value: "guest" },
-            { text: plainText("호스트 단말"), value: "host" }
+            { text: plainText("게스트"), value: "guest" },
+            { text: plainText("호스트"), value: "host" }
           ]
         }
       },
@@ -171,7 +172,7 @@ function parseSubmission(view) {
     testerRole,
     env,
     build,
-    displayTarget: `빌드설치 ${testerRole} ${env} ${build.displayVersion || build.buildVersion || ""}`.trim(),
+    displayTarget: `${build.displayVersion || "unknown"} (${build.buildVersion || "unknown"}) ${env}`,
     commandText: [
       "!qa build-install",
       `env=${env === "stg" ? "staging" : env}`,
@@ -333,19 +334,9 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
 
     const channel = metadata.channel;
     if (channel && metadata.promptTs) {
-      await client.chat.update({
+      await client.chat.delete({
         channel,
-        ts: metadata.promptTs,
-        text: `빌드 설치를 시작했습니다: ${submission.displayTarget}`,
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `*빌드 설치를 시작했습니다.*\n설치 대상: ${submission.displayTarget}`
-            }
-          }
-        ]
+        ts: metadata.promptTs
       }).catch(() => undefined);
     }
 

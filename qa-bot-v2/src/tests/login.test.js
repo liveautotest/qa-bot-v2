@@ -331,6 +331,24 @@ function isHostModeShell(xml) {
   return hostBottomTabs.filter((text) => Boolean(findBottomTabBounds(xml, text))).length >= 3;
 }
 
+function isHostReportPopupVisible(xml) {
+  if (!isHostModeShell(xml)) return false;
+
+  // The report popup lives inside a WebView and does not expose its Korean labels
+  // to Android UIAutomator. While it is open, only the non-scrollable modal
+  // WebView is exposed; the normal host home exposes an additional scrollable view.
+  const webViews = parseNodes(xml).filter(
+    (node) => (node.attrs.class || "").includes("android.webkit.WebView")
+  );
+  return (
+    webViews.length >= 1 &&
+    webViews.every((node) => node.attrs.scrollable !== "true") &&
+    webViews.some(
+      (node) => node.attrs.focused === "true" || node.attrs.clickable === "true"
+    )
+  );
+}
+
 function assertEnteredValue(xml, value, fieldName) {
   if (!xml.includes(value)) {
     throw new Error(`${fieldName} was not entered correctly. Check keyboard/IME state or install ADB Keyboard.`);
@@ -399,6 +417,70 @@ async function maybeAllowPermissionPopup(config, device, xml, store, steps) {
   addStep(steps, "권한 팝업 허용");
   store.appendLog("runner.log", "allowed permission popup");
   return true;
+}
+
+async function maybeDismissHostReportPopup(config, device, xml, store, steps) {
+  let popupXml = xml;
+  const detectionDeadline = Date.now() + 4000;
+
+  // The native host shell can render before its WebView notice. Observe the
+  // short delayed-popup window instead of relying on one early UI snapshot.
+  while (!isHostReportPopupVisible(popupXml) && Date.now() < detectionDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    popupXml = await dumpUi(config, device);
+  }
+  if (!isHostReportPopupVisible(popupXml)) return popupXml;
+
+  // Avoid treating the brief, non-scrollable WebView state during home loading
+  // as the report popup. The real modal remains stable until the user acts.
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  const confirmedXml = await dumpUi(config, device);
+  if (!isHostReportPopupVisible(confirmedXml)) return confirmedXml;
+
+  const root = parseNodes(confirmedXml).find(
+    (node) => node.bounds && node.bounds.left === 0 && node.bounds.top === 0
+  );
+  const width = root?.bounds.right || 1080;
+  const height = root?.bounds.bottom || 2640;
+
+  let nextXml = confirmedXml;
+  let dismissAttempts = 0;
+
+  // A service-update refresh can recreate the WebView immediately after the
+  // first tap, so retry the same action once when the modal reappears.
+  while (dismissAttempts < 2 && isHostReportPopupVisible(nextXml)) {
+    dismissAttempts += 1;
+    await tap(config, device, Math.round(width * 0.267), Math.round(height * 0.787));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    nextXml = await dumpUi(config, device);
+  }
+
+  if (!isHostReportPopupVisible(nextXml)) {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    nextXml = await dumpUi(config, device);
+  }
+
+  addStep(
+    steps,
+    "호스트 리포트 팝업 다시 보지 않기",
+    "pass",
+    dismissAttempts > 1 ? "WebView 갱신 후 재노출되어 1회 재시도" : undefined
+  );
+  store.appendLog(
+    "runner.log",
+    `dismissed host report popup with do-not-show-again action attempts=${dismissAttempts}`
+  );
+  fs.writeFileSync(path.join(store.logsDir, "host-report-popup-dismissed.xml"), nextXml);
+
+  if (isHostReportPopupVisible(nextXml)) {
+    fail(
+      "호스트 리포트 팝업의 '다시 보지 않기'를 눌렀지만 팝업이 닫히지 않았습니다.",
+      steps,
+      ["호스트 홈의 리포트 안내 팝업 버튼 위치나 화면 크기를 확인해주세요."]
+    );
+  }
+
+  return nextXml;
 }
 
 async function tapFirstLoginEntry(config, device, xml, steps) {
@@ -539,6 +621,9 @@ async function verifyHostMode(config, device, store, steps, options = {}) {
   if (!isHostModeShell(xml) && !xml.includes("호스트")) {
     throw new Error("Host mode screen was not confirmed after tapping host mode.");
   }
+
+  // Host-only notices are created after the guest-to-host mode transition.
+  xml = await maybeDismissHostReportPopup(config, device, xml, store, steps);
 
   if (hostHomeOnly) {
     const homeTabBounds =
@@ -968,5 +1053,6 @@ async function runLoginTest({ request, config, store }) {
 }
 
 module.exports = {
+  maybeDismissHostReportPopup,
   runLoginTest
 };

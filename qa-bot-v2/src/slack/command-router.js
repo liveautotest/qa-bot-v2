@@ -286,6 +286,14 @@ function shouldAutoApproveHostContract({ test, paymentMethod }, result) {
   );
 }
 
+function shouldAutoLoginAfterBuildInstall(test, result) {
+  return (
+    test === "build-install" &&
+    result.status === "pass" &&
+    ["new-install", "downgrade-reinstall"].includes(result.build_install?.action)
+  );
+}
+
 function requiredLoginRoleForTest(test) {
   const guestRequired = [
     "contract-request",
@@ -395,6 +403,26 @@ async function runQaCommandWithPrerequisite(command, context) {
 async function runQaCommand(command, context) {
   const { test, env, role, payment_method: paymentMethod } = command;
   const { result, formatted: formattedResult } = await runQaCommandWithPrerequisite(command, context);
+
+  if (shouldAutoLoginAfterBuildInstall(test, result)) {
+    const loginResult = await runSingleQaCommand(
+      {
+        test: "login",
+        env,
+        role
+      },
+      context
+    );
+
+    return [
+      formattedResult,
+      "",
+      "-----",
+      "",
+      `[연결 실행] ${role === "host" ? "호스트" : "게스트"} 로그인`,
+      formatResult(loginResult)
+    ].join("\n");
+  }
 
   if (shouldAutoApproveHostContract({ test, paymentMethod }, result)) {
     const { formatted: formattedApproveResult } = await runQaCommandWithPrerequisite(
@@ -1025,6 +1053,7 @@ module.exports = {
   CONSOLE_DEPOSIT_RETURN_PATTERN,
   CONSOLE_SCHEDULE_CHANGE_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
+  shouldAutoLoginAfterBuildInstall,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand
 };
