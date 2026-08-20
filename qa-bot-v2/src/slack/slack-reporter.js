@@ -20,6 +20,7 @@ function formatHelp() {
     "!기본검증 연장결제 카드 dev",
     "!기본검증 연장결제 무통장 stg",
     "!기본검증 연장결제 무통장 dev",
+    "!빌드설치",
     "!게스트 로그인 stg",
     "!게스트 로그인 dev",
     "!게스트 로그아웃 stg",
@@ -105,7 +106,8 @@ function formatHelp() {
     "!qa contract-payment env=staging role=guest method=bank-transfer (PASS 시 무통장 입금 승인 자동 실행)",
     "!qa contract-approve env=staging role=host",
     "!qa contract-reject env=staging role=host",
-    "!qa toss-deposit-approve"
+    "!qa toss-deposit-approve",
+    "!qa build-install env=staging role=guest build_version=123"
   ].join("\n");
 }
 
@@ -425,7 +427,53 @@ function formatAppBuild(build) {
 function formatResultConditionSummary(result) {
   const lines = [];
 
-  if (result.contract_request?.match_summary) {
+  if (result.contract_request?.match_summary || result.contract_request?.selected_listing_title) {
+    const { title, schedule, guest } = result.contract_request.match_summary || {};
+    const selectedTitle = result.contract_request.selected_listing_title || title;
+    if (selectedTitle) lines.push(`- 집 이름: ${selectedTitle}`);
+    if (schedule) lines.push(`- 일정: ${schedule}`);
+    if (guest) lines.push(`- 인원: ${guest}`);
+  }
+
+  if (result.contract_conditions) {
+    const conditions = result.contract_conditions;
+    if (conditions.start_date && conditions.end_date) {
+      lines.push(`- 정확한 일정: ${conditions.start_date} ~ ${conditions.end_date}${conditions.stay_nights ? ` (${conditions.stay_nights}박)` : ""}`);
+    }
+    if (
+      conditions.adult_count !== undefined ||
+      conditions.child_count !== undefined ||
+      conditions.infant_count !== undefined ||
+      conditions.pet_count !== undefined
+    ) {
+      lines.push(
+        `- 인원: ${[
+          `성인${conditions.adult_count ?? 0}`,
+          `어린이${conditions.child_count ?? 0}`,
+          `유아${conditions.infant_count ?? 0}`,
+          `반려동물${conditions.pet_count ?? 0}`
+        ].join(", ")}`
+      );
+    }
+    if (conditions.pet_info) {
+      lines.push(`- 반려동물 정보: ${conditions.pet_info}`);
+    }
+    if (conditions.payment_method) {
+      lines.push(`- 계약 요청 결제 방식: ${conditions.payment_method}`);
+    }
+  }
+
+  if (result.search_conditions && !result.contract_conditions) {
+    const { region, schedule_type: scheduleType, start_date: startDate, end_date: endDate, stay_duration: stayDuration } = result.search_conditions;
+    if (region) lines.push(`- 지역: ${region}`);
+    if (startDate && endDate) {
+      lines.push(`- 일정: ${startDate} ~ ${endDate}${stayDuration ? ` (${stayDuration})` : ""}`);
+    } else if (scheduleType) {
+      lines.push(`- 일정 방식: ${scheduleType}`);
+    }
+  }
+
+  if (result.contract_request?.match_summary && !result.contract_request?.selected_listing_title) {
     const { title, schedule, guest } = result.contract_request.match_summary;
     if (title) lines.push(`- 숙소: ${title}`);
     if (schedule) lines.push(`- 일정: ${schedule}`);
@@ -532,6 +580,24 @@ function formatResultConditionSummary(result) {
     }
   }
 
+  if (result.build_install) {
+    const build = result.build_install;
+    const target = build.target_build || {};
+    const installedBefore = build.installed_before || {};
+    const installedAfter = build.installed_after || {};
+    lines.push(`- 테스터: ${build.tester_role || result.role || "-"}`);
+    lines.push(`- 앱 패키지: ${build.package || "-"}`);
+    lines.push(`- 설치 대상: ${target.displayVersion || "unknown"} (${target.buildVersion || "unknown"})`);
+    lines.push(`- 기존 버전: ${installedBefore.displayVersion || "미설치"} (${installedBefore.buildVersion || "-"})`);
+    lines.push(`- 설치 방식: ${build.action_label || build.action || "-"}`);
+    if (installedAfter.displayVersion || installedAfter.buildVersion) {
+      lines.push(`- 설치 직후 검증 버전: ${installedAfter.displayVersion || "unknown"} (${installedAfter.buildVersion || "unknown"})`);
+    }
+    if (build.verified_at) {
+      lines.push(`- 설치 검증 시각: ${build.verified_at}`);
+    }
+  }
+
   if (result.review_write) {
     if (result.review_write.rating) lines.push(`- 별점: ${result.review_write.rating}개`);
     if (result.review_write.selected_tags?.length) {
@@ -567,7 +633,10 @@ function formatResultConditionSummary(result) {
     lines.push(result.review_delete.deleted ? "- 삭제 처리: 완료" : "- 삭제 처리: 확인 필요");
   }
 
-  return lines.slice(0, result.console_schedule_change || result.console_deposit_return ? 10 : 6);
+  const summaryLimit = result.console_schedule_change || result.console_deposit_return || result.build_install
+    ? 10
+    : 6;
+  return lines.slice(0, summaryLimit);
 }
 
 function formatFigmaValidationSummary(validation) {
@@ -714,19 +783,25 @@ function buildResultJudgment(result) {
   const passSummary = formatPassSummary(result).map((line) => line.replace(/^- /, ""));
   const figmaSummary = formatFigmaValidationSummary(result.figma_validation);
   const conditionLimit = result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001" ||
-    result.test_id === "TC-CONSOLE-DEPOSIT-RETURN-001"
+    result.test_id === "TC-CONSOLE-DEPOSIT-RETURN-001" ||
+    result.test_id === "TC-BUILD-INSTALL-001"
     ? 10
-    : 6;
-  const conditionSummary = [
+    : 8;
+  const resultConditionSummary = formatResultConditionSummary(result);
+  const genericConditionSummary = [
     ...formatSearchConditions(result.search_conditions).slice(0, 3),
-    ...formatSearchConditions(result.contract_conditions).slice(0, 3),
-    ...formatResultConditionSummary(result)
+    ...formatSearchConditions(result.contract_conditions).slice(0, 3)
+  ];
+  const conditionSummary = [
+    ...resultConditionSummary,
+    ...(resultConditionSummary.length ? [] : genericConditionSummary)
   ].slice(0, conditionLimit);
   const lastPassed = getLastPassedStep(result.steps || []);
   const lastStep = getLastStep(result.steps || []);
   const details = (result.error_details || []).filter(Boolean).slice(0, 3);
   const shouldMentionPdf = result.test_id !== "TC-CONSOLE-SCHEDULE-CHANGE-001" &&
-    result.test_id !== "TC-CONSOLE-DEPOSIT-RETURN-001";
+    result.test_id !== "TC-CONSOLE-DEPOSIT-RETURN-001" &&
+    result.test_id !== "TC-BUILD-INSTALL-001";
 
   return {
     status,
@@ -758,8 +833,19 @@ function buildResultJudgment(result) {
 function formatJudgmentLines(result) {
   if (result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001") {
     const judgment = buildResultJudgment(result);
+    if (result.status === "pass") {
+      const lines = [`[검증 완료] ${judgment.title} (${judgment.env})`];
+      if (judgment.conditions.length) {
+        lines.push("");
+        lines.push("주요 조건:");
+        lines.push(...judgment.conditions);
+      }
+      return lines;
+    }
+
+    const titlePrefix = result.status === "pass" ? "[검증 완료]" : `[${judgment.status}]`;
     const lines = [
-      `[${judgment.status}] ${judgment.title}`,
+      `${titlePrefix} ${judgment.title}`,
       `요청자: ${judgment.requester} / 환경: ${judgment.env} / 소요시간: ${judgment.duration}`,
       `run_id: ${judgment.runId}`
     ];
@@ -787,44 +873,51 @@ function formatJudgmentLines(result) {
   }
 
   const judgment = buildResultJudgment(result);
+  if (result.status === "pass") {
+    const figmaDetailLines = formatFigmaValidationDetailLines(result.figma_validation, { maxItems: 3 });
+    const conditionLines = [
+      ...judgment.conditions,
+      ...figmaDetailLines.map((line) => line.replace(/^- /, ""))
+    ];
+    const lines = [`[검증 완료] ${judgment.title} (${judgment.env})`];
+
+    lines.push("");
+    lines.push("검증 항목:");
+    if (conditionLines.length) {
+      lines.push(...conditionLines.map((line) => line.startsWith("- ") ? line : `- ${line}`));
+    } else {
+      lines.push(`- ${judgment.conclusion}`);
+    }
+
+    return lines;
+  }
+
+  const titlePrefix = result.status === "pass" ? "[검증 완료]" : `[${judgment.status}]`;
   const lines = [
-    `[${judgment.status}] ${judgment.title}`,
+    `${titlePrefix} ${judgment.title}`,
     `요청자: ${judgment.requester} / 환경: ${judgment.env} / 디바이스: ${judgment.device} / 소요시간: ${judgment.duration}`,
-    `run_id: ${judgment.runId}`,
-    "",
-    `판정: ${judgment.conclusion}`
+    `run_id: ${judgment.runId}`
   ];
 
-  if (result.status === "pass") {
-    if (judgment.verified.length) {
-      lines.push("");
-      lines.push("검증 완료:");
-      lines.push(...judgment.verified.map((line) => `- ${line}`));
-    }
-    const figmaDetailLines = formatFigmaValidationDetailLines(result.figma_validation);
-    if (figmaDetailLines.length) {
-      lines.push("");
-      lines.push("Figma 기준 비교:");
-      lines.push(...figmaDetailLines.map((line) => `- ${line}`));
-    }
-    if (judgment.conditions.length) {
-      lines.push("");
-      lines.push("주요 조건:");
-      lines.push(...judgment.conditions);
-    }
-  } else {
-    lines.push("");
-    lines.push("실패 요약:");
-    lines.push(`- 실패 위치: ${judgment.failedStep}`);
-    lines.push(`- 마지막 성공: ${judgment.lastPassed}`);
-    lines.push(`- 마지막 진행: ${judgment.lastProgress}`);
-    lines.push(`- 의심 영역: ${judgment.suspectedArea}`);
+  lines.push("");
+  lines.push(`판정: ${judgment.conclusion}`);
+  lines.push("");
+  lines.push("실패 요약:");
+  lines.push(`- 실패 위치: ${judgment.failedStep}`);
+  lines.push(`- 마지막 성공: ${judgment.lastPassed}`);
+  lines.push(`- 마지막 진행: ${judgment.lastProgress}`);
+  lines.push(`- 의심 영역: ${judgment.suspectedArea}`);
 
-    if (judgment.nextChecks.length) {
-      lines.push("");
-      lines.push("다음 확인:");
-      lines.push(...judgment.nextChecks.map((line) => `- ${line}`));
-    }
+  if (judgment.conditions.length) {
+    lines.push("");
+    lines.push("주요 조건:");
+    lines.push(...judgment.conditions);
+  }
+
+  if (judgment.nextChecks.length) {
+    lines.push("");
+    lines.push("다음 확인:");
+    lines.push(...judgment.nextChecks.map((line) => `- ${line}`));
   }
 
   if (result.app_warnings && result.app_warnings.length > 0) {
@@ -853,19 +946,19 @@ function formatResult(result) {
   const lines = formatJudgmentLines(result);
 
   const appBuild = formatAppBuild(result.app_build);
-  if (appBuild.length > 0) lines.splice(Math.min(4, lines.length), 0, "", ...appBuild);
+  if (result.status !== "pass" && appBuild.length > 0) lines.splice(Math.min(4, lines.length), 0, "", ...appBuild);
 
-  if (result.session_reused) {
+  if (result.status !== "pass" && result.session_reused) {
     lines.push("");
     lines.push("로그인 방식: 기존 로그인 세션 사용");
   }
 
-  if (result.session_already_logged_out) {
+  if (result.status !== "pass" && result.session_already_logged_out) {
     lines.push("");
     lines.push("로그아웃 방식: 이미 로그아웃된 상태");
   }
 
-  if (result.security_checks && result.security_checks.length > 0) {
+  if (result.status !== "pass" && result.security_checks && result.security_checks.length > 0) {
     const hasSecuritySection = lines.includes("보안 확인 이슈:");
     if (!hasSecuritySection) {
       lines.push("");

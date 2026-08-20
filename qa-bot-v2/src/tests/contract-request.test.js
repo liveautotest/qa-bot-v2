@@ -16,6 +16,20 @@ const {
   getRandomExactSearchDateRange,
   schedulePattern
 } = require("./helpers/exact-date-range");
+const { inputUnicodeText } = require("./aos-text-input");
+
+const PET_INFO_CANDIDATES = [
+  "사자", "호랑이", "치타", "표범", "재규어", "늑대", "여우", "곰", "판다", "코끼리",
+  "기린", "얼룩말", "코뿔소", "하마", "캥거루", "코알라", "고릴라", "침팬지", "오랑우탄", "원숭이",
+  "사슴", "낙타", "라마", "알파카", "말", "당나귀", "소", "양", "염소", "돼지",
+  "토끼", "다람쥐", "햄스터", "고슴도치", "수달", "비버", "너구리", "족제비", "박쥐", "돌고래",
+  "고래", "상어", "문어", "오징어", "해파리", "바다거북", "물개", "바다사자", "펭귄", "독수리",
+  "매", "올빼미", "부엉이", "앵무새", "까마귀", "참새", "백조", "공작", "타조", "악어",
+  "뱀", "도마뱀", "카멜레온", "이구아나", "개구리", "두꺼비", "도롱뇽", "거북이", "도마뱀붙이",
+  "장수풍뎅이", "사슴벌레", "풍뎅이", "무당벌레", "반딧불이", "나비", "나방", "잠자리", "매미", "메뚜기",
+  "귀뚜라미", "여치", "사마귀", "벌", "꿀벌", "말벌", "개미", "흰개미", "모기", "파리",
+  "등에", "벼룩", "이", "바퀴벌레", "하늘소", "물방개", "소금쟁이", "장구벌레", "진딧물", "노린재"
+];
 
 function addStep(steps, name, status = "pass", message) {
   const step = { name, status };
@@ -84,6 +98,25 @@ function nodeLabel(node) {
   ].join("\n");
 }
 
+function pickRandomItem(items) {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function randomInt(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function makeRandomGuestProfile() {
+  const adultCount = randomInt(1, 5);
+  const childCount = randomInt(0, 5 - adultCount);
+  return {
+    adultCount,
+    childCount,
+    infantCount: randomInt(0, 2),
+    petCount: randomInt(0, 2)
+  };
+}
+
 function findNode(xml, labels, options = {}) {
   const labelList = Array.isArray(labels) ? labels : [labels];
   const nodes = parseNodes(xml).filter((node) => {
@@ -98,6 +131,14 @@ function findNode(xml, labels, options = {}) {
   });
 
   return nodes.find((node) => node.attrs.clickable === "true") || nodes[0];
+}
+
+function findEditableNodes(xml) {
+  return parseNodes(xml).filter((node) => {
+    if (!node.bounds) return false;
+    const className = node.attrs.class || "";
+    return className.includes("EditText") && node.attrs.enabled === "true";
+  });
 }
 
 function getScreenBounds(xml) {
@@ -752,6 +793,66 @@ async function ensureMonthVisible(config, device, xml, steps, monthLabel) {
   return currentXml;
 }
 
+async function ensureCalendarDateVisible(config, device, xml, steps, date) {
+  const monthLabel = formatMonthLabel(date);
+  const dayLabel = String(date.getDate());
+  let currentXml = xml;
+  const targetMonthIndex = parseCalendarMonthIndex(monthLabel);
+
+  for (let count = 0; count < 18; count += 1) {
+    if (findVisibleDateNodeInMonth(currentXml, monthLabel, dayLabel) || findDateNodeInMonth(currentXml, monthLabel, dayLabel)) {
+      return currentXml;
+    }
+
+    const months = visibleCalendarMonths(currentXml);
+    const firstMonth = months[0];
+    const lastMonth = months[months.length - 1];
+    const targetBefore = targetMonthIndex !== null && firstMonth && targetMonthIndex < firstMonth.index;
+    const swipe = targetBefore
+      ? ["shell", "input", "swipe", "540", "760", "540", "1680", "180"]
+      : ["shell", "input", "swipe", "540", "1880", "540", "720", "180"];
+
+    await runAdb(config, device, swipe);
+    addStep(
+      steps,
+      targetBefore ? "달력 이전 날짜 영역 스크롤" : "달력 체크아웃 날짜 영역 스크롤",
+      "pass",
+      `${monthLabel} ${dayLabel}일 탐색${firstMonth && lastMonth ? ` / 현재 ${firstMonth.label} ~ ${lastMonth.label}` : ""}`
+    );
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    currentXml = await dumpUiStable(config, device);
+  }
+
+  return currentXml;
+}
+
+async function selectCalendarDate(config, device, store, steps, xml, date, stepName, artifactName) {
+  let currentXml = await ensureCalendarDateVisible(config, device, xml, steps, date);
+  await saveArtifacts(config, device, store, artifactName, currentXml);
+  const monthLabel = formatMonthLabel(date);
+  const dayLabel = String(date.getDate());
+  const dateNode =
+    findVisibleDateNodeInMonth(currentXml, monthLabel, dayLabel) ||
+    findDateNodeInMonth(currentXml, monthLabel, dayLabel);
+  if (!dateNode?.bounds) {
+    await saveFailureArtifacts(config, device, store, `${artifactName}-not-found`, currentXml);
+    fail(
+      `달력에서 ${stepName} 날짜를 찾지 못했습니다.`,
+      steps,
+      [
+        `선택 대상: ${formatDateIso(date)} (${monthLabel} ${dayLabel}일)`,
+        "정확한 일정은 체크인 날짜 선택 후 체크아웃 날짜가 보일 때까지 달력을 빠르게 스크롤합니다.",
+        `리포트의 ${artifactName}-not-found.png 화면을 확인해주세요.`
+      ]
+    );
+  }
+
+  await tap(config, device, dateNode.bounds.x, dateNode.bounds.y);
+  addStep(steps, stepName, "pass", `${monthLabel} ${dayLabel}일`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  return dumpUiStable(config, device);
+}
+
 async function selectExactDates(config, device, xml, store, steps, exactDateRange) {
   const scheduleTab = findNode(xml, "일정", { clickable: true });
   await tapNode(config, device, scheduleTab, "일정 탭", steps);
@@ -772,32 +873,11 @@ async function selectExactDates(config, device, xml, store, steps, exactDateRang
   await new Promise((resolve) => setTimeout(resolve, 120));
 
   xml = await dumpUiStable(config, device);
-  const monthLabel = formatMonthLabel(exactDateRange.start);
-  xml = await ensureMonthVisible(config, device, xml, steps, monthLabel);
   await saveArtifacts(config, device, store, "calendar-before-select", xml);
 
-  const startDate = findDateNodeInMonth(xml, monthLabel, String(exactDateRange.start.getDate()));
-  const endDate = findDateNodeInMonth(xml, monthLabel, String(exactDateRange.end.getDate()));
-  if (!startDate?.bounds || !endDate?.bounds) {
-    fail(
-      "달력에서 정확한 일정 날짜를 찾지 못했습니다.",
-      steps,
-      [
-        `선택 대상: ${exactDateRange.label}`,
-        "정확한 일정은 8월 달력 안에서 오늘 이후 날짜를 랜덤 선택합니다.",
-        "리포트의 calendar-before-select.png 화면을 확인해주세요."
-      ]
-    );
-  }
+  xml = await selectCalendarDate(config, device, store, steps, xml, exactDateRange.start, "체크인 날짜 선택", "calendar-before-checkin");
+  xml = await selectCalendarDate(config, device, store, steps, xml, exactDateRange.end, "체크아웃 날짜 선택", "calendar-before-checkout");
 
-  await tap(config, device, startDate.bounds.x, startDate.bounds.y);
-  addStep(steps, "체크인 날짜 선택", "pass", `${monthLabel} ${exactDateRange.start.getDate()}일`);
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  await tap(config, device, endDate.bounds.x, endDate.bounds.y);
-  addStep(steps, "체크아웃 날짜 선택", "pass", `${monthLabel} ${exactDateRange.end.getDate()}일`);
-  await new Promise((resolve) => setTimeout(resolve, 160));
-
-  xml = await dumpUiStable(config, device);
   await saveArtifacts(config, device, store, "calendar-after-select", xml);
   const next = findNode(xml, "다음", { clickable: true, enabled: true });
   await tapNode(config, device, next, "다음 버튼", steps);
@@ -841,11 +921,99 @@ async function submitDefaultGuests(config, device, xml, store, steps) {
   addStep(steps, "검색 버튼 탭");
 }
 
+function guestOptionsSelected(xml, profile) {
+  const labels = parseNodes(xml).map(nodeLabel).join("\n");
+  return (
+    labels.includes(`성인\n만 13세 이상\n${profile.adultCount}`) &&
+    labels.includes(`어린이\n만 2~12세\n${profile.childCount}`) &&
+    labels.includes(`유아\n만 2세 미만\n${profile.infantCount}`) &&
+    labels.includes(`반려동물\n${profile.petCount}`)
+  );
+}
+
+async function submitRandomProfileGuests(config, device, xml, store, steps, profile) {
+  let guestXml = await waitForUi(config, device, isGuestScreen, 8000);
+  await saveArtifacts(config, device, store, "guest-select-random-profile-start", guestXml);
+  if (!isGuestScreen(guestXml)) {
+    fail(
+      "인원 선택 화면으로 이동하지 못했습니다.",
+      steps,
+      [
+        "랜덤 일반결제 검증은 성인/어린이/유아/반려동물 인원을 무작위로 선택합니다.",
+        "리포트의 guest-select-random-profile-start.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  const plusButtons = parseNodes(guestXml).filter(
+    (node) =>
+      node.bounds &&
+      node.attrs.class === "android.widget.Button" &&
+      node.attrs.clickable === "true" &&
+      node.bounds.left >= 900 &&
+      node.bounds.top >= 300 &&
+      node.bounds.top <= 1150
+  );
+
+  const targets = [
+    { node: plusButtons.find((node) => node.bounds.top >= 300 && node.bounds.top <= 520), label: "성인 + 버튼", taps: profile.adultCount - 1 },
+    { node: plusButtons.find((node) => node.bounds.top >= 540 && node.bounds.top <= 700), label: "어린이 + 버튼", taps: profile.childCount },
+    { node: plusButtons.find((node) => node.bounds.top >= 760 && node.bounds.top <= 920), label: "유아 + 버튼", taps: profile.infantCount },
+    { node: plusButtons.find((node) => node.bounds.top >= 980 && node.bounds.top <= 1120), label: "반려동물 + 버튼", taps: profile.petCount }
+  ];
+
+  for (const target of targets) {
+    if (target.taps <= 0) continue;
+    if (!target.node?.bounds) {
+      fail(
+        `${target.label}을 찾지 못했습니다.`,
+        steps,
+        [
+          "인원 선택 화면의 + 버튼은 텍스트 없이 잡히므로 좌표 범위로 찾습니다.",
+          "리포트의 guest-select-random-profile-start.png 화면을 확인해주세요."
+        ]
+      );
+    }
+    for (let count = 0; count < target.taps; count += 1) {
+      await tap(config, device, target.node.bounds.x, target.node.bounds.y);
+      addStep(steps, `${target.label} 탭`, "pass", `${count + 1}/${target.taps}`);
+      await new Promise((resolve) => setTimeout(resolve, 160));
+    }
+  }
+
+  guestXml = await dumpUiStable(config, device);
+  await saveArtifacts(config, device, store, "guest-select-random-profile-after-plus", guestXml);
+  if (!guestOptionsSelected(guestXml, profile)) {
+    fail(
+      "일반결제 랜덤 인원 상태를 확인하지 못했습니다.",
+      steps,
+      [
+        `선택 대상: 성인 ${profile.adultCount}, 어린이 ${profile.childCount}, 유아 ${profile.infantCount}, 반려동물 ${profile.petCount}`,
+        "리포트의 guest-select-random-profile-after-plus.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  addStep(
+    steps,
+    "계약 요청용 랜덤 인원 확인",
+    "pass",
+    `성인 ${profile.adultCount}, 어린이 ${profile.childCount}, 유아 ${profile.infantCount}, 반려동물 ${profile.petCount}`
+  );
+  const search = findNode(guestXml, "검색", { clickable: true, enabled: true });
+  await tapNode(config, device, search, "검색 버튼", steps);
+  addStep(steps, "검색 버튼 탭");
+}
+
 function findListingCandidates(xml) {
   const visibleTop = 415;
   const visibleBottom = 2320;
   return parseNodes(xml).filter((node) => {
     const label = nodeLabel(node);
+    const lines = label
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
     const visibleHeight = node.bounds
       ? Math.min(node.bounds.bottom, visibleBottom) - Math.max(node.bounds.top, visibleTop)
       : 0;
@@ -855,9 +1023,10 @@ function findListingCandidates(xml) {
       node.bounds.top >= 350 &&
       node.bounds.top < visibleBottom &&
       node.bounds.bottom > node.bounds.top &&
-      visibleHeight >= 520 &&
-      label.includes("최소") &&
-      /계약\s*가능/.test(label) &&
+	      visibleHeight >= 520 &&
+	      label.includes("최소") &&
+	      !lines.includes("환상의 나라") &&
+	      /계약\s*가능/.test(label) &&
       (
         label.includes("주택") ||
         label.includes("오피스텔") ||
@@ -978,12 +1147,24 @@ async function selectNewestSort(config, device, store, steps, xml, exactDateRang
   return resultXml;
 }
 
-function listingTitle(listing) {
+function listingInfo(listing) {
   const lines = nodeLabel(listing)
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  return lines.find((line) => !/^(1\/\d+|오피스텔|독채|아파트|원룸|신규 등록|최소)/.test(line) && !line.includes("계약 가능")) || "숙소 카드";
+  const title = lines.find((line) => (
+    !/^(1\/\d+|오피스텔|독채|아파트|원룸|주택|단기 월세|신규 등록|최소)/.test(line) &&
+    !line.includes("계약 가능") &&
+    !line.includes("개의 집") &&
+    !line.includes("/박") &&
+    !line.includes("/146박")
+  )) || "숙소 카드";
+
+  return { title };
+}
+
+function listingTitle(listing) {
+  return listingInfo(listing).title;
 }
 
 function listingTapTargets(listing) {
@@ -1030,7 +1211,8 @@ function pickPreferredListing(listings) {
 }
 
 async function tryOpenListing(config, device, store, steps, listing, attemptLabel, exactDateRange) {
-  const title = listingTitle(listing);
+  const info = listingInfo(listing);
+  const title = info.title;
   for (const target of listingTapTargets(listing)) {
     await tap(config, device, target.x, target.y);
     store.appendLog(
@@ -1041,7 +1223,7 @@ async function tryOpenListing(config, device, store, steps, listing, attemptLabe
     const detailXml = await waitForUi(config, device, isAccommodationDetail, 5000, 200);
     if (isAccommodationDetail(detailXml)) {
       addStep(steps, "검색 결과 숙소 상세 진입", "pass", `${title} / ${target.name}`);
-      return detailXml;
+      return { detailXml, title };
     }
 
     if (!isContractSearchResults(detailXml, exactDateRange)) {
@@ -1050,7 +1232,7 @@ async function tryOpenListing(config, device, store, steps, listing, attemptLabe
     }
   }
 
-  return "";
+  return null;
 }
 
 async function openContractableListing(config, device, store, steps, exactDateRange) {
@@ -1083,8 +1265,10 @@ async function openContractableListing(config, device, store, steps, exactDateRa
         `${listingTitle(selectedListing)} (${selection.mode}, ${selectedIndex + 1}/${selection.source.length})`
       );
 
-      const detailXml = await tryOpenListing(config, device, store, steps, selectedListing, `${scrollCount + 1}-${selectedIndex + 1}`, exactDateRange);
-      if (isAccommodationDetail(detailXml)) return detailXml;
+      const opened = await tryOpenListing(config, device, store, steps, selectedListing, `${scrollCount + 1}-${selectedIndex + 1}`, exactDateRange);
+      if (opened?.detailXml && isAccommodationDetail(opened.detailXml)) {
+        return opened;
+      }
       xml = await waitForUi(config, device, (nextXml) => isContractSearchResults(nextXml, exactDateRange), 3000, 200);
     }
 
@@ -1102,6 +1286,7 @@ async function openContractableListing(config, device, store, steps, exactDateRa
     steps,
     [
       "자동화가 목록을 더 내려 3~4번째 계약 가능 숙소 후보를 우선 랜덤 선택했습니다.",
+      "집 이름이 정확히 '환상의 나라'인 숙소만 계약 요청 검증 대상에서 제외합니다.",
       "상세 화면의 '계약 조건 확인' 버튼이 나타나야 다음 단계로 진행합니다.",
       "리포트의 listing-tap-did-not-open-detail.png 화면을 확인해주세요.",
       "실제 탭 좌표는 runner.log에 기록됩니다."
@@ -1869,6 +2054,133 @@ async function selectSplitPaymentContractOptions(config, device, store, steps, c
   return xml;
 }
 
+function findPetInfoInput(xml) {
+  const editables = findEditableNodes(xml).filter((node) => (
+    node.bounds &&
+    node.bounds.top > 120 &&
+    node.bounds.bottom < 2150 &&
+    node.attrs.enabled === "true"
+  ));
+  if (!editables.length) return null;
+
+  const petLabels = parseNodes(xml).filter((node) => (
+    node.bounds &&
+    nodeLabel(node).includes("반려동물") &&
+    node.bounds.top > 120 &&
+    node.bounds.bottom < 2100
+  ));
+  for (const labelNode of petLabels) {
+    const nearInput = editables
+      .filter((input) => input.bounds.top >= labelNode.bounds.top - 80 && input.bounds.top <= labelNode.bounds.bottom + 620)
+      .sort((a, b) => a.bounds.top - b.bounds.top)[0];
+    if (nearInput) return nearInput;
+  }
+
+  return editables
+    .filter((input) => {
+      const label = nodeLabel(input);
+      return label.includes("반려동물") || !label.trim();
+    })
+    .sort((a, b) => a.bounds.top - b.bounds.top)[0] || editables[0];
+}
+
+async function fillPetInfoIfNeeded(config, device, store, steps, initialXml, options = {}) {
+  if (!options.petInfoText) return initialXml;
+
+  let xml = initialXml;
+  for (let count = 0; count < 6; count += 1) {
+    let input = findPetInfoInput(xml);
+    if (input?.bounds) {
+      await saveArtifacts(config, device, store, "contract-detail-pet-info-input", xml);
+      let confirmedXml = "";
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        await tap(config, device, input.bounds.x, input.bounds.y);
+        await new Promise((resolve) => setTimeout(resolve, 180));
+
+        // Keyboard can cover lower WebView inputs. Lift the form once, then re-find the field before typing.
+        if (input.bounds.bottom > 1420) {
+          await runAdb(config, device, ["shell", "input", "swipe", "540", "1550", "540", "1260", "120"]).catch(() => {});
+          await new Promise((resolve) => setTimeout(resolve, 180));
+          xml = await dumpUiStable(config, device);
+          await saveArtifacts(config, device, store, "contract-detail-pet-info-keyboard-lifted", xml);
+          input = findPetInfoInput(xml) || input;
+          if (input?.bounds) {
+            await tap(config, device, input.bounds.x, input.bounds.y);
+            await new Promise((resolve) => setTimeout(resolve, 120));
+          }
+        }
+
+        await runAdb(config, device, ["shell", "input", "keyevent", "123"]).catch(() => {});
+        await inputUnicodeText(config, device, options.petInfoText, store);
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        xml = await dumpUiStable(config, device);
+        if (xml.includes(options.petInfoText)) {
+          confirmedXml = xml;
+          break;
+        }
+
+        store.appendLog(
+          "runner.log",
+          `contract-request pet info input retry ${attempt}: value not visible after ADB keyboard input`
+        );
+
+        // Some WebView fields miss ADB Keyboard broadcasts even after focus.
+        // Clipboard paste gives the same user-visible result without depending on IME internals.
+        await tap(config, device, input.bounds.x, input.bounds.y);
+        await runAdb(config, device, ["shell", "cmd", "clipboard", "set", options.petInfoText]).catch((error) => {
+          store.appendLog("runner.log", `contract-request pet info clipboard set failed: ${error.message}`);
+        });
+        await runAdb(config, device, ["shell", "input", "keyevent", "279"]).catch((error) => {
+          store.appendLog("runner.log", `contract-request pet info paste failed: ${error.message}`);
+        });
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        xml = await dumpUiStable(config, device);
+        if (xml.includes(options.petInfoText)) {
+          confirmedXml = xml;
+          break;
+        }
+
+        await tap(config, device, input.bounds.x, input.bounds.y);
+        await runAdb(config, device, ["shell", "input", "keyevent", "67"]).catch(() => {});
+      }
+      if (!confirmedXml) {
+        xml = await dumpUiStable(config, device);
+        await saveFailureArtifacts(config, device, store, "contract-detail-pet-info-not-filled", xml);
+        fail(
+          "반려동물 정보가 실제 입력되지 않았습니다.",
+          steps,
+          [
+            `입력 대상: ${options.petInfoText}`,
+            "일반결제 랜덤 프로필에서는 계약 요청 상세 상단 게스트 영역의 반려동물 정보 입력이 필수입니다.",
+            "리포트의 contract-detail-pet-info-not-filled.png 화면을 확인해주세요."
+          ]
+        );
+      }
+      await saveArtifacts(config, device, store, "contract-detail-pet-info-filled", confirmedXml);
+      addStep(steps, "반려동물 정보 입력", "pass", options.petInfoText);
+      await keyEvent(config, device, 4).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      xml = await dumpUiStable(config, device);
+      return xml;
+    }
+
+    await runAdb(config, device, ["shell", "input", "swipe", "540", "1780", "540", "1030", "140"]);
+    addStep(steps, "반려동물 정보 입력 영역 탐색", "pass", `${count + 1}회`);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    xml = await dumpUiStable(config, device);
+  }
+
+  await saveFailureArtifacts(config, device, store, "contract-detail-pet-info-input-not-found", xml);
+  fail(
+    "계약 요청 상세에서 반려동물 정보 입력칸을 찾지 못했습니다.",
+    steps,
+    [
+      "성인/어린이/유아/반려동물 1명 조건에서는 게스트 영역의 반려동물 정보 입력칸이 보여야 합니다.",
+      "리포트의 contract-detail-pet-info-input-not-found.png 화면을 확인해주세요."
+    ]
+  );
+}
+
 async function selectAutoCardPayment(config, device, store, steps, initialXml) {
   let xml = isContractDetail(initialXml)
     ? initialXml
@@ -1931,9 +2243,9 @@ async function selectAutoCardPayment(config, device, store, steps, initialXml) {
 }
 
 async function submitContractRequest(config, device, store, steps, contractDetailXml, options = {}) {
-  let preparedContractDetailXml = contractDetailXml;
+  let preparedContractDetailXml = await fillPetInfoIfNeeded(config, device, store, steps, contractDetailXml, options);
   if (options.paymentMethod === "auto-card") {
-    preparedContractDetailXml = await selectAutoCardPayment(config, device, store, steps, contractDetailXml);
+    preparedContractDetailXml = await selectAutoCardPayment(config, device, store, steps, preparedContractDetailXml);
   } else if (options.paymentMethod === "split-payment") {
     preparedContractDetailXml = await selectSplitPaymentContractOptions(
       config,
@@ -2261,12 +2573,40 @@ async function runContractRequestTest({ request, config, store }) {
     xml = await dumpUiStable(config, device);
     await saveArtifacts(config, device, store, "domestic-selected", xml);
 
-    const exactDateRange = getRandomExactSearchDateRange();
-    addStep(steps, "정확한 일정 랜덤 기간 결정", "pass", exactDateRange.label);
+    const useRandomProfile = request.random_search_profile === true;
+    const exactDateRange = getRandomExactSearchDateRange(
+      new Date(),
+      useRandomProfile
+        ? {
+            minNights: 6,
+            maxNights: 180,
+            maxEndDate: new Date(new Date().getFullYear() + 1, 0, 31, 12, 0, 0, 0),
+            nightBuckets: [
+              { min: 6, max: 30 },
+              { min: 31, max: 90 },
+              { min: 91, max: 180 }
+            ]
+          }
+        : undefined
+    );
+    const guestProfile = useRandomProfile
+      ? makeRandomGuestProfile()
+      : { adultCount: 1, childCount: 0, infantCount: 0, petCount: 0 };
+    const petInfoText = useRandomProfile && guestProfile.petCount > 0 ? pickRandomItem(PET_INFO_CANDIDATES) : "";
+    addStep(
+      steps,
+      useRandomProfile ? "정확한 일정 랜덤 장기 기간 결정" : "정확한 일정 랜덤 기간 결정",
+      "pass",
+      `${exactDateRange.label}${exactDateRange.nights ? ` (${exactDateRange.nights}박)` : ""}`
+    );
 
     await selectExactDates(config, device, xml, store, steps, exactDateRange);
     xml = await waitForUi(config, device, isGuestScreen, 3500, 180);
-    await submitDefaultGuests(config, device, xml, store, steps);
+    if (useRandomProfile) {
+      await submitRandomProfileGuests(config, device, xml, store, steps, guestProfile);
+    } else {
+      await submitDefaultGuests(config, device, xml, store, steps);
+    }
 
     xml = await waitForUi(config, device, (nextXml) => isContractSearchResults(nextXml, exactDateRange), 20000);
     await saveArtifacts(config, device, store, "search-results", xml);
@@ -2285,12 +2625,13 @@ async function runContractRequestTest({ request, config, store }) {
     addStep(steps, "계약 요청용 검색 결과 목록 확인");
 
     xml = await selectNewestSort(config, device, store, steps, xml, exactDateRange);
-    const detailXml = await openContractableListing(config, device, store, steps, exactDateRange);
-    const contractDetailXml = await tapContractCondition(config, device, store, steps, detailXml);
+    const openedListing = await openContractableListing(config, device, store, steps, exactDateRange);
+    const contractDetailXml = await tapContractCondition(config, device, store, steps, openedListing.detailXml);
     const submitOptions = {
       paymentMethod,
       splitStartIso: request.split_start,
-      splitEndIso: request.split_end
+      splitEndIso: request.split_end,
+      petInfoText
     };
     const submittedContract = await submitContractRequest(config, device, store, steps, contractDetailXml, submitOptions);
     addStep(steps, "계약 요청 완료 후 홈 화면 확인");
@@ -2322,16 +2663,27 @@ async function runContractRequestTest({ request, config, store }) {
         schedule_type: "정확한 일정",
         start_date: contractStart,
         end_date: contractEnd,
-        stay_nights: splitRange?.nights,
-        adult_count: 1,
-        child_count: 0,
-        infant_count: 0,
-        pet_count: 0,
+        stay_nights: splitRange?.nights || exactDateRange.nights,
+        adult_count: guestProfile.adultCount,
+        child_count: guestProfile.childCount,
+        infant_count: guestProfile.infantCount,
+        pet_count: guestProfile.petCount,
+        pet_info: petInfoText,
         payment_method: paymentMethodLabel
       },
       contract_request: {
         contract_number: submittedContract.contractNumber || "",
-        match_summary: submittedContract.requestSummary || null
+        selected_listing_title: openedListing.title || "",
+        match_summary: submittedContract.requestSummary || (
+          openedListing.title
+            ? {
+                status: "요청 중",
+                title: openedListing.title,
+                schedule: exactDateRange.label,
+                guest: `성인 ${guestProfile.adultCount} · 어린이 ${guestProfile.childCount} · 유아 ${guestProfile.infantCount} · 반려동물 ${guestProfile.petCount}`
+              }
+            : null
+        )
       },
       artifacts: {
         screenshots: [],

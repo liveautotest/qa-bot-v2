@@ -35,6 +35,7 @@
 | `!무통장 입금 승인` | `toss-deposit-approve.web.yaml` | `src/tests/toss-deposit-approve.test.js` |
 | `!일정변경` | 코드 기반 브라우저 시나리오 | `src/tests/console-schedule-change.test.js` |
 | `!보증금 반환`, `!보증금 보류` | 코드 기반 브라우저 시나리오 | `src/tests/console-deposit-return.test.js` |
+| `!빌드설치` | Firebase APK 설치 시나리오 | `src/tests/build-install.test.js` |
 | `!게스트 계약 요청 취소` | `contract-cancel-request.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
 | `!게스트 계약 확정 취소` | `contract-cancel-confirmed.guest.yaml` | `src/tests/contract-cancel-request.test.js` |
 | `!호스트 로그인` | `login.host.yaml` | `src/tests/login.test.js` |
@@ -84,6 +85,8 @@
 - 일반카드 결제는 PG 화면에 Email 필드가 보이면 `alvin@liveanywhere.me`를 입력한 뒤 필수 동의와 Next를 처리한다.
 - 콘솔 일정 변경은 로그인 직후 빈 예약 상세 화면이 보일 수 있어 같은 예약 URL을 재진입/재대기한 뒤 상세 본문을 판정한다.
 - 콘솔 보증금 반환/보류는 호스트 콘솔에서 수행하며 PDF 없이 예약번호, 처리 종류, 보류 사유만 Slack 결과에 표시한다.
+- 빌드 설치는 Firebase App Distribution 릴리즈를 선택해 단말 버전과 비교한 뒤 업데이트 설치 또는 삭제 후 설치를 수행한다. 결과는 테스트 채널 Slack 요약만 남긴다.
+- `!검증`/`/검증` 선택 UI는 기존 명령어를 생성해 본 봇 프로세스에서 실행하며, 별도 Socket Mode 프로세스를 띄우지 않는다.
 
 ## 환경 선택
 

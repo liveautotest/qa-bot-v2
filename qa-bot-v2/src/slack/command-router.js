@@ -342,9 +342,13 @@ async function runSingleQaCommand(command, context) {
       reservation_id: command.reservation_id,
       schedule_shift_label: command.schedule_shift_label,
       deposit_action: command.deposit_action,
+      release_name: command.release_name,
+      build_version: command.build_version,
+      random_search_profile: command.random_search_profile,
       host_home_only: command.host_home_only,
       skip_fresh_launch: command.skip_fresh_launch,
       skip_app_build_check: command.skip_app_build_check,
+      precheck_only: command.precheck_only,
       requested_by: context.user,
       slack_channel: context.channel,
       thread_ts: context.threadTs,
@@ -462,6 +466,64 @@ function compactFlowSection(title, result) {
 
 function appendFlowSection(sections, title, result) {
   sections.push(compactFlowSection(title, result));
+}
+
+function formatBasicContractConditions(result, fallbackPaymentLabel) {
+  const conditions = result?.contract_conditions || {};
+  const summary = result?.contract_request?.match_summary || {};
+  const selectedTitle = result?.contract_request?.selected_listing_title || summary.title || "";
+  const guestParts = [
+    `성인${conditions.adult_count ?? 1}`,
+    `어린이${conditions.child_count ?? 0}`,
+    `유아${conditions.infant_count ?? 0}`,
+    `반려동물${conditions.pet_count ?? 0}`
+  ];
+  return [
+    "검증 항목:",
+    `- 집 이름: ${selectedTitle || "-"}`,
+    `- 정확한 일정 선택: ${conditions.start_date || "-"} ~ ${conditions.end_date || "-"}${conditions.stay_nights ? ` (${conditions.stay_nights}박)` : ""}`,
+    `- 인원 선택: ${guestParts.join(", ")}`,
+    ...(conditions.pet_info ? [`- 반려동물 정보 입력: ${conditions.pet_info}`] : []),
+    `- 계약 요청/승인/결제: 게스트 계약 요청 > 호스트 계약 승인 > 게스트 ${fallbackPaymentLabel}`
+  ];
+}
+
+function formatStandardValidationPassSummary({ env, paymentMethod, flowLabel, contractRequest }) {
+  const title = `[검증 PASS] ${flowLabel} 1사이클 완료 (${env})`;
+  return [
+    title,
+    "",
+    ...formatBasicContractConditions(contractRequest, flowLabel)
+  ].join("\n");
+}
+
+function formatExtensionValidationPassSummary({
+  env,
+  flowLabel,
+  extensionRequest,
+  extensionApprove,
+  extensionPayment
+}) {
+  const extension = extensionRequest?.contract_extension || {};
+  const approval = extensionApprove?.contract_extension_approval || {};
+  const latestExtension = approval.latest_guest_extension || {};
+  const payment = extensionPayment?.payment_conditions || {};
+  const amountLines = [
+    approval.base_price_amount ? `- 기존 계약 박당 금액: ${approval.base_price_amount}` : "",
+    approval.settlement_amount ? `- 정산 예정 금액: ${approval.settlement_amount}` : "",
+    approval.guest_payment_amount ? `- 게스트 결제 예정 금액: ${approval.guest_payment_amount}` : ""
+  ].filter(Boolean);
+
+  return [
+    `[검증 PASS] ${flowLabel} 1사이클 완료 (${env})`,
+    "",
+    "검증 항목:",
+    `- 연장 요청: 희망 퇴실일 ${extension.target_checkout_date || latestExtension.target_checkout_date || "-"} / ${extension.extension_nights || latestExtension.extension_nights || "-"}박 연장`,
+    "- 호스트 연장수락: 계약 연장 요청 확인 및 수락 완료",
+    `- 게스트 연장결제: ${payment.method || flowLabel}`,
+    ...amountLines,
+    `- 연장요청/수락/결제: 게스트 연장요청 > 호스트 연장수락 > 게스트 ${flowLabel}`
+  ].join("\n");
 }
 
 async function relaunchGuestAppForFlow(env, context) {
@@ -625,7 +687,7 @@ async function runSingleQaCommandWithLazyLogin(command, context) {
 
 function basicValidationLabel(paymentMethod) {
   if (paymentMethod === "extension-bank-transfer") return "연장결제 무통장";
-  if (paymentMethod === "extension-card") return "연장결제";
+  if (paymentMethod === "extension-card") return "연장결제 카드";
   if (paymentMethod === "bank-transfer") return "무통장 결제";
   if (paymentMethod === "auto-card") return "등록카드결제";
   if (paymentMethod === "split-payment") return "분할결제";
@@ -635,7 +697,7 @@ function basicValidationLabel(paymentMethod) {
 async function runExtensionPaymentValidation({ env, payment_method: paymentMethod }, context) {
   const flowLabel = basicValidationLabel(paymentMethod);
   const sections = [
-    `[기본검증] ${flowLabel} 1사이클 (${env})`,
+    `[검증] ${flowLabel} 1사이클 (${env})`,
     `게스트 연장요청 > 호스트 연장수락 > 게스트 ${flowLabel} 순서로 실행합니다.`
   ];
 
@@ -647,8 +709,10 @@ async function runExtensionPaymentValidation({ env, payment_method: paymentMetho
     },
     context
   );
-  appendFlowSection(sections, "1. 게스트 로그인", guestLogin);
-  if (guestLogin.status !== "pass") return sections.join("\n\n");
+  if (guestLogin.status !== "pass") {
+    appendFlowSection(sections, "1. 게스트 로그인", guestLogin);
+    return sections.join("\n\n");
+  }
 
   const extensionRequest = await runSingleQaCommandWithLazyLogin(
     {
@@ -660,8 +724,10 @@ async function runExtensionPaymentValidation({ env, payment_method: paymentMetho
     },
     context
   );
-  sections.push(compactFlowSection("2. 게스트 연장요청", extensionRequest.result));
-  if (extensionRequest.result.status !== "pass") return sections.join("\n\n");
+  if (extensionRequest.result.status !== "pass") {
+    sections.push(compactFlowSection("2. 게스트 연장요청", extensionRequest.result));
+    return sections.join("\n\n");
+  }
 
   const extensionApprove = await runSingleQaCommandWithLazyLogin(
     {
@@ -672,8 +738,10 @@ async function runExtensionPaymentValidation({ env, payment_method: paymentMetho
     },
     context
   );
-  sections.push(compactFlowSection("3. 호스트 연장수락", extensionApprove.result));
-  if (extensionApprove.result.status !== "pass") return sections.join("\n\n");
+  if (extensionApprove.result.status !== "pass") {
+    sections.push(compactFlowSection("3. 호스트 연장수락", extensionApprove.result));
+    return sections.join("\n\n");
+  }
 
   const extensionPayment = await runSingleQaCommand(
     {
@@ -686,21 +754,46 @@ async function runExtensionPaymentValidation({ env, payment_method: paymentMetho
     },
     context
   );
-  sections.push(compactFlowSection(`4. 게스트 ${flowLabel}`, extensionPayment));
-  if (extensionPayment.status !== "pass") return sections.join("\n\n");
+  if (extensionPayment.status !== "pass") {
+    sections.push(compactFlowSection(`4. 게스트 ${flowLabel}`, extensionPayment));
+    return sections.join("\n\n");
+  }
 
-  sections.push(`[기본검증 PASS] 연장요청부터 연장수락, ${flowLabel}까지 1사이클이 완료되었습니다.`);
+  sections.push(formatExtensionValidationPassSummary({
+    env,
+    flowLabel,
+    extensionRequest: extensionRequest.result,
+    extensionApprove: extensionApprove.result,
+    extensionPayment
+  }));
   return sections.join("\n\n");
 }
 
 async function runStandardContractValidation({ env, payment_method: paymentMethod, split_start: splitStart, split_end: splitEnd }, context) {
   const flowLabel = basicValidationLabel(paymentMethod);
   const sections = [
-    `[기본검증] ${flowLabel} 1사이클 (${env})`,
+    `[검증] ${flowLabel} 1사이클 (${env})`,
     paymentMethod === "auto-card" || paymentMethod === "split-payment"
       ? `게스트 로그인 > 게스트 ${flowLabel} 계약 요청 > 호스트 계약 승인 순서로 실행합니다.`
       : `게스트 로그인 > 게스트 계약 요청 > 호스트 계약 승인 > 게스트 ${flowLabel} 순서로 실행합니다.`
   ];
+
+  if (paymentMethod === "bank-transfer") {
+    const tossPrecheck = await runSingleQaCommand(
+      {
+        test: "toss-deposit-approve",
+        env: "toss",
+        role: "admin",
+        precheck_only: true,
+        skip_app_build_check: true
+      },
+      context
+    );
+    if (tossPrecheck.status !== "pass") {
+      sections.push(compactFlowSection("0. 토스 사전 확인", tossPrecheck));
+      return sections.join("\n\n");
+    }
+  }
 
   const guestLogin = await runSingleQaCommand(
     {
@@ -710,8 +803,10 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
     },
     context
   );
-  appendFlowSection(sections, "1. 게스트 로그인", guestLogin);
-  if (guestLogin.status !== "pass") return sections.join("\n\n");
+  if (guestLogin.status !== "pass") {
+    sections.push(compactFlowSection("1. 게스트 로그인", guestLogin));
+    return sections.join("\n\n");
+  }
 
   const contractRequest = await runSingleQaCommandWithLazyLogin(
     {
@@ -721,13 +816,16 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
       payment_method: paymentMethod === "auto-card" || paymentMethod === "split-payment" ? paymentMethod : undefined,
       split_start: splitStart,
       split_end: splitEnd,
+      random_search_profile: paymentMethod !== "split-payment",
       skip_fresh_launch: true,
       skip_app_build_check: true
     },
     context
   );
-  sections.push(compactFlowSection("2. 게스트 계약 요청", contractRequest.result));
-  if (contractRequest.result.status !== "pass") return sections.join("\n\n");
+  if (contractRequest.result.status !== "pass") {
+    sections.push(compactFlowSection("2. 게스트 계약 요청", contractRequest.result));
+    return sections.join("\n\n");
+  }
 
   const contractApprove = await runSingleQaCommandWithLazyLogin(
     {
@@ -738,15 +836,19 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
     },
     context
   );
-  sections.push(compactFlowSection("3. 호스트 계약 승인", contractApprove.result));
-  if (contractApprove.result.status !== "pass") return sections.join("\n\n");
+  if (contractApprove.result.status !== "pass") {
+    sections.push(compactFlowSection("3. 호스트 계약 승인", contractApprove.result));
+    return sections.join("\n\n");
+  }
 
   if (paymentMethod === "auto-card" || paymentMethod === "split-payment") {
     const guestRelaunch = await relaunchGuestAppForFlow(env, context);
-    sections.push(compactFlowSection("4. 게스트 앱 재실행", guestRelaunch));
-    if (guestRelaunch.status !== "pass") return sections.join("\n\n");
+    if (guestRelaunch.status !== "pass") {
+      sections.push(compactFlowSection("4. 게스트 앱 재실행", guestRelaunch));
+      return sections.join("\n\n");
+    }
 
-    sections.push(`[기본검증 PASS] ${flowLabel} 계약 요청부터 호스트 승인까지 1사이클이 완료되었습니다.`);
+    sections.push(formatStandardValidationPassSummary({ env, paymentMethod, flowLabel, contractRequest: contractRequest.result }));
     return sections.join("\n\n");
   }
 
@@ -760,8 +862,10 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
     },
     context
   );
-  sections.push(compactFlowSection(`4. 게스트 ${flowLabel}`, contractPayment.result));
-  if (contractPayment.result.status !== "pass") return sections.join("\n\n");
+  if (contractPayment.result.status !== "pass") {
+    sections.push(compactFlowSection(`4. 게스트 ${flowLabel}`, contractPayment.result));
+    return sections.join("\n\n");
+  }
 
   if (paymentMethod === "bank-transfer") {
     const tossResult = await runSingleQaCommand(
@@ -772,11 +876,13 @@ async function runStandardContractValidation({ env, payment_method: paymentMetho
       },
       context
     );
-    sections.push(compactFlowSection("5. 무통장 입금 승인", tossResult));
-    if (tossResult.status !== "pass") return sections.join("\n\n");
+    if (tossResult.status !== "pass") {
+      sections.push(compactFlowSection("5. 무통장 입금 승인", tossResult));
+      return sections.join("\n\n");
+    }
   }
 
-  sections.push(`[기본검증 PASS] 계약 요청부터 호스트 승인, 게스트 ${flowLabel}까지 1사이클이 완료되었습니다.`);
+  sections.push(formatStandardValidationPassSummary({ env, paymentMethod, flowLabel, contractRequest: contractRequest.result }));
   return sections.join("\n\n");
 }
 
@@ -866,6 +972,7 @@ async function routeCommand(text, context) {
     command === "review-write" ||
     command === "coupon-box" ||
     command === "basic-validation" ||
+    command === "build-install" ||
     command === "toss-deposit-approve" ||
     command === "console-schedule-change" ||
     command === "console-deposit-return"
@@ -897,7 +1004,10 @@ async function routeCommand(text, context) {
         split_end: normalizeIsoDate(args.split_end),
         reservation_id: args.reservation_id,
         schedule_shift_label: args.shift || args.schedule_shift_label,
-        deposit_action: args.action || args.deposit_action
+        deposit_action: args.action || args.deposit_action,
+        release_name: args.release_name,
+        build_version: args.build_version,
+        skip_app_build_check: command === "build-install"
       },
       context
     );

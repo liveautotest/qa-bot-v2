@@ -45,6 +45,7 @@ async function inputUnicodeText(config, device, value, store) {
     "msg",
     message
   ]);
+  await new Promise((resolve) => setTimeout(resolve, 350));
 
   if (previousIme && previousIme !== adbKeyboard) {
     await runAdb(config, device, ["shell", "ime", "set", previousIme]).catch((error) => {

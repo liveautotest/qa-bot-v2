@@ -632,7 +632,24 @@ async function runLoginTest({ request, config, store }) {
   const device = config.devices[role] || "";
   const appPackage = config.androidPackages[env];
   const account = config.accounts[role] || {};
-  const accountSecrets = [account.email, account.password].filter(Boolean);
+  const configuredFallbackAccount = role === "guest" && account.fallbackEmail
+    ? {
+      email: account.fallbackEmail,
+      password: account.fallbackPassword || account.password
+    }
+    : null;
+  const primaryAccount = role === "guest" && configuredFallbackAccount
+    ? configuredFallbackAccount
+    : account;
+  const fallbackAccount = role === "guest" && configuredFallbackAccount
+    ? account
+    : null;
+  const accountSecrets = [
+    account.email,
+    account.password,
+    configuredFallbackAccount?.email,
+    configuredFallbackAccount?.password
+  ].filter(Boolean);
   const steps = [];
   const securityChecks = [];
 
@@ -785,85 +802,122 @@ async function runLoginTest({ request, config, store }) {
       );
     }
 
-    await tapNode(config, device, editables[0], "email input");
-    await replaceFocusedText(config, device, account.email);
-    addStep(steps, "이메일 입력");
-
-    await tapNode(config, device, editables[1], "password input");
-    await replaceFocusedText(config, device, account.password);
-    await keyEvent(config, device, 4);
-    addStep(steps, "비밀번호 입력");
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    xml = await dumpUi(config, device);
-    writeXmlArtifact(
-      path.join(store.logsDir, "after-credentials.xml"),
-      xml,
-      accountSecrets
-    );
-    assertEnteredValue(xml, account.email, "Email");
-    const passwordProtection = inspectPasswordProtection(xml, account.password);
-    addStep(
-      steps,
-      "비밀번호 입력 필드 마스킹 확인",
-      passwordProtection.masked ? "pass" : "fail"
-    );
-    securityChecks.push(
-      {
-        id: "SEC-LOGIN-001",
-        name: "비밀번호 입력 필드 마스킹",
-        status: passwordProtection.masked ? "pass" : "fail"
-      },
-      {
-        id: "SEC-LOGIN-002",
-        name: "Android UI hierarchy 비밀번호 평문 비노출",
-        status: passwordProtection.plaintextExposed ? "fail" : "pass"
-      },
-      {
-        id: "SEC-LOGIN-003",
-        name: "자동화 XML 리포트 계정정보 제거",
-        status: "pass"
-      },
-      {
-        id: "SEC-LOGIN-004",
-        name: "네트워크 전송 및 단말 저장 암호화",
-        status: "not_tested"
+    async function inputCredentialsAndSubmit(loginAccount, { fallback = false } = {}) {
+      const currentXml = await dumpUi(config, device);
+      const currentEditables = findEditableNodes(currentXml);
+      if (currentEditables.length < 2) {
+        await saveArtifacts(config, device, store, fallback ? "fallback-login-inputs-not-found" : "login-inputs-not-found", accountSecrets);
+        fail(
+          "Cannot find email/password inputs. Check logs/after-login-entry.xml.",
+          steps,
+          [
+            "이메일/휴대폰 번호로 시작하기 버튼을 누른 뒤에도 로그인 입력 화면으로 이동하지 않았습니다.",
+            "리포트의 login-inputs-not-found.png와 logs/after-login-entry.xml을 확인해주세요."
+          ]
+        );
       }
-    );
 
-    await submitLogin(config, device, xml, steps);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    xml = await waitForUi(
-      config,
-      device,
-      (nextXml) =>
-        isLoggedInHome(nextXml) ||
-        hasLoginFailure(nextXml),
-      20000
-    );
-    writeXmlArtifact(
-      path.join(store.logsDir, "after-submit.xml"),
-      xml,
-      accountSecrets
-    );
+      const labelPrefix = fallback ? "보조 계정 " : role === "guest" && loginAccount.email === configuredFallbackAccount?.email ? "휴대폰 번호 계정 " : "";
+      const suffix = fallback ? "-fallback" : "";
 
-    if (!isLoggedInHome(xml) && !hasLoginFailure(xml) && isLoginSubmitReady(xml)) {
-      await submitLogin(config, device, xml, steps);
-      addStep(steps, "로그인 제출 재시도", "pass", "로그인 화면 유지로 최신 버튼 좌표 재탭");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      xml = await waitForUi(
-        config,
-        device,
-        (nextXml) =>
-          isLoggedInHome(nextXml) ||
-          hasLoginFailure(nextXml),
-        15000
-      );
+      await tapNode(config, device, currentEditables[0], "email input");
+      await replaceFocusedText(config, device, loginAccount.email);
+      addStep(steps, `${labelPrefix}이메일/휴대폰 번호 입력`);
+
+      await tapNode(config, device, currentEditables[1], "password input");
+      await replaceFocusedText(config, device, loginAccount.password);
+      await keyEvent(config, device, 4);
+      addStep(steps, `${labelPrefix}비밀번호 입력`);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      let nextXml = await dumpUi(config, device);
       writeXmlArtifact(
-        path.join(store.logsDir, "after-submit-retry.xml"),
-        xml,
+        path.join(store.logsDir, `after-credentials${suffix}.xml`),
+        nextXml,
         accountSecrets
       );
+      assertEnteredValue(nextXml, loginAccount.email, "Email");
+      const passwordProtection = inspectPasswordProtection(nextXml, loginAccount.password);
+      addStep(
+        steps,
+        `${labelPrefix}비밀번호 입력 필드 마스킹 확인`,
+        passwordProtection.masked ? "pass" : "fail"
+      );
+      if (!securityChecks.length) {
+        securityChecks.push(
+          {
+            id: "SEC-LOGIN-001",
+            name: "비밀번호 입력 필드 마스킹",
+            status: passwordProtection.masked ? "pass" : "fail"
+          },
+          {
+            id: "SEC-LOGIN-002",
+            name: "Android UI hierarchy 비밀번호 평문 비노출",
+            status: passwordProtection.plaintextExposed ? "fail" : "pass"
+          },
+          {
+            id: "SEC-LOGIN-003",
+            name: "자동화 XML 리포트 계정정보 제거",
+            status: "pass"
+          },
+          {
+            id: "SEC-LOGIN-004",
+            name: "네트워크 전송 및 단말 저장 암호화",
+            status: "not_tested"
+          }
+        );
+      }
+
+      await submitLogin(config, device, nextXml, steps);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      nextXml = await waitForUi(
+        config,
+        device,
+        (candidateXml) =>
+          isLoggedInHome(candidateXml) ||
+          hasLoginFailure(candidateXml),
+        20000
+      );
+      writeXmlArtifact(
+        path.join(store.logsDir, `after-submit${suffix}.xml`),
+        nextXml,
+        accountSecrets
+      );
+
+      if (!isLoggedInHome(nextXml) && !hasLoginFailure(nextXml) && isLoginSubmitReady(nextXml)) {
+        await submitLogin(config, device, nextXml, steps);
+        addStep(steps, `${labelPrefix}로그인 제출 재시도`, "pass", "로그인 화면 유지로 최신 버튼 좌표 재탭");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        nextXml = await waitForUi(
+          config,
+          device,
+          (candidateXml) =>
+            isLoggedInHome(candidateXml) ||
+            hasLoginFailure(candidateXml),
+          15000
+        );
+        writeXmlArtifact(
+          path.join(store.logsDir, `after-submit-retry${suffix}.xml`),
+          nextXml,
+          accountSecrets
+        );
+      }
+
+      return nextXml;
+    }
+
+    xml = await inputCredentialsAndSubmit(primaryAccount);
+    let loginAccountUsed = "primary";
+
+    if (
+      role === "guest" &&
+      fallbackAccount?.email &&
+      fallbackAccount?.password &&
+      (hasLoginFailure(xml) || !isLoggedInHome(xml))
+    ) {
+      addStep(steps, "휴대폰 번호 계정 로그인 실패로 이메일 계정 재시도", "pass", fallbackAccount.email);
+      xml = await inputCredentialsAndSubmit(fallbackAccount, { fallback: true });
+      loginAccountUsed = "fallback";
     }
 
     if (hasLoginFailure(xml) || !isLoggedInHome(xml)) {
@@ -894,6 +948,7 @@ async function runLoginTest({ request, config, store }) {
       status: "pass",
       device,
       steps,
+      login_account_used: loginAccountUsed,
       security_checks: securityChecks,
       artifacts: {
         screenshots: [],
@@ -901,6 +956,7 @@ async function runLoginTest({ request, config, store }) {
           path.join(store.logsDir, "runner.log"),
           path.join(store.logsDir, "after-launch.xml"),
           path.join(store.logsDir, "after-submit.xml"),
+          path.join(store.logsDir, "after-submit-fallback.xml"),
           ...(role === "host" ? [
             path.join(store.logsDir, "host-home-final.xml"),
             path.join(store.logsDir, "host-contract.xml")

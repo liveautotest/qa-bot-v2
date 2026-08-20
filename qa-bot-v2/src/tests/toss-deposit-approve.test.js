@@ -97,6 +97,50 @@ function findChromeExecutable(config) {
   return candidates.find((filePath) => fs.existsSync(filePath)) || "";
 }
 
+async function launchTossAdminBrowser(config, store, steps) {
+  const executablePath = findChromeExecutable(config);
+  if (!executablePath) {
+    fail(
+      "토스 어드민 자동화에 사용할 Chrome 실행 파일을 찾지 못했습니다.",
+      steps,
+      [
+        "Google Chrome을 설치하거나 .env의 TOSS_ADMIN_CHROME_PATH에 실행 파일 경로를 설정해주세요."
+      ]
+    );
+  }
+
+  store.appendLog("runner.log", `toss admin browser executable: ${executablePath}`);
+  addStep(steps, "토스 어드민 브라우저 확인", "pass", executablePath);
+
+  const primaryProfileDir = path.resolve(config.projectRoot, config.tossAdmin.profileDir);
+  const profileDirs = [
+    primaryProfileDir,
+    path.join(config.projectRoot, ".tmp", `toss-admin-profile-${process.pid}-${Date.now()}`)
+  ];
+
+  let lastError = null;
+  for (const profileDir of profileDirs) {
+    try {
+      const browser = await chromium.launchPersistentContext(profileDir, {
+        executablePath,
+        headless: config.tossAdmin.headless,
+        viewport: { width: 1440, height: 1000 }
+      });
+      if (profileDir !== primaryProfileDir) {
+        addStep(steps, "토스 어드민 임시 브라우저 프로필 사용", "pass", profileDir);
+      }
+      return browser;
+    } catch (error) {
+      lastError = error;
+      store.appendLog("runner.log", `toss admin browser launch failed with ${profileDir}: ${error.message}`);
+      if (!String(error.message || "").includes("ProcessSingleton")) break;
+      addStep(steps, "토스 어드민 기존 프로필 잠금 감지", "warning", "임시 프로필로 재시도");
+    }
+  }
+
+  throw lastError;
+}
+
 function findLatestBankTransferPayment(reportBaseDir) {
   if (!reportBaseDir || !fs.existsSync(reportBaseDir)) return null;
 
@@ -349,8 +393,17 @@ async function gotoPaymentLogs(page, url) {
     const message = String(error && error.message ? error.message : error);
     // 토스 콘솔이 로그인/세션 복구 중 같은 결제내역 URL로 자체 이동하는 경우가 있어,
     // 최종 URL이 맞으면 실패로 보지 않고 다음 안정화 단계로 넘긴다.
-    if (!message.includes("interrupted by another navigation") || !page.url().includes("/payment-logs")) {
+    const currentUrl = page.url();
+    const isLoginCallback = currentUrl.includes("/auth/callback/");
+    if (!message.includes("interrupted by another navigation") || (!currentUrl.includes("/payment-logs") && !isLoginCallback)) {
       throw error;
+    }
+    if (isLoginCallback) {
+      await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(1200);
+      if (!page.url().includes("/payment-logs")) {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+      }
     }
   }
   await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
@@ -556,6 +609,48 @@ async function approveTossDeposit(page, store, steps, target) {
 
 async function runTossDepositApproveTest({ config, store }) {
   const steps = [];
+  const precheckOnly = Boolean(store.request.precheck_only);
+
+  if (precheckOnly) {
+    if (!config.tossAdmin.url || !config.tossAdmin.mid) {
+      fail(
+        "토스 어드민 URL 또는 MID 설정이 없습니다.",
+        steps,
+        [
+          "로컬 .env에 TOSS_ADMIN_URL, TOSS_ADMIN_MID를 설정해주세요."
+        ]
+      );
+    }
+
+    const browser = await launchTossAdminBrowser(config, store, steps);
+    const page = browser.pages()[0] || await browser.newPage();
+    try {
+      await preparePaymentLogs(page, config, store, steps);
+      await saveHtml(page, store, "toss-precheck-payment-logs");
+      await saveScreenshot(page, store, "toss-precheck-payment-logs");
+      addStep(steps, "토스 테스트 결제내역 사전 확인 완료");
+    } finally {
+      await browser.close();
+    }
+
+    return {
+      test_id: "TC-TOSS-DEPOSIT-PRECHECK-001",
+      name: "토스 무통장 승인 사전 확인",
+      env: "toss",
+      status: "pass",
+      device: "browser",
+      steps,
+      toss_deposit: {
+        mode: "precheck",
+        mid: config.tossAdmin.mid
+      },
+      artifacts: {
+        screenshots: [path.join(store.screenshotsDir, "toss-precheck-payment-logs.png")].filter((filePath) => fs.existsSync(filePath)),
+        logs: [path.join(store.logsDir, "toss-precheck-payment-logs.html")].filter((filePath) => fs.existsSync(filePath))
+      }
+    };
+  }
+
   const latestPayment = findLatestBankTransferPayment(config.reportBaseDir);
 
   if (!latestPayment?.target) {
@@ -598,25 +693,7 @@ async function runTossDepositApproveTest({ config, store }) {
     );
   }
 
-  const executablePath = findChromeExecutable(config);
-  if (!executablePath) {
-    fail(
-      "토스 어드민 자동화에 사용할 Chrome 실행 파일을 찾지 못했습니다.",
-      steps,
-      [
-        "Google Chrome을 설치하거나 .env의 TOSS_ADMIN_CHROME_PATH에 실행 파일 경로를 설정해주세요."
-      ]
-    );
-  }
-  store.appendLog("runner.log", `toss admin browser executable: ${executablePath}`);
-  addStep(steps, "토스 어드민 브라우저 확인", "pass", executablePath);
-
-  const profileDir = path.resolve(config.projectRoot, config.tossAdmin.profileDir);
-  const browser = await chromium.launchPersistentContext(profileDir, {
-    executablePath,
-    headless: config.tossAdmin.headless,
-    viewport: { width: 1440, height: 1000 }
-  });
+  const browser = await launchTossAdminBrowser(config, store, steps);
   const page = browser.pages()[0] || await browser.newPage();
   let shouldCloseBrowser = true;
   page.on("dialog", async (dialog) => {

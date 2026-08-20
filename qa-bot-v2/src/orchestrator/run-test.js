@@ -7,6 +7,7 @@ function getAndroidPostTestTarget(request, config) {
   if (request.test === "toss-deposit-approve") return null;
   if (request.test === "console-schedule-change") return null;
   if (request.test === "console-deposit-return") return null;
+  if (request.test === "build-install") return null;
   if (request.env === "api" || request.env === "toss") return null;
 
   const role = request.role || "guest";
@@ -78,7 +79,8 @@ async function runTest(request, config) {
   try {
     appBuild = store.request.skip_app_build_check ||
       store.request.test === "console-schedule-change" ||
-      store.request.test === "console-deposit-return"
+      store.request.test === "console-deposit-return" ||
+      store.request.test === "build-install"
       ? {
         status: "skipped",
         reason: "Skipped by parent flow after a prior app build check."
@@ -149,7 +151,8 @@ async function runTest(request, config) {
       "review-schedule-select": "TC-INTERNAL-REFACTOR-002",
       "coupon-box": "TC-INTERNAL-REFACTOR-004",
       "review-edit": "TC-INTERNAL-REFACTOR-006",
-      "review-write": "TC-INTERNAL-REFACTOR-005"
+      "review-write": "TC-INTERNAL-REFACTOR-005",
+      "build-install": "TC-BUILD-INSTALL-001"
     };
     const testNames = {
       login: "로그인",
@@ -173,7 +176,8 @@ async function runTest(request, config) {
       "review-schedule-select": "리브후기 일정 선택",
       "coupon-box": "쿠폰함",
       "review-edit": "리뷰 수정",
-      "review-write": "리뷰 작성"
+      "review-write": "리뷰 작성",
+      "build-install": "빌드 설치"
     };
     const finalResult = {
       run_id: store.runId,

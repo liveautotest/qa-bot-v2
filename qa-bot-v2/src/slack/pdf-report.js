@@ -31,6 +31,79 @@ function findReportDirByRunId(reportBaseDir, runId) {
   return fs.existsSync(path.join(reportDir, "result.json")) ? reportDir : "";
 }
 
+function listRecentResults(reportBaseDir, { env, sinceMs = 15 * 60 * 1000 } = {}) {
+  if (!reportBaseDir || !fs.existsSync(reportBaseDir)) return [];
+  const threshold = Date.now() - sinceMs;
+  return fs.readdirSync(reportBaseDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const reportDir = path.join(reportBaseDir, entry.name);
+      const resultPath = path.join(reportDir, "result.json");
+      if (!fs.existsSync(resultPath)) return null;
+      try {
+        const stat = fs.statSync(resultPath);
+        if (stat.mtimeMs < threshold) return null;
+        const result = readResult(reportDir);
+        if (env && result.env !== env) return null;
+        return { reportDir, result, mtimeMs: stat.mtimeMs };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.mtimeMs - right.mtimeMs);
+}
+
+function findLatestByTest(items, testId, role) {
+  return [...items].reverse().find((item) => (
+    item.result.test_id === testId &&
+    (!role || String(item.result.name || "").includes(role))
+  ));
+}
+
+function extractBasicValidationReportDirs(text, config = {}) {
+  const source = String(text || "");
+  if (!source.includes("[검증 PASS]") && !source.includes("[기본검증 PASS]")) return [];
+
+  const envMatch = source.match(/\((dev|staging|stg)\)/i);
+  const env = envMatch?.[1]?.toLowerCase() === "stg" ? "staging" : envMatch?.[1]?.toLowerCase();
+  const items = listRecentResults(config.reportBaseDir, { env });
+  if (!items.length) return [];
+
+  const dirs = [];
+  const guestLogin = findLatestByTest(items, "TC-LOGIN-001", "guest");
+  const contractRequest = findLatestByTest(items, "TC-CONTRACT-001", "guest");
+  const contractApprove = findLatestByTest(items, "TC-CONTRACT-APPROVE-001", "host");
+  const contractPayment = findLatestByTest(items, "TC-CONTRACT-PAYMENT-001", "guest");
+
+  for (const item of [guestLogin, contractRequest, contractApprove, contractPayment]) {
+    if (item?.reportDir) dirs.push(item.reportDir);
+  }
+
+  return Array.from(new Set(dirs));
+}
+
+function extractCompletedResultReportDirs(text, config = {}) {
+  const source = String(text || "");
+  const match = source.match(/^\[검증 완료\]\s+(.+?)\s+\((dev|staging|stg|api|toss)\)/m);
+  if (!match) return [];
+
+  const title = match[1].trim();
+  const env = match[2].toLowerCase() === "stg" ? "staging" : match[2].toLowerCase();
+  const items = listRecentResults(config.reportBaseDir, { env });
+  const exact = [...items].reverse().find((item) => (
+    item.result.status === "pass" &&
+    String(item.result.name || item.result.test_id || "").trim() === title
+  ));
+  if (exact?.reportDir) return [exact.reportDir];
+
+  const fuzzy = [...items].reverse().find((item) => (
+    item.result.status === "pass" &&
+    title.includes(String(item.result.name || "").trim())
+  ));
+  return fuzzy?.reportDir ? [fuzzy.reportDir] : [];
+}
+
 function extractReportDirs(text, config = {}) {
   const dirs = [];
   const pattern = /리포트:\s*(\/[^\n]+)/g;
@@ -46,6 +119,14 @@ function extractReportDirs(text, config = {}) {
   while ((match = runIdPattern.exec(String(text || "")))) {
     const reportDir = findReportDirByRunId(config.reportBaseDir, match[1].trim());
     if (reportDir) dirs.push(reportDir);
+  }
+
+  if (!dirs.length) {
+    dirs.push(...extractBasicValidationReportDirs(text, config));
+  }
+
+  if (!dirs.length) {
+    dirs.push(...extractCompletedResultReportDirs(text, config));
   }
 
   return Array.from(new Set(dirs));

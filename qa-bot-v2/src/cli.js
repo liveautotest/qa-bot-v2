@@ -18,7 +18,7 @@ async function main() {
   const args = parseArgs(rest);
 
   if (!testName) {
-    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|toss-deposit-approve|console-schedule-change|console-deposit-return> --env=staging --role=guest");
+    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|toss-deposit-approve|console-schedule-change|console-deposit-return|build-install> --env=staging --role=guest");
   }
 
   const hostDefaultTests = new Set(["contract-approve", "contract-reject", "contract-extension-approve"]);
@@ -33,6 +33,10 @@ async function main() {
     reservation_id: args.reservation_id,
     schedule_shift_label: args.shift || args.schedule_shift_label,
     deposit_action: args.action || args.deposit_action,
+    release_name: args.release_name,
+    build_version: args.build_version,
+    skip_app_build_check: testName === "build-install",
+    precheck_only: args.precheck_only === true || args.precheck_only === "true",
     requested_by: "local-cli",
     source: "cli"
   };

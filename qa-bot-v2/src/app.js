@@ -2,15 +2,14 @@ const { App } = require("@slack/bolt");
 const { SocketModeClient } = require("@slack/socket-mode");
 const { loadConfig } = require("./config");
 const {
-  BASIC_VALIDATION_PATTERN,
-  CONSOLE_DEPOSIT_RETURN_PATTERN,
-  CONSOLE_SCHEDULE_CHANGE_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand
 } = require("./slack/command-router");
 const { formatHelp } = require("./slack/slack-reporter");
 const { uploadPdfReports } = require("./slack/pdf-report");
+const { registerValidationUiLab } = require("./validation-ui-lab");
+const { registerBuildInstallUi } = require("./build-install-ui");
 
 function isSocketModeExplicitDisconnectRace(error) {
   const message = String(error?.message || error || "");
@@ -84,12 +83,19 @@ function isConsoleDepositReturnCommand(text = "") {
   return /^\s*![\s\u200b\u200c\u200d\ufeff]*보증금\s+(반환|보류)/i.test(String(text || ""));
 }
 
+function isBuildInstallCommand(text = "") {
+  return /^\s*![\s\u200b\u200c\u200d\ufeff]*(?:빌드설치|qa\s+build-install)\b/i.test(String(text || ""));
+}
+
 function formatProgressMessage(text = "") {
   if (isConsoleScheduleChangeCommand(text)) {
     return "일정 변경 진행중입니다. 잠시만 기다려주세요.";
   }
   if (isConsoleDepositReturnCommand(text)) {
     return "보증금 반환 처리 진행중입니다. 잠시만 기다려주세요.";
+  }
+  if (isBuildInstallCommand(text)) {
+    return "빌드 설치를 시작했습니다. 잠시만 기다려주세요.";
   }
 
   return [
@@ -98,7 +104,14 @@ function formatProgressMessage(text = "") {
   ].join("\n");
 }
 
-function formatDelegatedProgressMessage(resultTarget) {
+function formatDelegatedProgressMessage(resultTarget, text = "") {
+  if (isBuildInstallCommand(text)) {
+    return [
+      "빌드 설치중입니다.",
+      `결과는 ${resultTarget.label} 채널에 새 스레드로 남길게요.`
+    ].join("\n");
+  }
+
   return [
     "테스트를 시작했습니다.",
     `결과는 ${resultTarget.label} 채널에 새 스레드로 남길게요.`
@@ -149,6 +162,7 @@ async function resolveSlackChannel(client, channelValue) {
 }
 
 async function openResultThread({ client, resultTarget, sourceMessage }) {
+  const displayText = sourceMessage.displayText || formatCommandDisplayText(sourceMessage.text || "");
   if (!resultTarget) {
     return {
       channel: sourceMessage.channel,
@@ -164,13 +178,20 @@ async function openResultThread({ client, resultTarget, sourceMessage }) {
           ? "보증금 반환 처리 진행중입니다. 잠시만 기다려주세요."
           : "일정 변경 진행중입니다. 잠시만 기다려주세요.",
         `요청자: <@${sourceMessage.user}>`,
-        `검증 대상: ${sourceMessage.text || ""}`
+        `검증 대상: ${displayText}`
       ].join("\n")
-      : [
+      : isBuildInstallCommand(sourceMessage.text)
+        ? [
+          "빌드 설치중입니다.",
+          "완료되면 이 스레드에 결과를 남길게요.",
+          `요청자: <@${sourceMessage.user}>`,
+          `설치 대상: ${displayText}`
+        ].join("\n")
+        : [
         "테스트를 시작했습니다.",
         "완료되면 이 스레드에 결과를 남길게요.",
         `요청자: <@${sourceMessage.user}>`,
-        `검증 대상: ${sourceMessage.text || ""}`
+        `검증 대상: ${displayText}`
       ].join("\n")
   });
 
@@ -182,9 +203,22 @@ async function openResultThread({ client, resultTarget, sourceMessage }) {
 
 const handledMessageKeys = new Map();
 const activeCommandKeys = new Set();
+const PRIMARY_RESULT_CHANNEL_ID = "C01KLGVHMD3";
+const PRIMARY_RESULT_CHANNEL_BASIC_PAYMENT_PATTERN =
+  /^!기본검증\s+(?:일반\s*결제|무통장\s*결제|등록카드\s*결제|분할\s*결제|연장\s*결제(?:\s+(?:카드|무통장))?)\s+(?:stg|staging|dev)$/i;
+const PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN =
+  /^!(?:일정변경\s+\d+\s+.+\s+(?:stg|staging|dev)|보증금\s+(?:반환|보류)\s+\d+\s+(?:stg|staging|dev))$/i;
+const TEST_RESULT_CHANNEL_LOGIN_PATTERN =
+  /^!(?:게스트|호스트)\s+로그인\s+(?:stg|staging|dev)$/i;
+const TEST_RESULT_CHANNEL_BUILD_INSTALL_PATTERN =
+  /^!(?:빌드설치|qa\s+build-install)\b/i;
 
 function normalizeCommandText(text = "") {
-  return String(text).trim().replace(/\s+/g, " ");
+  return String(text)
+    .replace(/[\u200b\u200c\u200d\ufeff]/g, "")
+    .replace(/\u00a0/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function resultChannelAllowlist(config) {
@@ -203,27 +237,34 @@ function testResultChannelAllowlist(config) {
 
 function shouldRouteToPrimaryResultChannel(text = "") {
   const normalized = normalizeCommandText(text);
-  if (CONSOLE_SCHEDULE_CHANGE_PATTERN.test(normalized)) return true;
-  if (CONSOLE_DEPOSIT_RETURN_PATTERN.test(normalized)) return true;
-
-  const basicValidation = normalized.match(BASIC_VALIDATION_PATTERN);
-  if (!basicValidation) return false;
-
-  const flowLabel = normalizeCommandText(basicValidation[1] || "");
-  return flowLabel === "분할결제" || flowLabel === "분할 결제";
+  return (
+    PRIMARY_RESULT_CHANNEL_BASIC_PAYMENT_PATTERN.test(normalized) ||
+    PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN.test(normalized)
+  );
 }
 
 function resolveConfiguredResultChannel(text = "", config = {}) {
   if (!shouldPostProgressMessage(text)) return "";
   const normalized = normalizeCommandText(text);
+  if (shouldRouteToPrimaryResultChannel(normalized)) {
+    return config.slackResultChannel || PRIMARY_RESULT_CHANNEL_ID;
+  }
+  if (config.slackTestResultChannel && TEST_RESULT_CHANNEL_LOGIN_PATTERN.test(normalized)) {
+    return config.slackTestResultChannel;
+  }
+  if (config.slackTestResultChannel && TEST_RESULT_CHANNEL_BUILD_INSTALL_PATTERN.test(normalized)) {
+    return config.slackTestResultChannel;
+  }
   if (config.slackTestResultChannel && testResultChannelAllowlist(config).includes(normalized)) {
+    return config.slackTestResultChannel;
+  }
+  if (config.slackTestResultChannel) {
     return config.slackTestResultChannel;
   }
   if (
     config.slackResultChannel &&
     (
-      resultChannelAllowlist(config).includes(normalized) ||
-      shouldRouteToPrimaryResultChannel(normalized)
+      resultChannelAllowlist(config).includes(normalized)
     )
   ) {
     return config.slackResultChannel;
@@ -237,6 +278,28 @@ function messageDedupeKey(message) {
 
 function activeCommandKey(message) {
   return [message.channel || "", normalizeCommandText(message.text)].join(":");
+}
+
+function formatCommandDisplayText(text = "") {
+  const normalized = normalizeCommandText(text);
+  const basicValidation = normalized.match(
+    /^!(?:기본검증|일반검증)\s+(.+?)\s+(dev|stg|staging)$/i
+  );
+  if (basicValidation) {
+    return `${basicValidation[1]} ${basicValidation[2]}`;
+  }
+  return normalized;
+}
+
+function normalizeValidationSuccessResponse(text = "") {
+  const source = String(text || "");
+  if (!source.includes("[검증 PASS]") && !source.includes("[기본검증 PASS]")) return source;
+
+  // 최종 성공 메시지는 읽는 사람이 실제 검증 데이터만 보도록 단계별 PASS 로그를 숨긴다.
+  return source
+    .split(/\n{2,}/)
+    .filter((block) => !/^\[PASS\]\s+\d+\./.test(block.trim()))
+    .join("\n\n");
 }
 
 function rememberMessageKey(key) {
@@ -278,9 +341,9 @@ async function main() {
     rememberMessageKey(dedupeKey);
 
     const commandKey = activeCommandKey(message);
-    if (activeCommandKeys.has(commandKey)) {
+    if (activeCommandKeys.size > 0) {
       await say({
-        text: "같은 테스트가 이미 진행 중입니다. 완료되면 이 스레드에 결과를 남길게요.",
+        text: "다른 자동화 테스트가 이미 실행 중입니다. 앞선 자동화가 끝난 뒤 다시 요청해주세요.",
         thread_ts: threadTs
       });
       return;
@@ -316,17 +379,17 @@ async function main() {
       }
       if (shouldPostProgressMessage(message.text)) {
         await say({
-          text: resultTarget ? formatDelegatedProgressMessage(resultTarget) : formatProgressMessage(message.text),
+          text: resultTarget ? formatDelegatedProgressMessage(resultTarget, message.text) : formatProgressMessage(message.text),
           thread_ts: threadTs
         });
       }
 
-      const response = await routeCommand(message.text, {
+      const response = normalizeValidationSuccessResponse(await routeCommand(message.text, {
         config,
         user: message.user,
         channel: resultThread.channel,
         threadTs: resultThread.threadTs
-      });
+      }));
 
       await app.client.chat.postMessage({
         channel: resultThread.channel,
@@ -334,7 +397,7 @@ async function main() {
         thread_ts: resultThread.threadTs
       });
 
-      if (!isConsoleScheduleChangeCommand(message.text) && !isConsoleDepositReturnCommand(message.text)) {
+      if (!isConsoleScheduleChangeCommand(message.text) && !isConsoleDepositReturnCommand(message.text) && !isBuildInstallCommand(message.text)) {
         try {
           const uploadedPdfs = await uploadPdfReports({
             client: app.client,
@@ -367,7 +430,7 @@ async function main() {
       console.error("QA command failed before result message was posted:", error.stack || error.message);
       const failureText = [
         "[FAIL] QA 자동화 실행",
-        `검증 대상: ${message.text || ""}`,
+        `검증 대상: ${message.displayText || formatCommandDisplayText(message.text || "")}`,
         `실패 사유: ${error.message || error}`,
         "",
         "자동화 실행 중 예외가 발생해서 정상 결과 리포트를 만들지 못했습니다.",
@@ -391,6 +454,27 @@ async function main() {
       activeCommandKeys.delete(commandKey);
     }
   }
+
+  registerValidationUiLab(app, {
+    runQaCommand: async (message) => handleQaMessage(message, async (payload) => {
+      const postPayload = typeof payload === "string" ? { text: payload } : payload;
+      return app.client.chat.postMessage({
+        channel: message.channel,
+        ...postPayload
+      });
+    })
+  });
+
+  registerBuildInstallUi(app, {
+    config,
+    runQaCommand: async (message) => handleQaMessage(message, async (payload) => {
+      const postPayload = typeof payload === "string" ? { text: payload } : payload;
+      return app.client.chat.postMessage({
+        channel: message.channel,
+        ...postPayload
+      });
+    })
+  });
 
   app.message(/^!qa\b/i, async ({ message, say }) => {
     await handleQaMessage(message, say);

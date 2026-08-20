@@ -23,6 +23,7 @@ const { runReviewDeleteTest } = require("../tests/review-delete.test");
 const { runCouponBoxTest } = require("../tests/coupon-box.test");
 const { runReviewEditTest } = require("../tests/review-edit.test");
 const { runReviewWriteTest } = require("../tests/review-write.test");
+const { runBuildInstallTest } = require("../tests/build-install.test");
 
 const registry = {
   login: runLoginTest,
@@ -46,7 +47,8 @@ const registry = {
   "review-schedule-select": runReviewScheduleSelectTest,
   "coupon-box": runCouponBoxTest,
   "review-edit": runReviewEditTest,
-  "review-write": runReviewWriteTest
+  "review-write": runReviewWriteTest,
+  "build-install": runBuildInstallTest
 };
 
 function getTest(name) {

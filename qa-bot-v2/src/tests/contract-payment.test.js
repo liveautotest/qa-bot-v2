@@ -520,9 +520,18 @@ function hasPaymentMethodSection(xml) {
 }
 
 function hasVisibleCardPaymentMethodSection(xml) {
+  const selectedCardMethod = findNode(xml, "신용·체크카드 결제 수단 선택됨", { visible: true });
+  const moreButton = findMoreCardButton(xml, { visible: true });
+  const payButton = findNode(xml, "결제하기", { visible: true, clickable: true, enabled: true });
+
   return Boolean(
-    findNode(xml, "신용·체크카드 결제 수단 선택됨", { visible: true }) &&
-      findNode(xml, "결제하기", { visible: true, clickable: true, enabled: true })
+    findNode(xml, "결제 방법", { visible: true }) &&
+      payButton &&
+      (
+        selectedCardMethod ||
+        moreButton ||
+        xml.includes("신용·체크카드 결제 수단 선택됨")
+      )
   );
 }
 
@@ -646,7 +655,7 @@ function isPaymentMethodReady(xml, paymentMethod) {
     return hasVisiblePaymentTypeTabs(xml);
   }
 
-  return hasPaymentMethodSection(xml) && hasVisiblePaymentMethodSection(xml);
+  return hasVisibleCardPaymentMethodSection(xml);
 }
 
 function hasPassedPaymentTypeSection(xml) {

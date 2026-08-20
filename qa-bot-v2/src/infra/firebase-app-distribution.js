@@ -6,6 +6,8 @@ const path = require("path");
 const TOKEN_URI = "https://oauth2.googleapis.com/token";
 const SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 const API_HOST = "firebaseappdistribution.googleapis.com";
+const FIREBASE_CLI_CLIENT_ID = "563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com";
+const FIREBASE_CLI_CLIENT_SECRET = "j9iVZfS8kkCEFUPaAeJV0sAi";
 
 function base64Url(value) {
   return Buffer.from(value)
@@ -105,7 +107,7 @@ function createServiceAccountJwt(serviceAccount) {
   return `${unsignedToken}.${signature}`;
 }
 
-async function getAccessToken(serviceAccountPath) {
+async function getServiceAccountAccessToken(serviceAccountPath) {
   const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
   const assertion = createServiceAccountJwt(serviceAccount);
   const body = new URLSearchParams({
@@ -127,14 +129,64 @@ async function getAccessToken(serviceAccountPath) {
   return response.access_token;
 }
 
-async function listReleases({ projectNumber, appId, serviceAccountPath }) {
+function getFirebaseCliConfigPath() {
+  return path.join(process.env.HOME || "", ".config", "configstore", "firebase-tools.json");
+}
+
+function readFirebaseCliRefreshToken(configPath = getFirebaseCliConfigPath()) {
+  if (!fs.existsSync(configPath)) {
+    throw new Error("Firebase CLI 로그인 정보를 찾지 못했습니다. firebase login 후 다시 실행해주세요.");
+  }
+
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const refreshToken = config.tokens?.refresh_token;
+  if (!refreshToken) {
+    throw new Error("Firebase CLI refresh token이 없습니다. firebase login --reauth 후 다시 실행해주세요.");
+  }
+  return refreshToken;
+}
+
+async function getFirebaseCliAccessToken() {
+  const refreshToken = readFirebaseCliRefreshToken();
+  const body = new URLSearchParams({
+    refresh_token: refreshToken,
+    client_id: FIREBASE_CLI_CLIENT_ID,
+    client_secret: FIREBASE_CLI_CLIENT_SECRET,
+    grant_type: "refresh_token"
+  }).toString();
+
+  const response = await requestJson({
+    method: "POST",
+    hostname: "oauth2.googleapis.com",
+    path: "/token",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Content-Length": Buffer.byteLength(body)
+    },
+    body
+  });
+
+  return response.access_token;
+}
+
+async function getAccessToken(serviceAccountPath) {
+  if (serviceAccountPath) {
+    return getServiceAccountAccessToken(serviceAccountPath);
+  }
+
+  // 서비스 계정 키 파일 없이도 이 Mac의 `firebase login` 세션을 재사용한다.
+  // 토큰 값은 로그/리포트에 남기지 않고 access token 교환에만 사용한다.
+  return getFirebaseCliAccessToken();
+}
+
+async function listReleases({ projectNumber, appId, serviceAccountPath, pageSize = 10 }) {
   const accessToken = await getAccessToken(serviceAccountPath);
   return requestJson({
     method: "GET",
     hostname: API_HOST,
     path:
       `/v1/projects/${encodeURIComponent(projectNumber)}` +
-      `/apps/${encodeURIComponent(appId)}/releases?pageSize=1&orderBy=createTime%20desc`,
+      `/apps/${encodeURIComponent(appId)}/releases?pageSize=${encodeURIComponent(pageSize)}&orderBy=createTime%20desc`,
     headers: {
       Authorization: `Bearer ${accessToken}`
     }
@@ -157,11 +209,14 @@ async function downloadReleaseBinary(release, destinationDir) {
   }
 
   const buildVersion = release.buildVersion || "unknown";
-  const destination = path.join(destinationDir, `staging-${buildVersion}.apk`);
+  const appName = String(release.name || "app").split("/apps/")[1]?.split("/")[0] || "app";
+  const destination = path.join(destinationDir, `${appName}-${buildVersion}.apk`);
   return downloadFile(release.binaryDownloadUri, destination);
 }
 
 module.exports = {
   downloadReleaseBinary,
-  getLatestRelease
+  getLatestRelease,
+  listReleases,
+  readFirebaseCliRefreshToken
 };

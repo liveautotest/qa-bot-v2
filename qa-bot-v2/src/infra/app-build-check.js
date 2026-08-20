@@ -48,7 +48,6 @@ function requireBuildCheckConfig(config, env) {
   if (!getFirebaseAppId(config, env)) {
     missing.push(normalizeEnv(env) === "dev" ? "FIREBASE_DEV_APP_ID" : "FIREBASE_STAGING_APP_ID");
   }
-  if (!config.firebaseServiceAccountPath) missing.push("FIREBASE_SERVICE_ACCOUNT_PATH");
   if (missing.length > 0) {
     throw new Error(`Missing Firebase App Distribution config: ${missing.join(", ")}`);
   }

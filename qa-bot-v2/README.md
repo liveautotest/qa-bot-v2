@@ -45,6 +45,8 @@ CLI 실행 예시:
 !기본검증 분할결제 stg
 !기본검증 연장결제 카드 stg
 !기본검증 연장결제 무통장 stg
+!검증
+!빌드설치
 !게스트 로그인 stg
 !게스트 로그아웃 stg
 !게스트 검색 정확한일정 stg
@@ -160,6 +162,7 @@ CLI 실행 예시:
 | `TC-TOSS-DEPOSIT-APPROVE-001` | `!무통장 입금 승인` | 토스 테스트 결제내역에서 최근 무통장 입금대기 건 입금처리 |
 | `TC-CONSOLE-SCHEDULE-CHANGE-001` | `!일정변경 146628 일주일 전 dev` | 콘솔 예약 상세에서 체크인/체크아웃 변경, 세부 가격 모달, 변경 완료 팝업 처리 |
 | `TC-CONSOLE-DEPOSIT-RETURN-001` | `!보증금 반환 146647 stg`, `!보증금 보류 146647 stg` | 호스트 콘솔 예약 상세에서 보증금 반환 확정 또는 보류 처리. 보류는 기타 제외 사유를 랜덤 선택 |
+| `TC-BUILD-INSTALL-001` | `!빌드설치` | Slack UI에서 테스터/단말, 환경, Firebase 빌드를 선택해 Android APK 설치. 낮은 버전 설치 시 해당 앱 패키지만 삭제 후 설치 |
 | `TC-CONTRACT-CANCEL-REQUEST-001` | `!게스트 계약 요청 취소` | 요청 상태 카드에서 계약 요청 취소 |
 | `TC-CONTRACT-CANCEL-CONFIRMED-001` | `!게스트 계약 확정 취소` | 확정 계약 취소, 취소 내역 확인, 완료 팝업, 홈 복귀 |
 | `TC-INTERNAL-REFACTOR-001` | `!게스트 리브후기 프로필` | 리브후기 프로필 진입, 게시물 많은 계정 스크롤, 레이아웃/구분선 신호 확인 |
@@ -213,7 +216,7 @@ CONSOLE_HOST_KEEP_OPEN_ON_FAIL=false
 
 ## Firebase App Distribution 연동
 
-앱 최신 빌드 확인은 아직 선택 기능입니다. 값을 설정하면 테스트 시작 전 단말 설치 버전과 Firebase 최신 릴리즈를 비교할 수 있습니다.
+앱 최신 빌드 확인은 선택 기능입니다. 값을 설정하면 테스트 시작 전 단말 설치 버전과 Firebase 최신 릴리즈를 비교할 수 있고, `!빌드설치` UI에서 선택한 Firebase APK를 단말에 설치할 수 있습니다.
 
 ```env
 APP_BUILD_CHECK_ENABLED=true
@@ -221,10 +224,25 @@ AUTO_INSTALL_LATEST_STAGING=true
 FIREBASE_PROJECT_NUMBER=326461175001
 FIREBASE_STAGING_APP_ID=1:326461175001:android:c402489a89eb156bdc7ac8
 FIREBASE_DEV_APP_ID=1:326461175001:android:2baa0e3b69b9d2e5dc7ac8
-FIREBASE_SERVICE_ACCOUNT_PATH=/Users/liveanywhere_test/Documents/자동화 프로젝트/firebase-service-account.json
+# 비워두면 이 Mac의 `firebase login` 세션을 사용합니다.
+FIREBASE_SERVICE_ACCOUNT_PATH=
 ```
 
 Firebase 릴리즈 파일이 AAB이면 `adb install -r`로 바로 설치할 수 없으므로 자동 설치용 릴리즈는 APK가 필요합니다.
+
+`!빌드설치` 설치 규칙:
+
+- 선택한 빌드가 단말 설치 버전보다 높으면 `adb install -r`로 업데이트 설치합니다.
+- 선택한 빌드가 단말 설치 버전보다 낮으면 해당 환경 앱 패키지만 삭제한 뒤 APK를 설치합니다.
+- 같은 버전이면 설치를 생략하고 PASS로 처리합니다.
+- PASS 결과의 버전은 설치 직후 해당 환경 패키지를 다시 조회한 값이며, 이후 다른 설치 작업으로 단말 버전이 바뀔 수 있습니다.
+- 결과는 테스트 채널에 Slack 요약만 남기며 PDF 리포트는 업로드하지 않습니다.
+
+## Slack 선택 UI
+
+- `!검증` 또는 `/검증`: 테스터, 환경, 검증 항목을 선택한 뒤 기존 자동화 명령을 같은 봇 프로세스에서 실행합니다.
+- `!빌드설치`: 테스터 단말, 환경, Firebase 빌드를 선택해 설치합니다.
+- 선택 UI는 별도 Socket Mode 프로세스로 실행하지 않고 `src/app.js`에 핸들러로 등록합니다.
 
 ## 리포트 구조
 
@@ -247,7 +265,7 @@ reports/{run_id}/
 - 리뷰/쿠폰 계열은 TargetSdk/UI 리팩토링 영향권을 빠르게 확인하는 내부 리팩토링 검증 케이스입니다.
 - 리뷰 삭제는 삭제 확인 팝업 닫힘과 앱 오류 미노출까지 자동 확인하고, 계약 목록 버튼 상태 변화는 수동 확인 항목으로 남깁니다.
 - 콘솔 일정 변경은 앱/ADB를 사용하지 않는 Playwright 브라우저 자동화이며, 로그인 직후 예약 상세 본문이 비어 보이면 같은 예약 URL을 재진입/재대기한 뒤 판정합니다.
-- 콘솔 보증금 반환/보류는 호스트 콘솔 브라우저 자동화이며, 결과는 예약번호와 처리 종류, 보류 사유만 짧게 표시하고 PDF 업로드는 생략합니다.
+- 콘솔 보증금 반환/보류와 빌드 설치는 결과를 Slack 요약으로만 표시하고 PDF 업로드는 생략합니다.
 
 ## 파일 구조
 

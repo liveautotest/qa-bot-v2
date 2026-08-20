@@ -95,7 +95,9 @@ function loadConfig() {
     accounts: {
       guest: {
         email: env.GUEST_EMAIL || "",
-        password: env.GUEST_PASSWORD || ""
+        password: env.GUEST_PASSWORD || "",
+        fallbackEmail: env.GUEST_FALLBACK_EMAIL || "",
+        fallbackPassword: env.GUEST_FALLBACK_PASSWORD || env.GUEST_PASSWORD || ""
       },
       host: {
         email: env.HOST_EMAIL || "",

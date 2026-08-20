@@ -21,18 +21,42 @@ function formatKoreanMonthDay(date) {
   return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
-function makeRange(start) {
-  const end = addDays(start, 6);
+function makeRange(start, nights = 6) {
+  const end = addDays(start, nights);
   return {
     start,
     end,
+    nights,
     startIso: formatDateIso(start),
     endIso: formatDateIso(end),
     label: `${formatKoreanMonthDay(start)} ~ ${formatKoreanMonthDay(end)}`
   };
 }
 
-function getRandomExactSearchDateRange(now = new Date()) {
+function pickRandomNights(minNights, maxNights, buckets) {
+  if (!Array.isArray(buckets) || buckets.length === 0) {
+    return minNights + Math.floor(Math.random() * (maxNights - minNights + 1));
+  }
+
+  const candidates = buckets
+    .map((bucket) => ({
+      min: Math.max(minNights, bucket.min),
+      max: Math.min(maxNights, bucket.max)
+    }))
+    .filter((bucket) => bucket.min <= bucket.max);
+  if (!candidates.length) {
+    return minNights + Math.floor(Math.random() * (maxNights - minNights + 1));
+  }
+
+  const bucket = candidates[Math.floor(Math.random() * candidates.length)];
+  return bucket.min + Math.floor(Math.random() * (bucket.max - bucket.min + 1));
+}
+
+function getRandomExactSearchDateRange(now = new Date(), options = {}) {
+  const minNights = Number.isFinite(options.minNights) ? options.minNights : 6;
+  const maxNights = Number.isFinite(options.maxNights) ? options.maxNights : 6;
+  const maxEndDate = options.maxEndDate instanceof Date ? options.maxEndDate : null;
+  const nightBuckets = options.nightBuckets;
   const year = now.getFullYear();
   const windowStart = new Date(year, 7, 1, 12, 0, 0, 0);
   const tomorrow = addDays(now, 1);
@@ -40,12 +64,21 @@ function getRandomExactSearchDateRange(now = new Date()) {
   const maxStart = new Date(year, 7, 25, 12, 0, 0, 0);
 
   if (minStart > maxStart) {
-    return makeRange(windowStart);
+    const cappedMaxNights = maxEndDate
+      ? Math.max(minNights, Math.min(maxNights, Math.floor((maxEndDate - windowStart) / 86400000)))
+      : Math.max(minNights, maxNights);
+    const nights = pickRandomNights(minNights, cappedMaxNights, nightBuckets);
+    return makeRange(windowStart, nights);
   }
 
   const days = Math.floor((maxStart - minStart) / 86400000);
   const offset = Math.floor(Math.random() * (days + 1));
-  return makeRange(addDays(minStart, offset));
+  const start = addDays(minStart, offset);
+  const cappedMaxNights = maxEndDate
+    ? Math.max(minNights, Math.min(maxNights, Math.floor((maxEndDate - start) / 86400000)))
+    : Math.max(minNights, maxNights);
+  const nights = pickRandomNights(minNights, cappedMaxNights, nightBuckets);
+  return makeRange(start, nights);
 }
 
 function schedulePattern() {
