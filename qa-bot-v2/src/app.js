@@ -7,7 +7,7 @@ const {
   routeCommand
 } = require("./slack/command-router");
 const { formatHelp } = require("./slack/slack-reporter");
-const { uploadPdfReports } = require("./slack/pdf-report");
+const { uploadFailureScreenshots, uploadPdfReports } = require("./slack/pdf-report");
 const { registerValidationUiLab } = require("./validation-ui-lab");
 const { registerBuildInstallUi } = require("./build-install-ui");
 const { registerScheduleChangeUi } = require("./schedule-change-ui");
@@ -410,6 +410,27 @@ async function main() {
         text: response,
         thread_ts: resultThread.threadTs
       });
+
+      try {
+        await uploadFailureScreenshots({
+          client: app.client,
+          config,
+          channel: resultThread.channel,
+          threadTs: resultThread.threadTs,
+          responseText: response
+        });
+      } catch (error) {
+        console.error("Failed to upload failure screenshot:", error.stack || error.message);
+        const message = String(error.message || "");
+        const helpText = message.includes("missing_scope")
+          ? "오류 화면 첨부에 실패했습니다: Slack 앱 권한에 files:write가 필요합니다."
+          : `오류 화면 첨부에 실패했습니다: ${message}`;
+        await app.client.chat.postMessage({
+          channel: resultThread.channel,
+          text: helpText,
+          thread_ts: resultThread.threadTs
+        });
+      }
 
       if (!isConsoleScheduleChangeCommand(message.text) && !isConsoleDepositReturnCommand(message.text) && !isBuildInstallCommand(message.text)) {
         try {

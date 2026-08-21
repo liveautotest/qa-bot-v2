@@ -106,14 +106,18 @@ function randomInt(min, max) {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 
-function makeRandomGuestProfile() {
+function makeRandomGuestProfile(options = {}) {
   const adultCount = randomInt(1, 5);
   const childCount = randomInt(0, 5 - adultCount);
+  const requestedPetCount = Number(options.guest_pet_count);
+  const petCount = Number.isInteger(requestedPetCount)
+    ? Math.max(0, Math.min(2, requestedPetCount))
+    : randomInt(0, 2);
   return {
     adultCount,
     childCount,
     infantCount: randomInt(0, 2),
-    petCount: randomInt(0, 2)
+    petCount
   };
 }
 
@@ -2094,20 +2098,31 @@ async function fillPetInfoIfNeeded(config, device, store, steps, initialXml, opt
       await saveArtifacts(config, device, store, "contract-detail-pet-info-input", xml);
       let confirmedXml = "";
       for (let attempt = 1; attempt <= 2; attempt += 1) {
+        // Position the field before opening the keyboard. Scrolling after the keyboard
+        // appears can collapse WebView coordinates and leave the input behind the keypad.
+        if (input.bounds.bottom > 1350) {
+          await runAdb(config, device, ["shell", "input", "swipe", "540", "1720", "540", "1370", "140"]);
+          await new Promise((resolve) => setTimeout(resolve, 220));
+          xml = await dumpUiStable(config, device);
+          const centeredInput = findPetInfoInput(xml);
+          if (centeredInput?.bounds) {
+            input = centeredInput;
+          }
+          await saveArtifacts(config, device, store, "contract-detail-pet-info-centered", xml);
+        }
+
         await tap(config, device, input.bounds.x, input.bounds.y);
         await new Promise((resolve) => setTimeout(resolve, 180));
 
-        // Keyboard can cover lower WebView inputs. Lift the form once, then re-find the field before typing.
-        if (input.bounds.bottom > 1420) {
-          await runAdb(config, device, ["shell", "input", "swipe", "540", "1550", "540", "1260", "120"]).catch(() => {});
-          await new Promise((resolve) => setTimeout(resolve, 180));
-          xml = await dumpUiStable(config, device);
-          await saveArtifacts(config, device, store, "contract-detail-pet-info-keyboard-lifted", xml);
-          input = findPetInfoInput(xml) || input;
-          if (input?.bounds) {
-            await tap(config, device, input.bounds.x, input.bounds.y);
-            await new Promise((resolve) => setTimeout(resolve, 120));
-          }
+        // Android already pans this WebView when the keyboard opens. Re-read that layout
+        // instead of swiping, which can push the field above the viewport and leave stale coordinates.
+        xml = await dumpUiStable(config, device);
+        await saveArtifacts(config, device, store, "contract-detail-pet-info-keyboard-lifted", xml);
+        const keyboardAdjustedInput = findPetInfoInput(xml);
+        if (keyboardAdjustedInput?.bounds) {
+          input = keyboardAdjustedInput;
+          await tap(config, device, input.bounds.x, input.bounds.y);
+          await new Promise((resolve) => setTimeout(resolve, 120));
         }
 
         await runAdb(config, device, ["shell", "input", "keyevent", "123"]).catch(() => {});
@@ -2594,7 +2609,7 @@ async function runContractRequestTest({ request, config, store }) {
         : undefined
     );
     const guestProfile = useRandomProfile
-      ? makeRandomGuestProfile()
+      ? makeRandomGuestProfile(request)
       : { adultCount: 1, childCount: 0, infantCount: 0, petCount: 0 };
     const petInfoText = useRandomProfile && guestProfile.petCount > 0 ? pickRandomItem(PET_INFO_CANDIDATES) : "";
     addStep(

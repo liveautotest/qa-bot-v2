@@ -460,9 +460,58 @@ async function uploadPdfReports({ client, config, channel, threadTs, responseTex
   return [combined.pdfPath];
 }
 
+function findFailureScreenshot(reportDir, result) {
+  if (result?.status !== "fail") return "";
+
+  const screenshotsDir = path.join(reportDir, "screenshots");
+  if (!fs.existsSync(screenshotsDir)) return "";
+
+  const screenshots = fs.readdirSync(screenshotsDir)
+    .filter((fileName) => fileName.toLowerCase().endsWith(".png"))
+    .map((fileName) => {
+      const filePath = path.join(screenshotsDir, fileName);
+      return { fileName, filePath, mtimeMs: fs.statSync(filePath).mtimeMs };
+    });
+  if (!screenshots.length) return "";
+
+  // Failure details normally name the exact artifact. Prefer it over a generic final capture.
+  const resultText = JSON.stringify(result);
+  const referencedNames = Array.from(resultText.matchAll(/([\w.-]+\.png)/gi), (match) => match[1]);
+  for (const referencedName of referencedNames) {
+    const referenced = screenshots.find((item) => item.fileName === referencedName);
+    if (referenced) return referenced.filePath;
+  }
+
+  return screenshots.sort((left, right) => right.mtimeMs - left.mtimeMs)[0].filePath;
+}
+
+async function uploadFailureScreenshots({ client, config, channel, threadTs, responseText }) {
+  const reportDirs = extractReportDirs(responseText, config);
+  const uploads = [];
+
+  for (const reportDir of reportDirs) {
+    const result = readResult(reportDir);
+    const screenshotPath = findFailureScreenshot(reportDir, result);
+    if (!screenshotPath || uploads.includes(screenshotPath)) continue;
+
+    await client.filesUploadV2({
+      channel_id: channel,
+      thread_ts: threadTs,
+      file: fs.createReadStream(screenshotPath),
+      filename: path.basename(screenshotPath),
+      title: `[FAIL] ${result.name || result.test_id || "QA 자동화"} 오류 화면`
+    });
+    uploads.push(screenshotPath);
+  }
+
+  return uploads;
+}
+
 module.exports = {
   createCombinedPdfReport,
   createPdfReport,
   extractReportDirs,
+  findFailureScreenshot,
+  uploadFailureScreenshots,
   uploadPdfReports
 };

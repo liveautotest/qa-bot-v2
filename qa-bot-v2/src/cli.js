@@ -30,6 +30,8 @@ async function main() {
     payment_method: args.method || args.payment_method,
     split_start: args.split_start,
     split_end: args.split_end,
+    random_search_profile: args.random_search_profile === true || args.random_search_profile === "true",
+    guest_pet_count: args.guest_pet_count === undefined ? undefined : Number(args.guest_pet_count),
     reservation_id: args.reservation_id,
     schedule_shift_label: args.shift || args.schedule_shift_label,
     deposit_action: args.action || args.deposit_action,
