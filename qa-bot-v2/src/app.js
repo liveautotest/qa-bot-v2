@@ -10,6 +10,7 @@ const { formatHelp } = require("./slack/slack-reporter");
 const { uploadPdfReports } = require("./slack/pdf-report");
 const { registerValidationUiLab } = require("./validation-ui-lab");
 const { registerBuildInstallUi } = require("./build-install-ui");
+const { IOS_BUILD_INSTALL_PATTERN, routeIosBuildInstallCommand } = require("./slack/ios-build-install-router");
 
 function isSocketModeExplicitDisconnectRace(error) {
   const message = String(error?.message || error || "");
@@ -333,7 +334,7 @@ async function main() {
     console.error("Slack app error:", error.stack || error.message);
   });
 
-  async function handleQaMessage(message, say) {
+  async function handleQaMessage(message, say, router = routeCommand) {
     const threadTs = message.thread_ts || message.ts;
     const dedupeKey = messageDedupeKey(message);
     if (handledMessageKeys.has(dedupeKey)) {
@@ -391,7 +392,7 @@ async function main() {
         });
       }
 
-      const response = normalizeValidationSuccessResponse(await routeCommand(message.text, {
+      const response = normalizeValidationSuccessResponse(await router(message.text, {
         config,
         user: message.user,
         channel: resultThread.channel,
@@ -505,6 +506,10 @@ async function main() {
 
   app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*보증금\s+(?:반환|보류)/i, async ({ message, say }) => {
     await handleQaMessage(message, say);
+  });
+
+  app.message(IOS_BUILD_INSTALL_PATTERN, async ({ message, say }) => {
+    await handleQaMessage(message, say, routeIosBuildInstallCommand);
   });
 
   app.message(/^!qa$/i, async ({ message, say }) => {

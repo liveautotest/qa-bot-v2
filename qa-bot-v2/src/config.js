@@ -60,7 +60,19 @@ function loadConfig() {
       firebaseStagingAppId: env.FIREBASE_STAGING_APP_ID || "",
       firebaseDevAppId: env.FIREBASE_DEV_APP_ID || "",
       firebaseServiceAccountPath: env.FIREBASE_SERVICE_ACCOUNT_PATH || "",
-      downloadDir: path.resolve(projectRoot, env.APP_BUILD_DOWNLOAD_DIR || ".tmp/app-builds")
+      downloadDir: path.resolve(projectRoot, env.APP_BUILD_DOWNLOAD_DIR || ".tmp/app-builds"),
+      ios: {
+        firebaseStagingAppId: env.FIREBASE_IOS_STAGING_APP_ID || "",
+        firebaseDevAppId: env.FIREBASE_IOS_DEV_APP_ID || "",
+        bundleIds: {
+          staging: env.IOS_STAGING_BUNDLE_ID || "",
+          dev: env.IOS_DEV_BUNDLE_ID || ""
+        },
+        devices: {
+          guest: env.IOS_GUEST_DEVICE_ID || "",
+          host: env.IOS_HOST_DEVICE_ID || ""
+        }
+      }
     },
     tossAdmin: {
       url: env.TOSS_ADMIN_URL || "",

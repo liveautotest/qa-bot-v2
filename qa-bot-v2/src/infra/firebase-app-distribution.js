@@ -232,6 +232,7 @@ async function downloadReleaseBinary(release, destinationDir) {
 }
 
 module.exports = {
+  downloadFile,
   downloadReleaseBinary,
   getLatestRelease,
   listReleases,

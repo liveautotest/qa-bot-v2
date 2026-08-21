@@ -12,6 +12,7 @@ function getAndroidPostTestTarget(request, config) {
   if (request.test === "console-schedule-change") return null;
   if (request.test === "console-deposit-return") return null;
   if (request.test === "build-install") return null;
+  if (String(request.test || "").startsWith("ios-")) return null;
   if (request.env === "api" || request.env === "toss") return null;
 
   const role = request.role || "guest";
@@ -97,7 +98,8 @@ async function runTest(request, config) {
     appBuild = store.request.skip_app_build_check ||
       store.request.test === "console-schedule-change" ||
       store.request.test === "console-deposit-return" ||
-      store.request.test === "build-install"
+      store.request.test === "build-install" ||
+      String(store.request.test || "").startsWith("ios-")
       ? {
         status: "skipped",
         reason: "Skipped by parent flow after a prior app build check."
@@ -169,7 +171,8 @@ async function runTest(request, config) {
       "coupon-box": "TC-INTERNAL-REFACTOR-004",
       "review-edit": "TC-INTERNAL-REFACTOR-006",
       "review-write": "TC-INTERNAL-REFACTOR-005",
-      "build-install": "TC-BUILD-INSTALL-001"
+      "build-install": "TC-BUILD-INSTALL-001",
+      "ios-build-install": "TC-IOS-BUILD-INSTALL-001"
     };
     const testNames = {
       login: "로그인",
@@ -194,7 +197,8 @@ async function runTest(request, config) {
       "coupon-box": "쿠폰함",
       "review-edit": "리뷰 수정",
       "review-write": "리뷰 작성",
-      "build-install": "빌드 설치"
+      "build-install": "빌드 설치",
+      "ios-build-install": "iOS 빌드 설치"
     };
     const finalResult = {
       run_id: store.runId,
@@ -206,7 +210,9 @@ async function runTest(request, config) {
         request.test === "console-schedule-change" ||
         request.test === "console-deposit-return"
         ? "browser"
-        : config.devices && config.devices[role] ? config.devices[role] : "unknown",
+        : String(request.test || "").startsWith("ios-")
+          ? (config.appBuild && config.appBuild.ios && config.appBuild.ios.devices && config.appBuild.ios.devices[role]) || "unknown"
+          : config.devices && config.devices[role] ? config.devices[role] : "unknown",
       duration_ms: Date.now() - startedAt,
       failed_step: "runner",
       error: error.message,
