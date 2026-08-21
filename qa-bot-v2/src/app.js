@@ -12,6 +12,7 @@ const { registerValidationUiLab } = require("./validation-ui-lab");
 const { registerBuildInstallUi } = require("./build-install-ui");
 const { registerScheduleChangeUi } = require("./schedule-change-ui");
 const { IOS_BUILD_INSTALL_PATTERN, routeIosBuildInstallCommand } = require("./slack/ios-build-install-router");
+const { IOS_LOGIN_PATTERN, routeIosLoginCommand } = require("./slack/ios-command-router");
 
 function isSocketModeExplicitDisconnectRace(error) {
   const message = String(error?.message || error || "");
@@ -547,6 +548,10 @@ async function main() {
 
   app.message(IOS_BUILD_INSTALL_PATTERN, async ({ message, say }) => {
     await handleQaMessage(message, say, routeIosBuildInstallCommand);
+  });
+
+  app.message(IOS_LOGIN_PATTERN, async ({ message, say }) => {
+    await handleQaMessage(message, say, routeIosLoginCommand);
   });
 
   app.message(/^!qa$/i, async ({ message, say }) => {

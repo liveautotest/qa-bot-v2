@@ -172,7 +172,8 @@ async function runTest(request, config) {
       "review-edit": "TC-INTERNAL-REFACTOR-006",
       "review-write": "TC-INTERNAL-REFACTOR-005",
       "build-install": "TC-BUILD-INSTALL-001",
-      "ios-build-install": "TC-IOS-BUILD-INSTALL-001"
+      "ios-build-install": "TC-IOS-BUILD-INSTALL-001",
+      "ios-login": "TC-IOS-LOGIN-001"
     };
     const testNames = {
       login: "로그인",
@@ -198,7 +199,8 @@ async function runTest(request, config) {
       "review-edit": "리뷰 수정",
       "review-write": "리뷰 작성",
       "build-install": "빌드 설치",
-      "ios-build-install": "iOS 빌드 설치"
+      "ios-build-install": "iOS 빌드 설치",
+      "ios-login": "iOS 로그인"
     };
     const finalResult = {
       run_id: store.runId,

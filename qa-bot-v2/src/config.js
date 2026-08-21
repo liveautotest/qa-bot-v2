@@ -71,6 +71,10 @@ function loadConfig() {
         devices: {
           guest: env.IOS_GUEST_DEVICE_ID || "",
           host: env.IOS_HOST_DEVICE_ID || ""
+        },
+        wdaUrls: {
+          guest: env.IOS_GUEST_WDA_URL || "",
+          host: env.IOS_HOST_WDA_URL || ""
         }
       }
     },

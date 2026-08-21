@@ -1,0 +1,186 @@
+const path = require("path");
+const { withDeviceLock } = require("../infra/device-lock");
+const {
+  createSession,
+  deleteSession,
+  launchApp,
+  terminateApp,
+  typeText
+} = require("../infra/ios-wda");
+const {
+  dumpNodes,
+  findNode,
+  saveFailureArtifacts,
+  tapNode,
+  waitForNodes
+} = require("./helpers/ios-automation");
+
+// login.test.js(AOS)와 같은 자리에 있는 iOS 버전.
+// 다만 실제 iOS 앱 화면의 accessibility label/name은 아직 실기기/시뮬레이터로 검증되지 않았다.
+// 아래 라벨(예: "이메일/휴대폰 번호로 시작하기")은 AOS와 동일한 문구를 쓴다는 가정이며,
+// 첫 실행 후 실제 화면과 다르면 이 파일의 라벨 상수만 조정하면 된다.
+
+const LOGIN_ENTRY_LABEL = "이메일/휴대폰 번호로 시작하기";
+const HOME_TAB_LABELS = ["홈", "탐색", "채팅", "내 정보"];
+
+function addStep(steps, name, status = "pass", message) {
+  const step = { name, status };
+  if (message) step.message = message;
+  steps.push(step);
+}
+
+function fail(message, steps, details = []) {
+  const error = new Error(message);
+  error.steps = steps;
+  error.details = details;
+  throw error;
+}
+
+function isLoggedInHome(nodes) {
+  return !!findNode(nodes, HOME_TAB_LABELS, { visible: true });
+}
+
+function isLoginEntryScreen(nodes) {
+  return !!findNode(nodes, [LOGIN_ENTRY_LABEL], { visible: true });
+}
+
+function findEditableNodes(nodes) {
+  return nodes.filter((node) => ["TextField", "SecureTextField"].includes(node.attrs.type));
+}
+
+async function runIosLoginTest({ request, config, store }) {
+  const role = request.role || "guest";
+  const env = request.env || "staging";
+  const account = (config.accounts && config.accounts[role]) || {};
+  const iosBuild = (config.appBuild && config.appBuild.ios) || {};
+  const wdaUrl = iosBuild.wdaUrls && iosBuild.wdaUrls[role];
+  const bundleId = iosBuild.bundleIds && iosBuild.bundleIds[env === "stg" ? "staging" : env];
+  const steps = [];
+
+  if (!wdaUrl) {
+    throw new Error(
+      `iOS 단말/시뮬레이터의 WDA URL을 찾지 못했습니다 (role: ${role}). IOS_${role.toUpperCase()}_WDA_URL을 확인해주세요.`
+    );
+  }
+  if (!bundleId) {
+    throw new Error(`iOS bundle id를 찾지 못했습니다 (env: ${env}).`);
+  }
+  if (!account.email || !account.password) {
+    throw new Error(`계정 정보를 찾지 못했습니다 (role: ${role}).`);
+  }
+
+  return withDeviceLock(wdaUrl, async () => {
+    let sessionId;
+
+    try {
+      sessionId = await createSession(wdaUrl, bundleId);
+      addStep(steps, "WDA 세션 생성", "pass", wdaUrl);
+
+      await launchApp(wdaUrl, sessionId, bundleId);
+      addStep(steps, "iOS 앱 실행", "pass", bundleId);
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      let nodes = await dumpNodes(wdaUrl, sessionId);
+
+      if (isLoggedInHome(nodes)) {
+        addStep(steps, `기존 ${role} 로그인 세션 확인`);
+        return {
+          test_id: "TC-IOS-LOGIN-001",
+          name: `iOS ${role} 로그인`,
+          env,
+          status: "pass",
+          device: wdaUrl,
+          steps,
+          session_reused: true,
+          artifacts: { screenshots: [], logs: [] }
+        };
+      }
+
+      if (!isLoginEntryScreen(nodes)) {
+        nodes = await waitForNodes(wdaUrl, sessionId, isLoginEntryScreen, 10000);
+      }
+
+      const entryButton = findNode(nodes, [LOGIN_ENTRY_LABEL], { visible: true });
+      if (!entryButton) {
+        const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "login-entry-not-found", nodes);
+        fail(
+          "로그인 시작 화면을 찾지 못했습니다.",
+          steps,
+          [
+            `찾던 라벨: ${LOGIN_ENTRY_LABEL}`,
+            "iOS 실제 화면 문구가 다르면 ios-login.test.js의 LOGIN_ENTRY_LABEL을 조정해주세요.",
+            `리포트의 ${path.basename(artifacts.screenshotPath)} 화면을 확인해주세요.`
+          ]
+        );
+      }
+      await tapNode(wdaUrl, sessionId, entryButton, "로그인 시작 버튼", steps);
+      addStep(steps, "로그인 시작 버튼 탭");
+
+      nodes = await waitForNodes(wdaUrl, sessionId, (candidate) => findEditableNodes(candidate).length >= 2, 10000);
+      const editables = findEditableNodes(nodes);
+      if (editables.length < 2) {
+        const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "login-inputs-not-found", nodes);
+        fail(
+          "이메일/비밀번호 입력 필드를 찾지 못했습니다.",
+          steps,
+          [
+            "로그인 시작 버튼을 누른 뒤에도 입력 화면(TextField 2개)이 보이지 않았습니다.",
+            `리포트의 ${path.basename(artifacts.screenshotPath)} 화면을 확인해주세요.`
+          ]
+        );
+      }
+
+      await tapNode(wdaUrl, sessionId, editables[0], "이메일 입력", steps);
+      await typeText(wdaUrl, sessionId, account.email);
+      addStep(steps, "이메일 입력");
+
+      await tapNode(wdaUrl, sessionId, editables[1], "비밀번호 입력", steps);
+      await typeText(wdaUrl, sessionId, account.password);
+      addStep(steps, "비밀번호 입력");
+
+      nodes = await dumpNodes(wdaUrl, sessionId);
+      const loginSubmitButton = findNode(nodes, ["로그인"], { visible: true });
+      if (!loginSubmitButton) {
+        const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "login-submit-not-found", nodes);
+        fail(
+          "로그인 제출 버튼을 찾지 못했습니다.",
+          steps,
+          [`리포트의 ${path.basename(artifacts.screenshotPath)} 화면을 확인해주세요.`]
+        );
+      }
+      await tapNode(wdaUrl, sessionId, loginSubmitButton, "로그인 제출 버튼", steps);
+      addStep(steps, "로그인 제출 버튼 탭");
+
+      nodes = await waitForNodes(wdaUrl, sessionId, isLoggedInHome, 20000);
+      if (!isLoggedInHome(nodes)) {
+        const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "login-final", nodes);
+        fail(
+          "로그인 제출 후에도 홈 화면으로 이동하지 않았습니다.",
+          steps,
+          [`리포트의 ${path.basename(artifacts.screenshotPath)} 화면을 확인해주세요.`]
+        );
+      }
+
+      addStep(steps, "로그인 완료 확인");
+
+      return {
+        test_id: "TC-IOS-LOGIN-001",
+        name: `iOS ${role} 로그인`,
+        env,
+        status: "pass",
+        device: wdaUrl,
+        steps,
+        artifacts: { screenshots: [], logs: [] }
+      };
+    } finally {
+      if (sessionId) {
+        await terminateApp(wdaUrl, sessionId, bundleId);
+        await deleteSession(wdaUrl, sessionId);
+      }
+    }
+  });
+}
+
+module.exports = {
+  runIosLoginTest
+};
