@@ -44,6 +44,43 @@ function formatVersion(version) {
   return `${name} (${code})`;
 }
 
+function installErrorMessage(error) {
+  return [error?.message, error?.stderr, error?.stdout]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function installApkWithRetry({ config, device, appPackage, apkPath, target, store, steps, addStep }) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await runAdb(config, device, ["install", "-r", apkPath]);
+      if (attempt > 1) addStep("APK 설치 재시도", "pass", "2회차 설치 성공");
+      return;
+    } catch (error) {
+      const detail = installErrorMessage(error) || "ADB가 상세 오류 없이 설치 실패를 반환했습니다.";
+      store.appendLog("runner.log", `APK install attempt ${attempt} failed: ${detail}`);
+
+      // ADB가 실패를 반환해도 Package Manager 설치가 끝난 경우가 있어 먼저 실제 버전을 확인한다.
+      const installed = await getInstalledAppVersion(config, device, appPackage).catch(() => null);
+      if (installed && compareBuildVersion(installed.buildVersion, target.buildVersion) === 0) {
+        addStep("APK 설치 결과 재확인", "pass", `${formatVersion(installed)} 설치 확인`);
+        return;
+      }
+
+      if (attempt === 2) {
+        throw Object.assign(
+          new Error(`APK 설치를 2회 시도했지만 실패했습니다.\n${detail}`),
+          { stderr: error?.stderr, stdout: error?.stdout, steps }
+        );
+      }
+
+      await runAdb(config, device, ["wait-for-device"]).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+  }
+}
+
 async function getFirebaseReleases(config, env, pageSize = 20, { forceRefresh = false } = {}) {
   requireBuildInstallConfig(config, env);
   const appBuild = config.appBuild || {};
@@ -175,7 +212,16 @@ async function runBuildInstallTest({ request, config, store }) {
     addStep("기존 앱 삭제", "pass", appPackage);
   }
 
-  await runAdb(config, device, ["install", "-r", apkPath]);
+  await installApkWithRetry({
+    config,
+    device,
+    appPackage,
+    apkPath,
+    target,
+    store,
+    steps,
+    addStep
+  });
   addStep("APK 설치", "pass", actionLabel);
 
   const installedAfter = await getInstalledAppVersion(config, device, appPackage);
