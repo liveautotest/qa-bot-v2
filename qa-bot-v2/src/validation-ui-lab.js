@@ -3,6 +3,14 @@ const VALIDATION_OPEN_ACTION_ID = "qa_validation_lab_open";
 const VALIDATION_ITEMS = [
   { label: "게스트 로그인", commandTemplate: (env) => `!게스트 로그인 ${env}` },
   { label: "호스트 로그인", commandTemplate: (env) => `!호스트 로그인 ${env}` },
+  { label: "정확한 일정 검색", commandTemplate: (env) => `!게스트 검색 정확한일정 ${env}` },
+  { label: "유연한 일정 검색", commandTemplate: (env) => `!게스트 검색 유연한일정 ${env}` },
+  { label: "게스트 계약 요청", commandTemplate: (env) => `!게스트 계약 요청 ${env}` },
+  { label: "게스트 계약 요청 취소", commandTemplate: (env) => `!게스트 계약 요청 취소 ${env}` },
+  { label: "호스트 계약 승인", commandTemplate: (env) => `!호스트 계약 승인 ${env}` },
+  { label: "호스트 계약 요청 거절", commandTemplate: (env) => `!호스트 계약 요청 거절 ${env}` },
+  { label: "게스트 연장요청", commandTemplate: (env) => `!게스트 연장요청 ${env}` },
+  { label: "호스트 연장수락", commandTemplate: (env) => `!호스트 연장수락 ${env}` },
   { label: "일반결제", commandLabel: "일반결제" },
   { label: "무통장 결제", commandLabel: "무통장 결제" },
   { label: "등록카드결제", commandLabel: "등록카드결제" },
@@ -43,10 +51,11 @@ function buildValidationModal(privateMetadata) {
           type: "static_select",
           action_id: "value",
           placeholder: plainText("클라이언트 선택"),
-          initial_option: { text: plainText("APP"), value: "app" },
+          initial_option: { text: plainText("Android APP"), value: "android-app" },
           options: [
-            { text: plainText("APP"), value: "app" },
-            { text: plainText("PC Web (준비 중)"), value: "pc-web" }
+            { text: plainText("Android APP"), value: "android-app" },
+            { text: plainText("iOS APP (준비 중)"), value: "ios-app" },
+            { text: plainText("PC (준비 중)"), value: "pc" }
           ]
         }
       },
@@ -91,7 +100,7 @@ function selectedValue(view, blockId) {
 function parseSubmission(view) {
   const tester = selectedValue(view, "tester").selected_user || "";
   const env = selectedValue(view, "environment").selected_option?.value || "stg";
-  const client = selectedValue(view, "client").selected_option?.value || "app";
+  const client = selectedValue(view, "client").selected_option?.value || "android-app";
   const validationItem = selectedValue(view, "validation_item").selected_option?.value || "";
   const item = VALIDATION_ITEMS.find((candidate) => candidate.label === validationItem);
   const commandText = item?.commandTemplate
@@ -115,7 +124,7 @@ function buildValidationOpenBlocks(metadata) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "*검증 항목을 선택해 주세요.*\n버튼을 누르면 테스터, 환경, 클라이언트, 검증 항목을 선택할 수 있습니다."
+        text: "*검증 항목을 선택해 주세요.*\n버튼을 누르면 테스터, 클라이언트, 환경, 검증 항목을 선택할 수 있습니다."
       }
     },
     {
@@ -207,8 +216,9 @@ function registerValidationUiLab(app, { runQaCommand } = {}) {
   app.view(VALIDATION_MODAL_CALLBACK_ID, async ({ ack, body, view, client }) => {
     const submission = parseSubmission(view);
     const errors = {};
-    if (submission.client !== "app") {
-      errors.client = "PC Web 검증은 준비 중입니다. 현재는 APP만 선택할 수 있습니다.";
+    if (submission.client !== "android-app") {
+      const clientLabel = submission.client === "ios-app" ? "iOS APP" : "PC";
+      errors.client = `${clientLabel} 검증은 준비 중입니다. 현재는 Android APP만 선택할 수 있습니다.`;
     }
     if (submission.env === "prod") {
       errors.environment = "Prod 검증은 준비 중입니다. 현재는 stg 또는 dev만 선택할 수 있습니다.";

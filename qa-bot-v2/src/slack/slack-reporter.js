@@ -585,8 +585,9 @@ function formatResultConditionSummary(result) {
     const target = build.target_build || {};
     const installedBefore = build.installed_before || {};
     const installedAfter = build.installed_after || {};
+    lines.push(`- 클라이언트: ${build.client === "ios" ? "iOS" : "Android"}`);
     lines.push(`- 테스터: ${build.tester_role || result.role || "-"}`);
-    lines.push(`- 앱 패키지: ${build.package || "-"}`);
+    lines.push(`- 앱 식별자: ${build.package || build.bundle_id || "-"}`);
     lines.push(`- 설치 대상: ${target.displayVersion || "unknown"} (${target.buildVersion || "unknown"})`);
     lines.push(`- 기존 버전: ${installedBefore.displayVersion || "미설치"} (${installedBefore.buildVersion || "-"})`);
     lines.push(`- 설치 방식: ${build.action_label || build.action || "-"}`);

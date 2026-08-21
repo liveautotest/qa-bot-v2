@@ -2111,7 +2111,11 @@ async function fillPetInfoIfNeeded(config, device, store, steps, initialXml, opt
         }
 
         await runAdb(config, device, ["shell", "input", "keyevent", "123"]).catch(() => {});
-        await inputUnicodeText(config, device, options.petInfoText, store);
+        await inputUnicodeText(config, device, options.petInfoText, store, {
+          refocus: async () => {
+            await tap(config, device, input.bounds.x, input.bounds.y);
+          }
+        });
         await new Promise((resolve) => setTimeout(resolve, 350));
         xml = await dumpUiStable(config, device);
         if (xml.includes(options.petInfoText)) {

@@ -211,6 +211,7 @@ async function runIosBuildInstallTest({ request, config, store }) {
     role,
     duration_ms: Date.now() - startedAt,
     build_install: {
+      client: "ios",
       tester_role: role,
       bundle_id: bundleId,
       verified_at: new Date().toISOString(),

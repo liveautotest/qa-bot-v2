@@ -287,10 +287,14 @@ function shouldAutoApproveHostContract({ test, paymentMethod }, result) {
 }
 
 function shouldAutoLoginAfterBuildInstall(test, result) {
+  const installAction = result.build_install?.action;
   return (
     test === "build-install" &&
     result.status === "pass" &&
-    ["new-install", "downgrade-reinstall"].includes(result.build_install?.action)
+    (
+      ["new-install", "downgrade-reinstall"].includes(installAction) ||
+      (result.role === "host" && installAction === "update")
+    )
   );
 }
 
@@ -402,6 +406,24 @@ async function runQaCommandWithPrerequisite(command, context) {
 
 async function runQaCommand(command, context) {
   const { test, env, role, payment_method: paymentMethod } = command;
+
+  if ((test === "build-install" || test === "ios-build-install") && role === "both") {
+    const sections = [
+      `[빌드 설치] ${test === "ios-build-install" ? "iOS" : "Android"} 게스트 + 호스트`,
+      "게스트 설치 후 호스트 설치 순서로 실행합니다."
+    ];
+
+    for (const targetRole of ["guest", "host"]) {
+      const formatted = await runQaCommand({ ...command, role: targetRole }, context);
+      sections.push([
+        `[${targetRole === "guest" ? "게스트" : "호스트"} 설치 결과]`,
+        formatted
+      ].join("\n"));
+    }
+
+    return sections.join("\n\n");
+  }
+
   const { result, formatted: formattedResult } = await runQaCommandWithPrerequisite(command, context);
 
   if (shouldAutoLoginAfterBuildInstall(test, result)) {
@@ -1001,6 +1023,7 @@ async function routeCommand(text, context) {
     command === "coupon-box" ||
     command === "basic-validation" ||
     command === "build-install" ||
+    command === "ios-build-install" ||
     command === "toss-deposit-approve" ||
     command === "console-schedule-change" ||
     command === "console-deposit-return"
@@ -1035,7 +1058,7 @@ async function routeCommand(text, context) {
         deposit_action: args.action || args.deposit_action,
         release_name: args.release_name,
         build_version: args.build_version,
-        skip_app_build_check: command === "build-install"
+        skip_app_build_check: command === "build-install" || command === "ios-build-install"
       },
       context
     );

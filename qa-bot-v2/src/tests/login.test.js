@@ -246,8 +246,23 @@ async function tapNode(config, device, node, label) {
 }
 
 async function replaceFocusedText(config, device, value) {
+  // 로그인 재시도 시 기존 휴대폰 번호가 남은 입력칸에 이메일이 이어 붙는 것을 막는다.
+  // Ctrl+A가 지원되지 않는 단말도 있으므로 끝으로 이동한 뒤 충분한 DEL 입력을 함께 보낸다.
+  await runAdb(config, device, [
+    "shell",
+    "input",
+    "keycombination",
+    "113",
+    "29"
+  ]).catch(() => undefined);
+  await keyEvent(config, device, 67).catch(() => undefined);
   await keyEvent(config, device, 123);
-  await runAdb(config, device, ["shell", "input", "keyevent", "--longpress", "67"]);
+  await runAdb(config, device, [
+    "shell",
+    "input",
+    "keyevent",
+    ...Array(80).fill("67")
+  ]);
   await inputText(config, device, value);
 }
 
@@ -349,9 +364,16 @@ function isHostReportPopupVisible(xml) {
   );
 }
 
-function assertEnteredValue(xml, value, fieldName) {
-  if (!xml.includes(value)) {
-    throw new Error(`${fieldName} was not entered correctly. Check keyboard/IME state or install ADB Keyboard.`);
+function assertExactEditableValue(xml, editableIndex, value, fieldName) {
+  const editable = findEditableNodes(xml)[editableIndex];
+  const exposedValues = editable
+    ? [editable.attrs.text, editable.attrs["content-desc"]].filter(Boolean)
+    : [];
+
+  if (!exposedValues.includes(value)) {
+    throw new Error(
+      `${fieldName} was not replaced correctly. The previous login ID may still remain in the input field.`
+    );
   }
 }
 
@@ -907,6 +929,9 @@ async function runLoginTest({ request, config, store }) {
 
       await tapNode(config, device, currentEditables[0], "email input");
       await replaceFocusedText(config, device, loginAccount.email);
+      if (fallback) {
+        addStep(steps, "기존 휴대폰 번호 입력값 삭제 후 이메일 입력");
+      }
       addStep(steps, `${labelPrefix}이메일/휴대폰 번호 입력`);
 
       await tapNode(config, device, currentEditables[1], "password input");
@@ -921,7 +946,7 @@ async function runLoginTest({ request, config, store }) {
         nextXml,
         accountSecrets
       );
-      assertEnteredValue(nextXml, loginAccount.email, "Email");
+      assertExactEditableValue(nextXml, 0, loginAccount.email, "Email");
       const passwordProtection = inspectPasswordProtection(nextXml, loginAccount.password);
       addStep(
         steps,

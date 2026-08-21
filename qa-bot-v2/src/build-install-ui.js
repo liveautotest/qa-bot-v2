@@ -1,7 +1,9 @@
 const { getFirebaseReleases } = require("./tests/build-install.test");
+const { getIosFirebaseReleases } = require("./tests/ios-build-install.test");
 
 const BUILD_INSTALL_MODAL_CALLBACK_ID = "qa_build_install_submit";
 const BUILD_INSTALL_OPEN_ACTION_ID = "qa_build_install_open";
+const BUILD_INSTALL_CLIENT_ACTION_ID = "qa_build_install_client";
 const BUILD_INSTALL_ENV_ACTION_ID = "qa_build_install_env";
 
 function plainText(text) {
@@ -16,6 +18,10 @@ function shortEnv(env) {
   return normalizeEnv(env) === "dev" ? "dev" : "stg";
 }
 
+function normalizeClient(client) {
+  return client === "ios" ? "ios" : "android";
+}
+
 function releaseLabel(release, { latest = false } = {}) {
   const version = release.displayVersion || "unknown";
   const build = release.buildVersion || "unknown";
@@ -23,19 +29,23 @@ function releaseLabel(release, { latest = false } = {}) {
   return `${latest ? "[최신] " : ""}${version} (${build})${createdAt}`;
 }
 
-function releaseValue(release, env) {
+function releaseValue(release, env, client) {
   return JSON.stringify({
     env: shortEnv(env),
+    client: normalizeClient(client),
     displayVersion: String(release.displayVersion || ""),
     buildVersion: String(release.buildVersion || "")
   });
 }
 
-async function buildReleaseOptions(config, env) {
+async function buildReleaseOptions(config, env, client = "android") {
   try {
     // 모달을 열거나 환경을 바꿀 때는 최신 목록을 강제로 받고,
     // 선택 후 설치 단계에서는 이 결과를 재사용한다.
-    const releases = await getFirebaseReleases(config, normalizeEnv(env), 30, { forceRefresh: true });
+    const getReleases = normalizeClient(client) === "ios"
+      ? getIosFirebaseReleases
+      : getFirebaseReleases;
+    const releases = await getReleases(config, normalizeEnv(env), 30, { forceRefresh: true });
     if (!releases.length) {
       return [{ text: plainText("Firebase 릴리즈 없음"), value: JSON.stringify({ error: "no-release" }) }];
     }
@@ -48,7 +58,7 @@ async function buildReleaseOptions(config, env) {
 
     return sortedReleases.slice(0, 20).map((release, index) => ({
       text: plainText(releaseLabel(release, { latest: index === 0 }).slice(0, 75)),
-      value: releaseValue(release, env)
+      value: releaseValue(release, env, client)
     }));
   } catch (error) {
     return [{
@@ -67,12 +77,23 @@ function buildLoadingReleaseOptions(message = "Firebase 릴리즈 조회 중") {
   return [{ text: plainText(message), value: JSON.stringify({ error: message }) }];
 }
 
-async function buildInstallModal(privateMetadata, config, env = "stg", { releaseOptions } = {}) {
-  const options = releaseOptions || await buildReleaseOptions(config, env);
+async function buildInstallModal(
+  privateMetadata,
+  config,
+  env = "stg",
+  client = "android",
+  { releaseOptions } = {}
+) {
+  const selectedClient = normalizeClient(client);
+  const options = releaseOptions || await buildReleaseOptions(config, env, selectedClient);
   return {
     type: "modal",
     callback_id: BUILD_INSTALL_MODAL_CALLBACK_ID,
-    private_metadata: JSON.stringify({ ...privateMetadata, env: shortEnv(env) }),
+    private_metadata: JSON.stringify({
+      ...privateMetadata,
+      client: selectedClient,
+      env: shortEnv(env)
+    }),
     title: plainText("빌드 설치"),
     submit: plainText("시작"),
     close: plainText("취소"),
@@ -80,15 +101,35 @@ async function buildInstallModal(privateMetadata, config, env = "stg", { release
       {
         type: "input",
         block_id: "tester",
-        label: plainText("단말"),
+        label: plainText("사용자"),
         element: {
           type: "static_select",
           action_id: "value",
-          placeholder: plainText("단말 선택"),
+          placeholder: plainText("사용자 선택"),
           initial_option: { text: plainText("게스트"), value: "guest" },
           options: [
             { text: plainText("게스트"), value: "guest" },
-            { text: plainText("호스트"), value: "host" }
+            { text: plainText("호스트"), value: "host" },
+            { text: plainText("게스트 + 호스트"), value: "both" }
+          ]
+        }
+      },
+      {
+        type: "input",
+        block_id: "client",
+        dispatch_action: true,
+        label: plainText("클라이언트"),
+        element: {
+          type: "static_select",
+          action_id: BUILD_INSTALL_CLIENT_ACTION_ID,
+          placeholder: plainText("클라이언트 선택"),
+          initial_option: {
+            text: plainText(selectedClient === "ios" ? "iOS" : "Android"),
+            value: selectedClient
+          },
+          options: [
+            { text: plainText("Android"), value: "android" },
+            { text: plainText("iOS"), value: "ios" }
           ]
         }
       },
@@ -116,7 +157,7 @@ async function buildInstallModal(privateMetadata, config, env = "stg", { release
           type: "static_select",
           // Slack은 같은 block_id/action_id의 기존 선택값을 views.update 후에도 보존한다.
           // 환경별 action_id로 staging 빌드 선택값이 dev 목록에 남지 않게 한다.
-          action_id: `build_${shortEnv(env)}`,
+          action_id: `build_${selectedClient}_${shortEnv(env)}`,
           placeholder: plainText("빌드 버전 선택"),
           options
         }
@@ -131,7 +172,7 @@ function buildInstallOpenBlocks(metadata) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "*설치할 빌드를 선택해 주세요.*\n버튼을 누르면 테스터, 환경, 빌드 버전을 선택할 수 있습니다."
+        text: "*설치할 빌드를 선택해 주세요.*\n버튼을 누르면 사용자, 클라이언트, 환경, 빌드 버전을 선택할 수 있습니다."
       }
     },
     {
@@ -151,6 +192,7 @@ function buildInstallOpenBlocks(metadata) {
 
 function parseSubmission(view) {
   const testerRole = selectedValue(view, "tester").selected_option?.value || "guest";
+  const client = normalizeClient(selectedValue(view, "client").selected_option?.value);
   const env = selectedValue(view, "environment").selected_option?.value || "stg";
   const buildOption = selectedValue(view, "build").selected_option || {};
   const buildRaw = buildOption.value || "";
@@ -167,14 +209,21 @@ function parseSubmission(view) {
   if (build.env && build.env !== env) {
     throw new Error(`${env} 환경의 빌드 목록이 아닙니다. 환경을 다시 선택한 뒤 빌드를 선택해주세요.`);
   }
+  if (build.client && build.client !== client) {
+    throw new Error(`${client} 클라이언트의 빌드 목록이 아닙니다. 클라이언트를 다시 선택한 뒤 빌드를 선택해주세요.`);
+  }
+  const userLabel = testerRole === "both"
+    ? "게스트 + 호스트"
+    : testerRole === "host" ? "호스트" : "게스트";
 
   return {
     testerRole,
+    client,
     env,
     build,
-    displayTarget: `${build.displayVersion || "unknown"} (${build.buildVersion || "unknown"}) ${env}`,
+    displayTarget: `${build.displayVersion || "unknown"} (${build.buildVersion || "unknown"}) ${client === "ios" ? "iOS" : "Android"} ${env} / ${userLabel}`,
     commandText: [
-      "!qa build-install",
+      client === "ios" ? "!qa ios-build-install" : "!qa build-install",
       `env=${env === "stg" ? "staging" : env}`,
       `role=${testerRole}`,
       build.buildVersion ? `build_version=${build.buildVersion}` : ""
@@ -232,7 +281,7 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
       // Slack trigger_id는 수명이 짧다. 모달은 먼저 즉시 열고, Firebase 릴리즈 목록은 비동기로 채운다.
       const opened = await client.views.open({
         trigger_id: body.trigger_id,
-        view: await buildInstallModal(privateMetadata, config, "stg", {
+        view: await buildInstallModal(privateMetadata, config, "stg", "android", {
           releaseOptions: buildLoadingReleaseOptions()
         })
       });
@@ -240,10 +289,10 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
       const viewId = opened.view?.id;
       if (!viewId) return;
 
-      const releaseOptions = await buildReleaseOptions(config, "stg");
+      const releaseOptions = await buildReleaseOptions(config, "stg", "android");
       await client.views.update({
         view_id: viewId,
-        view: await buildInstallModal(privateMetadata, config, "stg", { releaseOptions })
+        view: await buildInstallModal(privateMetadata, config, "stg", "android", { releaseOptions })
       });
     } catch (error) {
       if (privateMetadata.channel) {
@@ -254,6 +303,51 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
         }).catch(() => undefined);
       } else {
         console.error(`빌드 선택창을 열지 못했습니다: ${error.message || error}`);
+      }
+    }
+  });
+
+  app.action(BUILD_INSTALL_CLIENT_ACTION_ID, async ({ ack, body, view, client }) => {
+    await ack();
+    const selectedClient = normalizeClient(body.actions?.[0]?.selected_option?.value);
+    const activeView = view || body.view;
+    if (!activeView?.id) {
+      console.error(`${selectedClient} 빌드 목록을 갱신하지 못했습니다: Slack modal view 정보가 없습니다.`);
+      return;
+    }
+    const env = selectedValue(activeView, "environment").selected_option?.value || "stg";
+    let metadata = {};
+    try {
+      metadata = JSON.parse(activeView.private_metadata || "{}");
+    } catch {
+      metadata = {};
+    }
+
+    try {
+      await client.views.update({
+        view_id: activeView.id,
+        hash: activeView.hash,
+        view: await buildInstallModal(metadata, config, env, selectedClient, {
+          releaseOptions: buildLoadingReleaseOptions(
+            `${selectedClient === "ios" ? "iOS" : "Android"} 최신 릴리즈 조회 중`
+          )
+        })
+      });
+
+      const releaseOptions = await buildReleaseOptions(config, env, selectedClient);
+      await client.views.update({
+        view_id: activeView.id,
+        view: await buildInstallModal(metadata, config, env, selectedClient, { releaseOptions })
+      });
+    } catch (error) {
+      if (metadata.channel) {
+        await client.chat.postMessage({
+          channel: metadata.channel,
+          thread_ts: metadata.threadTs,
+          text: `${selectedClient === "ios" ? "iOS" : "Android"} 빌드 목록을 갱신하지 못했습니다: ${error.message || error}`
+        }).catch(() => undefined);
+      } else {
+        console.error(`${selectedClient} 빌드 목록을 갱신하지 못했습니다: ${error.message || error}`);
       }
     }
   });
@@ -272,20 +366,23 @@ function registerBuildInstallUi(app, { config, runQaCommand } = {}) {
     } catch {
       metadata = {};
     }
+    const selectedClient = normalizeClient(
+      selectedValue(activeView, "client").selected_option?.value || metadata.client
+    );
 
     try {
       await client.views.update({
         view_id: activeView.id,
         hash: activeView.hash,
-        view: await buildInstallModal(metadata, config, env, {
+        view: await buildInstallModal(metadata, config, env, selectedClient, {
           releaseOptions: buildLoadingReleaseOptions(`${env} 최신 릴리즈 조회 중`)
         })
       });
 
-      const releaseOptions = await buildReleaseOptions(config, env);
+      const releaseOptions = await buildReleaseOptions(config, env, selectedClient);
       await client.views.update({
         view_id: activeView.id,
-        view: await buildInstallModal(metadata, config, env, { releaseOptions })
+        view: await buildInstallModal(metadata, config, env, selectedClient, { releaseOptions })
       });
     } catch (error) {
       if (metadata.channel) {

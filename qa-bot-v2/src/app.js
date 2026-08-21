@@ -10,6 +10,7 @@ const { formatHelp } = require("./slack/slack-reporter");
 const { uploadPdfReports } = require("./slack/pdf-report");
 const { registerValidationUiLab } = require("./validation-ui-lab");
 const { registerBuildInstallUi } = require("./build-install-ui");
+const { registerScheduleChangeUi } = require("./schedule-change-ui");
 const { IOS_BUILD_INSTALL_PATTERN, routeIosBuildInstallCommand } = require("./slack/ios-build-install-router");
 
 function isSocketModeExplicitDisconnectRace(error) {
@@ -85,7 +86,7 @@ function isConsoleDepositReturnCommand(text = "") {
 }
 
 function isBuildInstallCommand(text = "") {
-  return /^\s*![\s\u200b\u200c\u200d\ufeff]*(?:빌드설치|qa\s+build-install)\b/i.test(String(text || ""));
+  return /^\s*![\s\u200b\u200c\u200d\ufeff]*(?:빌드설치|qa\s+(?:ios-)?build-install)\b/i.test(String(text || ""));
 }
 
 function formatProgressMessage(text = "") {
@@ -212,8 +213,10 @@ const PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN =
   /^!(?:일정변경\s+\d+\s+.+\s+(?:stg|staging|dev)|보증금\s+(?:반환|보류)\s+\d+\s+(?:stg|staging|dev))$/i;
 const TEST_RESULT_CHANNEL_LOGIN_PATTERN =
   /^!(?:게스트|호스트)\s+로그인\s+(?:stg|staging|dev)$/i;
+const TEST_RESULT_CHANNEL_STANDALONE_VALIDATION_PATTERN =
+  /^!(?:게스트\s+(?:검색\s+(?:정확한일정|유연한일정)|계약\s+요청(?:\s+취소)?|연장요청)|호스트\s+(?:계약\s+(?:승인|요청\s+거절)|연장수락))\s+(?:stg|staging|dev)$/i;
 const TEST_RESULT_CHANNEL_BUILD_INSTALL_PATTERN =
-  /^!(?:빌드설치|qa\s+build-install)\b/i;
+  /^!(?:빌드설치|qa\s+(?:ios-)?build-install)\b/i;
 
 function normalizeCommandText(text = "") {
   return String(text)
@@ -252,6 +255,9 @@ function resolveConfiguredResultChannel(text = "", config = {}) {
     return config.slackResultChannel || PRIMARY_RESULT_CHANNEL_ID;
   }
   if (config.slackTestResultChannel && TEST_RESULT_CHANNEL_LOGIN_PATTERN.test(normalized)) {
+    return config.slackTestResultChannel;
+  }
+  if (config.slackTestResultChannel && TEST_RESULT_CHANNEL_STANDALONE_VALIDATION_PATTERN.test(normalized)) {
     return config.slackTestResultChannel;
   }
   if (config.slackTestResultChannel && TEST_RESULT_CHANNEL_BUILD_INSTALL_PATTERN.test(normalized)) {
@@ -484,6 +490,16 @@ async function main() {
     })
   });
 
+  registerScheduleChangeUi(app, {
+    runQaCommand: async (message) => handleQaMessage(message, async (payload) => {
+      const postPayload = typeof payload === "string" ? { text: payload } : payload;
+      return app.client.chat.postMessage({
+        channel: message.channel,
+        ...postPayload
+      });
+    })
+  });
+
   app.message(/^!qa\b/i, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
@@ -500,7 +516,7 @@ async function main() {
     await handleQaMessage(message, say);
   });
 
-  app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경/i, async ({ message, say }) => {
+  app.message(/^\s*![\s\u200b\u200c\u200d\ufeff]*일정변경\s+\d+/i, async ({ message, say }) => {
     await handleQaMessage(message, say);
   });
 

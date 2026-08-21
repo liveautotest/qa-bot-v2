@@ -146,6 +146,7 @@ async function runBuildInstallTest({ request, config, store }) {
       role,
       duration_ms: Date.now() - startedAt,
       build_install: {
+        client: "android",
         tester_role: role,
         package: appPackage,
         verified_at: new Date().toISOString(),
@@ -196,6 +197,7 @@ async function runBuildInstallTest({ request, config, store }) {
     role,
     duration_ms: Date.now() - startedAt,
     build_install: {
+      client: "android",
       tester_role: role,
       package: appPackage,
       verified_at: new Date().toISOString(),
