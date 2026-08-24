@@ -20,8 +20,9 @@ async function getAndroidDeviceState(adbPath, serial) {
     .find((l) => l.startsWith(serial));
 
   if (!line) return { connected: false, reason: "미연결" };
-  const connected = / device$/.test(line);
-  return { connected, reason: connected ? "" : "연결 불안정" };
+  const state = line.split(/\s+/)[1] || "";
+  const connected = state === "device";
+  return { connected, reason: connected ? "" : `연결 불안정 (${state || "알 수 없음"})` };
 }
 
 async function getAndroidOsVersion(adbPath, serial) {

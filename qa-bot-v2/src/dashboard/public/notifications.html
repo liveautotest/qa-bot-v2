@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>QA Ops — 알림 규칙</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <p class="brand">QA Ops</p>
+  <p class="brand-sub">liveanywhere / ops</p>
+  <a class="nav-item" href="/index.html"><span class="nav-dot"></span>대시보드</a>
+  <a class="nav-item" href="/devices.html"><span class="nav-dot"></span>단말 관리</a>
+  <a class="nav-item" href="/runs.html"><span class="nav-dot"></span>실행 기록</a>
+  <a class="nav-item" href="/builds.html"><span class="nav-dot"></span>빌드 이력</a>
+  <a class="nav-item" href="/settings.html"><span class="nav-dot"></span>설정</a>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div>
+      <h1>알림 규칙</h1>
+      <p>결과를 어느 Slack 채널로 보낼지 정하는 값 (.env 기준, 여기서는 읽기만 합니다)</p>
+    </div>
+  </div>
+
+  <h2 class="section">알림 채널 (SLACK_RESULT_CHANNEL)</h2>
+  <div class="card">
+    <div class="kv-list" id="result-channel"></div>
+  </div>
+
+  <h2 class="section">테스트 채널 (SLACK_TEST_RESULT_CHANNEL)</h2>
+  <div class="card">
+    <div class="kv-list" id="test-channel"></div>
+    <p style="font-size:11.5px;color:var(--text-faint);margin:10px 0 0;">테스트 채널이 설정되어 있으면, 아래 allowlist와 무관하게 1차 알림 채널 대상이 아닌 모든 결과가 우선적으로 여기로 갑니다.</p>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script src="/notifications.js"></script>
+</body>
+</html>

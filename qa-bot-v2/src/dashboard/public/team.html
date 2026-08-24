@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>QA Ops — 팀</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <p class="brand">QA Ops</p>
+  <p class="brand-sub">liveanywhere / ops</p>
+  <a class="nav-item" href="/index.html"><span class="nav-dot"></span>대시보드</a>
+  <a class="nav-item" href="/devices.html"><span class="nav-dot"></span>단말 관리</a>
+  <a class="nav-item" href="/runs.html"><span class="nav-dot"></span>실행 기록</a>
+  <a class="nav-item" href="/builds.html"><span class="nav-dot"></span>빌드 이력</a>
+  <a class="nav-item" href="/settings.html"><span class="nav-dot"></span>설정</a>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div>
+      <h1>팀</h1>
+      <p>최근 300건 기준 · requested_by 필드로 집계</p>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table class="simple-table" id="team-table">
+      <thead>
+        <tr>
+          <th>실행자</th>
+          <th>실행 채널</th>
+          <th>총 실행</th>
+          <th>성공</th>
+          <th>실패</th>
+          <th>마지막 실행</th>
+        </tr>
+      </thead>
+      <tbody id="team-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script src="/team.js"></script>
+</body>
+</html>

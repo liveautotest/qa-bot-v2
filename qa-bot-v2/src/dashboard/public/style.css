@@ -56,6 +56,42 @@
     font-size:13px;
     color:#9AA4B2;
     margin-bottom:2px;
+    text-decoration:none;
+    cursor:pointer;
+  }
+  .nav-item:hover{background:var(--ink-2);}
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:18px 20px;
+    margin-bottom:16px;
+  }
+  .card h3{font-size:13px;font-weight:600;margin:0 0 12px;}
+  .kv-list{display:flex;flex-direction:column;gap:8px;}
+  .kv-row{display:flex;justify-content:space-between;gap:16px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line);}
+  .kv-row:last-child{border-bottom:none;}
+  .kv-row .k{color:var(--text-mute);}
+  .kv-row .v{font-family:'IBM Plex Mono',monospace;color:var(--text);text-align:right;word-break:break-all;}
+  .kv-row .v.unset{color:var(--text-faint);}
+  .simple-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .simple-table th{text-align:left;color:var(--text-mute);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:8px 12px;border-bottom:1px solid var(--line);}
+  .simple-table td{padding:10px 12px;border-bottom:1px solid var(--line);}
+  .simple-table tr:last-child td{border-bottom:none;}
+  .simple-table tr:hover td{background:var(--paper);}
+  .load-more{
+    display:block;
+    width:100%;
+    text-align:center;
+    padding:10px;
+    font-size:12px;
+    color:var(--text-mute);
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:8px;
+    margin-top:10px;
+    cursor:pointer;
   }
   .nav-item.active{
     background:var(--ink-2);

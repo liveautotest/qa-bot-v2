@@ -227,7 +227,7 @@ function renderLog() {
 
 async function refreshAll() {
   try {
-    const [summary, deviceList, runs] = await Promise.all([
+    const [summary, deviceList, runsResponse] = await Promise.all([
       fetchJson("/api/summary"),
       fetchJson("/api/devices"),
       fetchJson("/api/runs?limit=30")
@@ -238,7 +238,7 @@ async function refreshAll() {
     renderFailRank(summary.topFailing);
     renderDevices(deviceList);
 
-    allRuns = runs;
+    allRuns = runsResponse.runs;
     renderLog();
 
     document.getElementById("last-updated").textContent =

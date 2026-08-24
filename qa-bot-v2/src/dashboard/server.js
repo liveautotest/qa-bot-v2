@@ -110,6 +110,54 @@ const server = http.createServer(async (req, res) => {
   const pathname = url.pathname;
 
   try {
+    if (pathname === "/api/config/devices") {
+      sendJson(res, 200, {
+        adbPath: config.adbPath,
+        android: config.devices,
+        ios: {
+          devices: config.appBuild?.ios?.devices,
+          wdaUrls: config.appBuild?.ios?.wdaUrls,
+          bundleIds: config.appBuild?.ios?.bundleIds
+        },
+        androidPackages: config.androidPackages
+      });
+      return;
+    }
+
+    if (pathname === "/api/config/notifications") {
+      sendJson(res, 200, {
+        resultChannel: config.slackResultChannel || "",
+        resultChannelAllowlist: config.slackResultChannelAllowlist || "",
+        testResultChannel: config.slackTestResultChannel || "",
+        testResultChannelAllowlist: config.slackTestResultChannelAllowlist || ""
+      });
+      return;
+    }
+
+    if (pathname === "/api/config/settings") {
+      sendJson(res, 200, {
+        reportBaseDir: config.reportBaseDir,
+        dashboardPort: PORT,
+        dryRun: config.dryRun,
+        appBuildEnabled: Boolean(config.appBuild?.enabled),
+        autoInstallLatestStaging: Boolean(config.appBuild?.autoInstallLatestStaging),
+        firebaseProjectNumber: config.appBuild?.firebaseProjectNumber || "(미설정)"
+      });
+      return;
+    }
+
+    if (pathname === "/api/builds") {
+      const limit = Math.min(Number(url.searchParams.get("limit")) || 30, 100);
+      const builds = reports.getBuildHistory(config.reportBaseDir, limit);
+      sendJson(res, 200, builds);
+      return;
+    }
+
+    if (pathname === "/api/team") {
+      sendJson(res, 200, reports.getTeamActivity(config.reportBaseDir));
+      return;
+    }
+
     if (pathname === "/api/summary") {
       const stats = reports.getTodayStats(config.reportBaseDir);
       const trend = reports.getTrend(config.reportBaseDir, 7);
@@ -127,8 +175,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/runs") {
-      const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 100);
-      const runs = reports.getRecentRuns(config.reportBaseDir, limit).map((run) => ({
+      const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 200);
+      const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
+      const total = reports.countAllRuns(config.reportBaseDir);
+      const runs = reports.getRecentRuns(config.reportBaseDir, limit, offset).map((run) => ({
         run_id: run.run_id,
         name: run.name,
         test_id: run.test_id,
@@ -139,9 +189,11 @@ const server = http.createServer(async (req, res) => {
         failure_class: run.failure_class,
         duration_ms: run.duration_ms,
         ran_at: run.ran_at,
+        requested_by: run.requested_by,
+        source: run.source,
         error: run.error || null
       }));
-      sendJson(res, 200, runs);
+      sendJson(res, 200, { runs, total, limit, offset });
       return;
     }
 

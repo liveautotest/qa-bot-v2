@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>QA Ops — 단말 관리</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <p class="brand">QA Ops</p>
+  <p class="brand-sub">liveanywhere / ops</p>
+  <a class="nav-item" href="/index.html"><span class="nav-dot"></span>대시보드</a>
+  <div class="nav-item active"><span class="nav-dot"></span>단말 관리</div>
+  <a class="nav-item" href="/runs.html"><span class="nav-dot"></span>실행 기록</a>
+  <a class="nav-item" href="/builds.html"><span class="nav-dot"></span>빌드 이력</a>
+  <a class="nav-item" href="/settings.html"><span class="nav-dot"></span>설정</a>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div>
+      <h1>단말 관리</h1>
+      <p>설정값은 .env 파일 기준이며, 여기서는 읽기만 합니다</p>
+    </div>
+    <div class="refresh" id="refresh-btn">↻ 새로고침</div>
+  </div>
+
+  <h2 class="section">실시간 연결 상태</h2>
+  <div class="rack" id="rack"></div>
+
+  <h2 class="section">Android 설정</h2>
+  <div class="card">
+    <div class="kv-list" id="android-config"></div>
+  </div>
+
+  <h2 class="section">iOS 설정</h2>
+  <div class="card">
+    <div class="kv-list" id="ios-config"></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script src="/devices.js"></script>
+</body>
+</html>

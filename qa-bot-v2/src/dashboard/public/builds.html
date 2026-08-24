@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>QA Ops — 빌드 이력</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <p class="brand">QA Ops</p>
+  <p class="brand-sub">liveanywhere / ops</p>
+  <a class="nav-item" href="/index.html"><span class="nav-dot"></span>대시보드</a>
+  <a class="nav-item" href="/devices.html"><span class="nav-dot"></span>단말 관리</a>
+  <a class="nav-item" href="/runs.html"><span class="nav-dot"></span>실행 기록</a>
+  <div class="nav-item active"><span class="nav-dot"></span>빌드 이력</div>
+  <a class="nav-item" href="/settings.html"><span class="nav-dot"></span>설정</a>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div>
+      <h1>빌드 이력</h1>
+      <p>Firebase App Distribution에서 설치한 기록 (!빌드설치 실행 결과)</p>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table class="simple-table" id="builds-table">
+      <thead>
+        <tr>
+          <th>시각</th>
+          <th>플랫폼</th>
+          <th>역할</th>
+          <th>env</th>
+          <th>버전</th>
+          <th>동작</th>
+          <th>결과</th>
+        </tr>
+      </thead>
+      <tbody id="builds-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script src="/builds.js"></script>
+</body>
+</html>

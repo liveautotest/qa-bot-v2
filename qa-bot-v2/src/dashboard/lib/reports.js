@@ -51,14 +51,26 @@ function readResult(reportBaseDir, runId) {
   }
 }
 
-function getRecentRuns(reportBaseDir, limit = 20) {
-  const runIds = listRunDirs(reportBaseDir).slice(0, limit);
+function getRecentRuns(reportBaseDir, limit = 20, offset = 0) {
+  const runIds = listRunDirs(reportBaseDir).slice(offset, offset + limit);
   return runIds.map((runId) => readResult(reportBaseDir, runId)).filter(Boolean);
+}
+
+function countAllRuns(reportBaseDir) {
+  return listRunDirs(reportBaseDir).length;
 }
 
 function getAllRuns(reportBaseDir, maxScan = 500) {
   const runIds = listRunDirs(reportBaseDir).slice(0, maxScan);
   return runIds.map((runId) => readResult(reportBaseDir, runId)).filter(Boolean);
+}
+
+function isBuildInstall(run) {
+  return String(run.test_id || "").toUpperCase().includes("BUILD-INSTALL");
+}
+
+function getQaRuns(reportBaseDir, maxScan = 500) {
+  return getAllRuns(reportBaseDir, maxScan).filter((r) => !isBuildInstall(r));
 }
 
 function isSameDay(a, b) {
@@ -71,7 +83,7 @@ function isSameDay(a, b) {
 
 function getTodayStats(reportBaseDir) {
   const now = new Date();
-  const runs = getAllRuns(reportBaseDir).filter((r) => r.ran_at && isSameDay(r.ran_at, now));
+  const runs = getQaRuns(reportBaseDir).filter((r) => r.ran_at && isSameDay(r.ran_at, now));
 
   const total = runs.length;
   const passed = runs.filter((r) => r.status === "pass").length;
@@ -96,7 +108,7 @@ function getTodayStats(reportBaseDir) {
 }
 
 function getTrend(reportBaseDir, days = 7) {
-  const runs = getAllRuns(reportBaseDir);
+  const runs = getQaRuns(reportBaseDir);
   const buckets = [];
   const now = new Date();
 
@@ -120,7 +132,7 @@ function getTopFailingTests(reportBaseDir, days = 7, limit = 5) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
 
-  const runs = getAllRuns(reportBaseDir).filter(
+  const runs = getQaRuns(reportBaseDir).filter(
     (r) => r.status === "fail" && r.ran_at && r.ran_at >= cutoff
   );
 
@@ -144,11 +156,46 @@ function getTopFailingTests(reportBaseDir, days = 7, limit = 5) {
     .slice(0, limit);
 }
 
+function getTeamActivity(reportBaseDir, maxScan = 300) {
+  const runs = getAllRuns(reportBaseDir, maxScan);
+  const groups = new Map();
+
+  for (const run of runs) {
+    const key = run.requested_by || "알 수 없음";
+    if (!groups.has(key)) {
+      groups.set(key, { name: key, total: 0, passed: 0, failed: 0, lastRunAt: null, sources: new Set() });
+    }
+    const group = groups.get(key);
+    group.total += 1;
+    if (run.status === "pass") group.passed += 1;
+    if (run.status === "fail") group.failed += 1;
+    if (run.source) group.sources.add(run.source);
+    if (!group.lastRunAt || (run.ran_at && run.ran_at > group.lastRunAt)) {
+      group.lastRunAt = run.ran_at;
+    }
+  }
+
+  return Array.from(groups.values())
+    .map((g) => ({ ...g, sources: Array.from(g.sources) }))
+    .sort((a, b) => b.total - a.total);
+}
+
+function getBuildHistory(reportBaseDir, limit = 30) {
+  const runs = getAllRuns(reportBaseDir, 500).filter((r) =>
+    String(r.test_id || "").toUpperCase().includes("BUILD-INSTALL")
+  );
+  return runs.slice(0, limit);
+}
+
 module.exports = {
   getAllRuns,
+  getQaRuns,
   getRecentRuns,
+  countAllRuns,
   getTodayStats,
   getTopFailingTests,
   getTrend,
+  getTeamActivity,
+  getBuildHistory,
   readResult
 };
