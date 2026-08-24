@@ -215,7 +215,7 @@ const PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN =
 const TEST_RESULT_CHANNEL_LOGIN_PATTERN =
   /^!(?:게스트|호스트)\s+로그인\s+(?:stg|staging|dev)$/i;
 const TEST_RESULT_CHANNEL_STANDALONE_VALIDATION_PATTERN =
-  /^!(?:게스트\s+(?:검색\s+(?:정확한일정|유연한일정)|계약\s+요청(?:\s+취소)?|연장요청)|호스트\s+(?:계약\s+(?:승인|요청\s+거절)|연장수락))\s+(?:stg|staging|dev)$/i;
+  /^!(?:게스트\s+(?:대화형\s*검색|검색\s+(?:정확한일정|유연한일정)|계약\s+요청(?:\s+취소)?|연장요청)|호스트\s+(?:계약\s+(?:승인|요청\s+거절)|연장수락))\s+(?:stg|staging|dev)$/i;
 const TEST_RESULT_CHANNEL_BUILD_INSTALL_PATTERN =
   /^!(?:빌드설치|qa\s+(?:ios-)?build-install)\b/i;
 

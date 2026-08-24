@@ -26,12 +26,14 @@ const { runReviewWriteTest } = require("../tests/review-write.test");
 const { runBuildInstallTest } = require("../tests/build-install.test");
 const { runIosBuildInstallTest } = require("../tests/ios-build-install.test");
 const { runIosLoginTest } = require("../tests/ios-login.test");
+const { runConversationalSearchTest } = require("../tests/conversational-search.test");
 
 const registry = {
   login: runLoginTest,
   logout: runLogoutTest,
   search: runSearchTest,
   "search-flexible": runFlexibleSearchTest,
+  "conversational-search": runConversationalSearchTest,
   "contract-approve": runContractApproveTest,
   "contract-reject": runContractRejectTest,
   "contract-cancel-confirmed": runContractCancelConfirmedTest,

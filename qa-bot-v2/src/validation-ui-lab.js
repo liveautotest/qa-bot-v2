@@ -5,6 +5,12 @@ const VALIDATION_ITEMS = [
   { label: "호스트 로그인", commandTemplate: (env) => `!호스트 로그인 ${env}` },
   { label: "정확한 일정 검색", commandTemplate: (env) => `!게스트 검색 정확한일정 ${env}` },
   { label: "유연한 일정 검색", commandTemplate: (env) => `!게스트 검색 유연한일정 ${env}` },
+  {
+    label: "대화형 검색 (준비 중)",
+    value: "대화형 검색",
+    ready: false,
+    commandTemplate: (env) => `!게스트 대화형 검색 ${env}`
+  },
   { label: "게스트 계약 요청", commandTemplate: (env) => `!게스트 계약 요청 ${env}` },
   { label: "게스트 계약 요청 취소", commandTemplate: (env) => `!게스트 계약 요청 취소 ${env}` },
   { label: "호스트 계약 승인", commandTemplate: (env) => `!호스트 계약 승인 ${env}` },
@@ -85,7 +91,7 @@ function buildValidationModal(privateMetadata) {
           placeholder: plainText("검증 항목 선택"),
           options: VALIDATION_ITEMS.map((item) => ({
             text: plainText(item.label),
-            value: item.commandLabel || item.label
+            value: item.value || item.commandLabel || item.label
           }))
         }
       }
@@ -102,7 +108,7 @@ function parseSubmission(view) {
   const env = selectedValue(view, "environment").selected_option?.value || "stg";
   const client = selectedValue(view, "client").selected_option?.value || "android-app";
   const validationItem = selectedValue(view, "validation_item").selected_option?.value || "";
-  const item = VALIDATION_ITEMS.find((candidate) => candidate.label === validationItem);
+  const item = VALIDATION_ITEMS.find((candidate) => (candidate.value || candidate.label) === validationItem);
   const commandText = item?.commandTemplate
     ? item.commandTemplate(env)
     : `!기본검증 ${validationItem} ${env}`;
@@ -113,6 +119,7 @@ function parseSubmission(view) {
     env,
     client,
     validationItem,
+    validationReady: item?.ready !== false,
     displayTarget,
     commandText
   };
@@ -222,6 +229,9 @@ function registerValidationUiLab(app, { runQaCommand } = {}) {
     }
     if (submission.env === "prod") {
       errors.environment = "Prod 검증은 준비 중입니다. 현재는 stg 또는 dev만 선택할 수 있습니다.";
+    }
+    if (!submission.validationReady) {
+      errors.validation_item = "대화형 검색은 개발 빌드 배포 전 준비 중입니다.";
     }
     if (Object.keys(errors).length) {
       await ack({

@@ -197,6 +197,16 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-CONVERSATIONAL-SEARCH-001") {
+    return [
+      `- '${result.conversational_search?.scenario || "대화형 검색"}' 사용자 시나리오로 ${result.conversational_search?.turns || 0}회 대화를 진행했습니다.`,
+      "- AI 답변의 요청 관련성, 이전 조건 유지, 숙소 검색 결과 노출을 확인했습니다.",
+      result.conversational_search?.validation?.manual_required?.length
+        ? `- 화면 구조상 조건 반영 수동 확인 필요: ${result.conversational_search.validation.manual_required.length}건`
+        : "- 입력한 여행 조건이 AI 답변과 결과에 반영된 것을 확인했습니다."
+    ];
+  }
+
   if (result.test_id === "TC-INTERNAL-REFACTOR-001") {
     return [
       "- 앱 재실행 후 하단 리브후기 탭으로 진입했습니다.",
@@ -426,6 +436,27 @@ function formatAppBuild(build) {
 
 function formatResultConditionSummary(result) {
   const lines = [];
+
+  if (result.conversational_search) {
+    lines.push(`- 대화 시나리오: ${result.conversational_search.scenario || "-"}`);
+    lines.push(`- 대화 횟수: ${result.conversational_search.turns || 0}회`);
+    lines.push(`- 최초 요청: ${result.conversational_search.initial_prompt || "-"}`);
+    lines.push(`- 숙소 결과: ${result.conversational_search.result_visible ? "확인" : "미확인"}`);
+    const selected = result.conversational_search.selected_listing;
+    if (selected?.detail_summary?.title || selected?.result_summary?.title) {
+      lines.push(`- 선택한 집: ${selected.detail_summary.title || selected.result_summary.title}`);
+    }
+    if (selected?.detail_summary?.price || selected?.result_summary?.price) {
+      lines.push(`- 노출 가격: ${selected.detail_summary.price || selected.result_summary.price}`);
+    }
+    if (selected?.condition_validation) {
+      lines.push(
+        `- 상세 조건 비교: 일치 ${selected.condition_validation.matched.length}건, ` +
+        `불일치 ${selected.condition_validation.unmatched.length}건, ` +
+        `수동 확인 ${selected.condition_validation.manual_required.length}건`
+      );
+    }
+  }
 
   if (result.contract_request?.match_summary || result.contract_request?.selected_listing_title) {
     const { title, schedule, guest } = result.contract_request.match_summary || {};
