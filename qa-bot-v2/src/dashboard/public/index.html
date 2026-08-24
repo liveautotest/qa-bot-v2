@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>QA Ops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <p class="brand">QA Ops</p>
+  <p class="brand-sub">liveanywhere / ops</p>
+  <div class="nav-item active"><span class="nav-dot"></span>대시보드</div>
+  <div class="nav-item"><span class="nav-dot"></span>단말 관리</div>
+  <div class="nav-item"><span class="nav-dot"></span>실행 기록</div>
+  <div class="nav-item"><span class="nav-dot"></span>빌드 이력</div>
+  <div class="nav-item"><span class="nav-dot"></span>알림 규칙</div>
+  <div class="nav-item"><span class="nav-dot"></span>팀</div>
+  <div class="nav-item"><span class="nav-dot"></span>설정</div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div>
+      <h1>단말 대시보드</h1>
+      <p id="last-updated">불러오는 중…</p>
+    </div>
+    <div class="refresh" id="refresh-btn">↻ 새로고침</div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="trend" id="trend"></div>
+
+  <h2 class="section">자주 실패하는 테스트 · 최근 7일</h2>
+  <div class="fail-rank" id="fail-rank"></div>
+
+  <h2 class="section">단말</h2>
+  <div class="rack" id="rack"></div>
+
+  <h2 class="section">최근 실행</h2>
+  <div class="filters">
+    <span class="chip active" data-filter="all">전체</span>
+    <span class="chip" data-filter="android">Android</span>
+    <span class="chip" data-filter="ios">iOS</span>
+    <span class="chip" data-filter="fail">실패만</span>
+    <span class="chip" data-filter="critical" style="color:var(--bad);border-color:var(--bad);">기능장애만</span>
+    <input class="search-box" id="search-box" placeholder="테스트명으로 검색…" style="max-width:220px;margin-left:auto;">
+  </div>
+  <div class="log" id="log"></div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
