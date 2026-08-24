@@ -6,7 +6,8 @@ const RUN_ID_PATTERN = /^qa-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-(.+)$/;
 const CODE_ISSUE_PATTERNS = [
   /찾지 못했습니다/,
   /Unhandled endpoint/,
-  /홈 화면으로 이동하지 않았습니다/
+  /홈 화면으로 이동하지 않았습니다/,
+  /보안키패드가 열리지 않았습니다/
 ];
 
 const INFRA_PATTERNS = [
