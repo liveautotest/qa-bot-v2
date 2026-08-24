@@ -177,8 +177,25 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/runs") {
       const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 200);
       const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
-      const total = reports.countAllRuns(config.reportBaseDir);
-      const runs = reports.getRecentRuns(config.reportBaseDir, limit, offset).map((run) => ({
+      const platform = url.searchParams.get("platform") || "";
+      const status = url.searchParams.get("status") || "";
+      const critical = url.searchParams.get("critical") === "true";
+      const q = (url.searchParams.get("q") || "").toLowerCase().trim();
+      const hasFilter = Boolean(platform || status || critical || q);
+
+      let allMatching;
+      if (hasFilter) {
+        allMatching = reports.getFilteredRuns(config.reportBaseDir, { platform, status, critical, q }, 5000);
+      } else {
+        allMatching = null;
+      }
+
+      const total = hasFilter ? allMatching.length : reports.countAllRuns(config.reportBaseDir);
+      const pageRuns = hasFilter
+        ? allMatching.slice(offset, offset + limit)
+        : reports.getRecentRuns(config.reportBaseDir, limit, offset);
+
+      const runs = pageRuns.map((run) => ({
         run_id: run.run_id,
         name: run.name,
         test_id: run.test_id,

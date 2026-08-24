@@ -38,13 +38,16 @@
   <h2 class="section">단말</h2>
   <div class="rack" id="rack"></div>
 
-  <h2 class="section">최근 실행</h2>
+  <h2 class="section" style="display:flex;justify-content:space-between;align-items:center;">
+    <span>최근 실행 (최근 30건)</span>
+    <a href="/runs.html" style="font-size:11px;color:var(--text-mute);text-transform:none;letter-spacing:0;text-decoration:none;">전체 기록 보기 →</a>
+  </h2>
   <div class="filters">
     <span class="chip active" data-filter="all">전체</span>
     <span class="chip" data-filter="android">Android</span>
     <span class="chip" data-filter="ios">iOS</span>
     <span class="chip" data-filter="fail">실패만</span>
-    <span class="chip" data-filter="critical" style="color:var(--bad);border-color:var(--bad);">기능장애만</span>
+    <span class="chip chip-critical" data-filter="critical">기능장애만</span>
     <input class="search-box" id="search-box" placeholder="테스트명으로 검색…" style="max-width:220px;margin-left:auto;">
   </div>
   <div class="log" id="log"></div>

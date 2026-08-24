@@ -116,7 +116,13 @@
     background:var(--card);
     padding:6px 12px;
     border-radius:6px;
+    cursor:pointer;
+    user-select:none;
+    transition:background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
   }
+  .refresh:hover{background:var(--off-bg);}
+  .refresh:active{transform:scale(0.95);}
+  .refresh.loading{opacity:0.55;pointer-events:none;}
 
   .stats{
     display:grid;
@@ -251,6 +257,7 @@
   .badge.fail{color:var(--bad);background:var(--bad-bg);}
   .badge.critical{color:#fff;background:var(--bad);}
   .badge.retry{color:var(--text-mute);background:var(--off-bg);}
+  .badge.script{color:var(--run);background:var(--run-bg);}
   .badge.run{color:var(--run);background:var(--run-bg);}
   .badge.idle{color:var(--off);background:var(--off-bg);}
   .badge.env{color:var(--text-mute);background:var(--off-bg);}
@@ -309,6 +316,8 @@
     color:var(--text-mute);
   }
   .chip.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .chip-critical{color:var(--bad);border-color:var(--bad);}
+  .chip-critical.active{background:var(--bad);color:#fff;border-color:var(--bad);}
 
   .log{
     background:var(--card);

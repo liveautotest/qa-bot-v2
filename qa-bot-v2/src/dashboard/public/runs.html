@@ -32,11 +32,15 @@
     <span class="chip" data-filter="android">Android</span>
     <span class="chip" data-filter="ios">iOS</span>
     <span class="chip" data-filter="fail">실패만</span>
-    <span class="chip" data-filter="critical" style="color:var(--bad);border-color:var(--bad);">기능장애만</span>
+    <span class="chip chip-critical" data-filter="critical">기능장애만</span>
     <input class="search-box" id="search-box" placeholder="테스트명으로 검색…" style="max-width:220px;margin-left:auto;">
   </div>
   <div class="log" id="log"></div>
-  <div class="load-more" id="load-more">더 보기</div>
+  <div class="pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px;">
+    <button id="prev-page" class="load-more" style="width:auto;padding:8px 20px;margin-top:0;">← 이전</button>
+    <span id="page-info" style="font-size:12px;color:var(--text-mute);font-family:'IBM Plex Mono',monospace;"></span>
+    <button id="next-page" class="load-more" style="width:auto;padding:8px 20px;margin-top:0;">다음 →</button>
+  </div>
 </div>
 
 <script src="/common.js"></script>

@@ -3,12 +3,16 @@ const path = require("path");
 
 const RUN_ID_PATTERN = /^qa-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-(.+)$/;
 
-const RETRYABLE_ERROR_PATTERNS = [
+const CODE_ISSUE_PATTERNS = [
   /찾지 못했습니다/,
+  /Unhandled endpoint/,
+  /홈 화면으로 이동하지 않았습니다/
+];
+
+const INFRA_PATTERNS = [
   /fetch failed/i,
   /연결/,
   /timeout/i,
-  /Unhandled endpoint/,
   /already busy/i
 ];
 
@@ -22,9 +26,13 @@ function parseRunIdDate(runId) {
 function classifyFailure(result) {
   if (result.status !== "fail") return null;
   const message = String(result.error || "");
-  return RETRYABLE_ERROR_PATTERNS.some((pattern) => pattern.test(message))
-    ? "retry"
-    : "critical";
+  if (CODE_ISSUE_PATTERNS.some((pattern) => pattern.test(message))) return "script";
+  if (INFRA_PATTERNS.some((pattern) => pattern.test(message))) return "infra";
+  // 빌드설치는 "앱 기능"이 아니라 Firebase에서 받아 설치하는 절차 자체를 테스트하는 거라,
+  // 여기서 나는 실패는 대부분 우리 설치 스크립트 쪽 문제일 가능성이 높다.
+  // (진짜 앱 결함이라기보단 코드/환경 문제일 확률이 커서 기능장애로 몰지 않는다)
+  if (String(result.test_id || "").toUpperCase().includes("BUILD-INSTALL")) return "script";
+  return "critical";
 }
 
 function listRunDirs(reportBaseDir) {
@@ -89,7 +97,8 @@ function getTodayStats(reportBaseDir) {
   const passed = runs.filter((r) => r.status === "pass").length;
   const failed = runs.filter((r) => r.status === "fail");
   const critical = failed.filter((r) => r.failure_class === "critical").length;
-  const retry = failed.filter((r) => r.failure_class === "retry").length;
+  const script = failed.filter((r) => r.failure_class === "script").length;
+  const infra = failed.filter((r) => r.failure_class === "infra").length;
   const durations = runs.map((r) => r.duration_ms).filter((n) => typeof n === "number");
   const avgDurationMs = durations.length
     ? durations.reduce((sum, n) => sum + n, 0) / durations.length
@@ -100,7 +109,8 @@ function getTodayStats(reportBaseDir) {
     passed,
     failed: failed.length,
     critical,
-    retry,
+    script,
+    infra,
     passRate: total ? Math.round((passed / total) * 100) : null,
     failRate: total ? Math.round((failed.length / total) * 100) : null,
     avgDurationSec: Math.round((avgDurationMs / 1000) * 10) / 10
@@ -150,7 +160,11 @@ function getTopFailingTests(reportBaseDir, days = 7, limit = 5) {
   return Array.from(groups.values())
     .map((group) => ({
       ...group,
-      failure_class: group.classes.includes("critical") ? "critical" : "retry"
+      failure_class: group.classes.includes("critical")
+        ? "critical"
+        : group.classes.includes("script")
+          ? "script"
+          : "infra"
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
@@ -187,9 +201,25 @@ function getBuildHistory(reportBaseDir, limit = 30) {
   return runs.slice(0, limit);
 }
 
+function platformOfTest(run) {
+  return String(run.test_id || "").toUpperCase().startsWith("TC-IOS") ? "ios" : "android";
+}
+
+function getFilteredRuns(reportBaseDir, filters = {}, maxScan = 5000) {
+  const { platform, status, critical, q } = filters;
+  return getAllRuns(reportBaseDir, maxScan).filter((run) => {
+    if (platform && platformOfTest(run) !== platform) return false;
+    if (status && run.status !== status) return false;
+    if (critical && run.failure_class !== "critical") return false;
+    if (q && !String(run.name || run.test_id || "").toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
 module.exports = {
   getAllRuns,
   getQaRuns,
+  getFilteredRuns,
   getRecentRuns,
   countAllRuns,
   getTodayStats,
