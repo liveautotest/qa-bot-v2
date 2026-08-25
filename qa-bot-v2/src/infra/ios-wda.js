@@ -7,6 +7,7 @@
 // 실기기/시뮬레이터에 붙여서 첫 실행 후 필요하면 조정해야 한다.
 
 const DEFAULT_TIMEOUT_MS = 15000;
+const sessionCache = new Map();
 
 function trimBaseUrl(wdaUrl) {
   return String(wdaUrl || "").replace(/\/+$/, "");
@@ -53,6 +54,18 @@ async function isReachable(wdaUrl) {
 }
 
 async function createSession(wdaUrl, bundleId) {
+  const cacheKey = trimBaseUrl(wdaUrl);
+  const cached = sessionCache.get(cacheKey);
+  if (cached?.bundleId === bundleId) {
+    try {
+      // 전체 UI 트리 대신 가벼운 세션 조회로 유효성만 확인한다.
+      await wdaRequest(wdaUrl, "GET", `/session/${cached.sessionId}`);
+      return cached.sessionId;
+    } catch (error) {
+      sessionCache.delete(cacheKey);
+    }
+  }
+
   const json = await wdaRequest(wdaUrl, "POST", "/session", {
     capabilities: {
       firstMatch: [
@@ -66,12 +79,21 @@ async function createSession(wdaUrl, bundleId) {
       alwaysMatch: {}
     }
   });
-  return json.sessionId || json.value?.sessionId;
+  const sessionId = json.sessionId || json.value?.sessionId;
+  sessionCache.set(cacheKey, { sessionId, bundleId });
+  return sessionId;
 }
 
 async function deleteSession(wdaUrl, sessionId) {
   if (!sessionId) return;
   await wdaRequest(wdaUrl, "DELETE", `/session/${sessionId}`).catch(() => {});
+  const cacheKey = trimBaseUrl(wdaUrl);
+  if (sessionCache.get(cacheKey)?.sessionId === sessionId) sessionCache.delete(cacheKey);
+}
+
+async function releaseSession() {
+  // 검증 사이에는 세션을 유지한다. 단말 잠금이 동시 접근을 막고,
+  // 다음 createSession 호출이 유효성을 확인한 뒤 재사용한다.
 }
 
 async function launchApp(wdaUrl, sessionId, bundleId) {
@@ -107,6 +129,18 @@ async function tap(wdaUrl, sessionId, x, y) {
       }
     ]
   });
+}
+
+async function tapAccessibilityId(wdaUrl, sessionId, label) {
+  const found = await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/element`, {
+    using: "accessibility id",
+    value: label
+  }).catch(() => null);
+  const element = found?.value || {};
+  const elementId = element["element-6066-11e4-a52e-4f735466cecf"] || element.ELEMENT;
+  if (!elementId) return false;
+  await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/element/${elementId}/click`, {});
+  return true;
 }
 
 async function swipe(wdaUrl, sessionId, startX, startY, endX, endY, duration = 250) {
@@ -181,9 +215,11 @@ module.exports = {
   launchApp,
   pressHome,
   pressKeyName,
+  releaseSession,
   screenshotPng,
   swipe,
   tap,
+  tapAccessibilityId,
   terminateApp,
   typeText
 };

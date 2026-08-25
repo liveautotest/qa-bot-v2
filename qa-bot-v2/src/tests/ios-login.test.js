@@ -4,7 +4,7 @@ const {
   acceptAlert,
   activateApp,
   createSession,
-  deleteSession,
+  releaseSession,
   getAlertText,
   launchApp,
   typeText
@@ -260,7 +260,7 @@ async function runIosLoginTest({ request, config, store }) {
       throw error;
     } finally {
       if (sessionId) {
-        await deleteSession(wdaUrl, sessionId);
+        await releaseSession(wdaUrl, sessionId);
       }
     }
   });

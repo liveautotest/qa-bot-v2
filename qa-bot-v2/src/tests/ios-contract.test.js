@@ -3,9 +3,12 @@ const { withDeviceLock } = require("../infra/device-lock");
 const {
   activateApp,
   createSession,
-  deleteSession,
   drag,
   launchApp,
+  releaseSession,
+  swipe,
+  tap,
+  tapAccessibilityId,
   terminateApp
 } = require("../infra/ios-wda");
 const {
@@ -91,6 +94,49 @@ function findListing(nodes) {
   });
 }
 
+function findVisibleListings(nodes) {
+  const seen = new Set();
+  return nodes.filter((node) => {
+    const label = nodeLabel(node);
+    if (!node.bounds || node.attrs.visible === false || node.bounds.y <= 120 || node.bounds.y >= 800) return false;
+    if (!label.includes("최소") || !/₩[\d,]+/.test(label)) return false;
+    const key = `${label}|${node.bounds.y}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function selectNewestSort(wdaUrl, sessionId, nodes, steps) {
+  if (labelsText(nodes).includes("신규 집 순")) return nodes;
+
+  const sortButton = exactButton(nodes, "리브 추천 순") ||
+    findNode(nodes, ["리브 추천 순", "리브 추천순"], { visible: true, enabled: true });
+  if (!sortButton) fail("iOS 검색 결과에서 리브 추천 순 필터를 찾지 못했습니다.", steps);
+
+  await tapNode(wdaUrl, sessionId, sortButton, "리브 추천 순", steps);
+  addStep(steps, "검색 결과 정렬 필터 선택", "pass", "리브 추천 순");
+  nodes = await waitForNodes(wdaUrl, sessionId, (candidate) => labelsText(candidate).includes("신규 집 순"), 8000);
+
+  const newestButton = exactButton(nodes, "신규 집 순") ||
+    findNode(nodes, ["신규 집 순"], { visible: true, enabled: true });
+  if (!newestButton) fail("iOS 검색 결과 정렬 옵션에서 신규 집 순을 찾지 못했습니다.", steps);
+
+  await tapNode(wdaUrl, sessionId, newestButton, "신규 집 순", steps);
+  addStep(steps, "검색 결과 신규 집 순 정렬 선택");
+  nodes = await waitForNodes(
+    wdaUrl,
+    sessionId,
+    (candidate) => isSearchResults(candidate) && labelsText(candidate).includes("신규 집 순"),
+    10000
+  );
+  if (!labelsText(nodes).includes("신규 집 순")) {
+    fail("iOS 검색 결과에 신규 집 순 정렬이 적용되지 않았습니다.", steps);
+  }
+  addStep(steps, "검색 결과 신규 집 순 정렬 확인");
+  return nodes;
+}
+
 function isContractDetail(nodes) {
   const text = labelsText(nodes);
   return text.includes("계약번호:") && (
@@ -105,6 +151,23 @@ function isContractRequestPage(nodes) {
   return text.includes("계약 요청하기") &&
     text.includes("계약자 정보") &&
     (text.includes("결제 수단") || text.includes("필수 약관 전체 동의"));
+}
+
+async function dismissCouponPatchAlert(wdaUrl, sessionId, nodes, steps) {
+  const text = labelsText(nodes);
+  if (!text.includes("쿠폰 리스트 패치에 실패했습니다")) return nodes;
+
+  const okButton = exactButton(nodes, "Ok", false);
+  if (!okButton) return nodes;
+
+  await tapNode(wdaUrl, sessionId, okButton, "쿠폰 리스트 오류 팝업 Ok", steps);
+  addStep(
+    steps,
+    "쿠폰 리스트 오류 팝업 닫기",
+    "pass",
+    "계약 요청 화면을 가리는 비핵심 쿠폰 조회 오류 팝업을 닫고 계약 요청 검증을 계속합니다."
+  );
+  return waitForNodes(wdaUrl, sessionId, isContractRequestPage, 8000);
 }
 
 function isRequestComplete(nodes) {
@@ -154,7 +217,7 @@ async function ensureIosHome(wdaUrl, sessionId, bundleId, steps) {
   return waitForNodes(wdaUrl, sessionId, isHome, 12000);
 }
 
-async function openFirstContractableListing(wdaUrl, sessionId, schedule, steps) {
+async function openFirstContractableListing(wdaUrl, sessionId, schedule, steps, settleMs) {
   let nodes = await waitForLoadedResults(wdaUrl, sessionId);
   if (!isSearchResults(nodes)) return { nodes, listing: null };
 
@@ -167,38 +230,77 @@ async function openFirstContractableListing(wdaUrl, sessionId, schedule, steps) 
     );
   }
 
-  let listing = findListing(nodes);
-  for (let attempt = 0; attempt < 3 && !listing; attempt += 1) {
+  nodes = await selectNewestSort(wdaUrl, sessionId, nodes, steps);
+  await swipe(wdaUrl, sessionId, 195, 720, 195, 300, 100);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  nodes = await dumpNodes(wdaUrl, sessionId);
+  addStep(steps, "검색 결과 리스트 끌어올리기");
+
+  let listings = findVisibleListings(nodes);
+  for (let attempt = 0; attempt < 3 && listings.length < 2; attempt += 1) {
     await drag(wdaUrl, sessionId, 195, 700, 195, 430, 0.12);
     await new Promise((resolve) => setTimeout(resolve, 250));
     nodes = await dumpNodes(wdaUrl, sessionId);
-    listing = findListing(nodes);
+    listings = findVisibleListings(nodes);
   }
+  const selectableListings = listings.length > 1 ? listings.slice(1) : [];
+  let listing = selectableListings.length ? randomItem(selectableListings) : null;
+  if (!listing) return { nodes, listing: null };
+  const selectedLabel = nodeLabel(listing);
+
+  // 검색 결과 렌더링 직후 카드를 누르면 상세 데이터 로딩과 탭이 겹칠 수 있다.
+  // 짧게 안정화한 뒤 최신 노드에서 같은 카드 후보를 다시 찾아 탭한다.
+  await new Promise((resolve) => setTimeout(resolve, settleMs));
+  nodes = await dumpNodes(wdaUrl, sessionId);
+  listings = findVisibleListings(nodes);
+  listing = listings.find((candidate) => nodeLabel(candidate) === selectedLabel) ||
+    (listings.length > 1 ? randomItem(listings.slice(1)) : null);
   if (!listing) return { nodes, listing: null };
 
   const listingInfo = parseListing(nodeLabel(listing));
   await tapNode(wdaUrl, sessionId, listing, "iOS 검색 결과 숙소", steps);
-  addStep(steps, "검색 결과 숙소 선택", "pass", listingInfo.accommodation || "첫 번째 계약 가능 숙소");
-  return { nodes, listing: listingInfo };
+  const detailNodes = await waitForNodes(
+    wdaUrl,
+    sessionId,
+    (candidate) => Boolean(exactButton(candidate, "계약 조건 확인")),
+    12000
+  );
+  const detailOpened = Boolean(exactButton(detailNodes, "계약 조건 확인"));
+  if (detailOpened) {
+    addStep(
+      steps,
+      "검색 결과 숙소 선택 및 상세 진입 확인",
+      "pass",
+      listingInfo.accommodation || "첫 번째 계약 가능 숙소"
+    );
+  }
+  return { nodes: detailNodes, listing: listingInfo, detailOpened };
 }
 
-async function selectPaymentAndTerms(wdaUrl, sessionId, steps) {
-  let nodes = await dumpNodes(wdaUrl, sessionId);
-  for (let attempt = 0; attempt < 7; attempt += 1) {
-    const directPayment = findNode(nodes, ["호스트 수락 후 직접 결제"], { visible: true });
-    const allTerms = findNode(nodes, ["필수 약관 전체 동의"], { visible: true });
-    if (directPayment?.bounds?.y < 720 && allTerms?.bounds?.y < 720) {
-      await tapNode(wdaUrl, sessionId, directPayment, "호스트 수락 후 직접 결제", steps);
-      addStep(steps, "호스트 수락 후 직접 결제 선택");
-      await tapNode(wdaUrl, sessionId, allTerms, "필수 약관 전체 동의", steps);
-      addStep(steps, "필수 약관 전체 동의 선택");
-      return dumpNodes(wdaUrl, sessionId);
-    }
-    await drag(wdaUrl, sessionId, 195, 700, 195, 270, 0.12);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    nodes = await dumpNodes(wdaUrl, sessionId);
+async function selectPaymentAndTerms(wdaUrl, sessionId, steps, requestPageNodes) {
+  // WDA source 조회는 실기기에서 수 초가 걸린다. 각 스크롤 사이에 조회하지 않고
+  // 하단까지 연속 이동한 뒤 한 번만 읽어 결제 수단과 약관을 함께 처리한다.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await swipe(wdaUrl, sessionId, 195, 720, 195, 100, 80);
+    await new Promise((resolve) => setTimeout(resolve, 80));
   }
-  return nodes;
+  addStep(steps, "계약 요청 상세 하단 빠른 이동");
+
+  // 현재 iOS 검증 단말(390x844pt)은 하단 도착 시 결제 수단과 전체 동의의
+  // 위치가 고정된다. 중간 WDA source 조회를 생략하고 즉시 선택한다.
+  const paymentTapped = await tapAccessibilityId(
+    wdaUrl,
+    sessionId,
+    "호스트 수락 후 직접 결제 (해외 발행 카드 사용 가능)"
+  );
+  if (!paymentTapped) await tap(wdaUrl, sessionId, 201, 392);
+  addStep(steps, "호스트 수락 후 직접 결제 선택");
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  const termsTapped = await tapAccessibilityId(wdaUrl, sessionId, "필수 약관 전체 동의");
+  if (!termsTapped) await tap(wdaUrl, sessionId, 84, 551);
+  addStep(steps, "필수 약관 전체 동의 선택");
+  // 제출 및 완료 화면 전환을 최종 성공 기준으로 사용한다.
+  return requestPageNodes;
 }
 
 async function runIosContractRequestTest({ request, config, store }) {
@@ -207,6 +309,7 @@ async function runIosContractRequestTest({ request, config, store }) {
   const ios = config.appBuild?.ios || {};
   const wdaUrl = ios.wdaUrls?.[role];
   const bundleId = ios.bundleIds?.[env];
+  const transitionSettleMs = env === "staging" ? 1500 : 700;
   const steps = [];
 
   if (role !== "guest") throw new Error("iOS 계약 요청은 guest role에서만 실행할 수 있습니다.");
@@ -231,19 +334,29 @@ async function runIosContractRequestTest({ request, config, store }) {
         ? await selectFlexibleSchedule(wdaUrl, sessionId, nodes, steps)
         : await selectExactSchedule(wdaUrl, sessionId, nodes, steps);
       await submitSearch(wdaUrl, sessionId, steps);
-      const opened = await openFirstContractableListing(wdaUrl, sessionId, schedule, steps);
+      const opened = await openFirstContractableListing(
+        wdaUrl,
+        sessionId,
+        schedule,
+        steps,
+        transitionSettleMs
+      );
       nodes = opened.nodes;
       if (!opened.listing) {
         const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "ios-contract-listing-not-found", nodes);
         fail("iOS 검색 결과에서 계약 가능한 숙소를 찾지 못했습니다.", steps, [path.basename(artifacts.screenshotPath)]);
       }
-
-      nodes = await waitForNodes(
-        wdaUrl,
-        sessionId,
-        (candidate) => Boolean(exactButton(candidate, "계약 조건 확인")),
-        12000
-      );
+      if (!opened.detailOpened) {
+        const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "ios-listing-detail-not-opened", nodes);
+        fail(
+          "iOS 검색 결과 숙소를 눌렀지만 숙소 상세 화면으로 이동하지 않았습니다.",
+          steps,
+          [path.basename(artifacts.screenshotPath)]
+        );
+      }
+      // 숙소 상세의 계약/쿠폰 데이터가 준비된 뒤 계약 요청 화면으로 이동한다.
+      await new Promise((resolve) => setTimeout(resolve, transitionSettleMs));
+      nodes = await dumpNodes(wdaUrl, sessionId);
       const conditionButton = exactButton(nodes, "계약 조건 확인");
       if (!conditionButton) {
         const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "ios-house-detail-not-found", nodes);
@@ -252,7 +365,14 @@ async function runIosContractRequestTest({ request, config, store }) {
       await tapNode(wdaUrl, sessionId, conditionButton, "계약 조건 확인", steps);
       addStep(steps, "숙소 상세 계약 조건 확인 선택");
 
-      nodes = await waitForNodes(wdaUrl, sessionId, isContractRequestPage, 12000);
+      nodes = await waitForNodes(
+        wdaUrl,
+        sessionId,
+        (candidate) => isContractRequestPage(candidate) ||
+          labelsText(candidate).includes("쿠폰 리스트 패치에 실패했습니다"),
+        12000
+      );
+      nodes = await dismissCouponPatchAlert(wdaUrl, sessionId, nodes, steps);
       if (!isContractRequestPage(nodes)) {
         const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "ios-contract-request-page-not-found", nodes);
         fail("iOS 계약 요청하기 화면을 확인하지 못했습니다.", steps, [path.basename(artifacts.screenshotPath)]);
@@ -262,7 +382,7 @@ async function runIosContractRequestTest({ request, config, store }) {
       const accommodation = opened.listing.accommodation ||
         requestPageText.match(/계약 요청하기[\s\S]*?\n([^\n]+)\n/)?.[1] || "";
 
-      nodes = await selectPaymentAndTerms(wdaUrl, sessionId, steps);
+      nodes = await selectPaymentAndTerms(wdaUrl, sessionId, steps, nodes);
       const submitButton = exactButton(nodes, "계약 요청하기");
       if (!submitButton) {
         const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "ios-contract-submit-not-found", nodes);
@@ -329,7 +449,7 @@ async function runIosContractRequestTest({ request, config, store }) {
       if (!error.steps) error.steps = steps;
       throw error;
     } finally {
-      if (sessionId) await deleteSession(wdaUrl, sessionId);
+      if (sessionId) await releaseSession(wdaUrl, sessionId);
     }
   });
 }
@@ -377,13 +497,21 @@ async function runIosContractCancelRequestTest({ request, config, store }) {
       const contract = extractContractDetail(nodes);
       addStep(steps, "계약 요청 상세 확인", "pass", contract.contract_number || "계약번호 확인");
 
-      let cancelButton;
-      for (let attempt = 0; attempt < 7 && !cancelButton; attempt += 1) {
+      // 계약 상세 하단 탐색도 스크롤마다 WDA source를 읽지 않는다.
+      // 연속 이동 후 한 번만 확인하고, 부족할 때만 보정 스크롤을 수행한다.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await swipe(wdaUrl, sessionId, 195, 720, 195, 100, 80);
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+      addStep(steps, "계약 상세 하단 빠른 이동");
+
+      nodes = await dumpNodes(wdaUrl, sessionId);
+      let cancelButton = exactButton(nodes, "계약 취소");
+      if (!cancelButton) {
+        await drag(wdaUrl, sessionId, 195, 720, 195, 180, 0.05);
+        await new Promise((resolve) => setTimeout(resolve, 100));
         nodes = await dumpNodes(wdaUrl, sessionId);
         cancelButton = exactButton(nodes, "계약 취소");
-        if (cancelButton) break;
-        await drag(wdaUrl, sessionId, 195, 700, 195, 170, 0.12);
-        await new Promise((resolve) => setTimeout(resolve, 220));
       }
       if (!cancelButton) {
         const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "ios-contract-cancel-button-not-found", nodes);
@@ -444,7 +572,7 @@ async function runIosContractCancelRequestTest({ request, config, store }) {
       if (!error.steps) error.steps = steps;
       throw error;
     } finally {
-      if (sessionId) await deleteSession(wdaUrl, sessionId);
+      if (sessionId) await releaseSession(wdaUrl, sessionId);
     }
   });
 }

@@ -1,6 +1,6 @@
 const path = require("path");
 const { withDeviceLock } = require("../infra/device-lock");
-const { activateApp, createSession, deleteSession } = require("../infra/ios-wda");
+const { activateApp, createSession, releaseSession } = require("../infra/ios-wda");
 const {
   dumpNodes,
   findExactNode,
@@ -416,7 +416,7 @@ async function runIosSearch({ request, config, store, flexible }) {
       if (!error.steps) error.steps = steps;
       throw error;
     } finally {
-      if (sessionId) await deleteSession(wdaUrl, sessionId);
+      if (sessionId) await releaseSession(wdaUrl, sessionId);
     }
   });
 }

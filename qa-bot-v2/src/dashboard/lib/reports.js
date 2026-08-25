@@ -41,7 +41,9 @@ const INFRA_PATTERNS = [
   /ERR_CHILD_PROCESS_STDIO_MAXBUFFER/,
   /ENOTFOUND/i,
   /API가 실패했습니다/,
-  /is not running, possibly crashed/i
+  /is not running, possibly crashed/i,
+  /Session does not exist/i,
+  /WDA request failed/i
 ];
 
 function parseRunIdDate(runId) {
