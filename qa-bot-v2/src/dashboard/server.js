@@ -6,7 +6,7 @@ const reports = require("./lib/reports");
 const devices = require("./lib/devices");
 
 const config = loadConfig();
-const PORT = Number(process.env.DASHBOARD_PORT || 4321);
+const PORT = config.dashboard?.port || 4321;
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const MIME_TYPES = {
@@ -19,6 +19,38 @@ const MIME_TYPES = {
   ".log": "text/plain; charset=utf-8",
   ".txt": "text/plain; charset=utf-8"
 };
+
+function normalizeRemoteAddress(address = "") {
+  const value = String(address || "").trim();
+  return value.startsWith("::ffff:") ? value.slice(7) : value;
+}
+
+function ipv4ToInteger(address) {
+  const parts = String(address).split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return null;
+  }
+  return parts.reduce((result, part) => ((result << 8) | part) >>> 0, 0);
+}
+
+function matchesIpv4Cidr(address, cidr) {
+  const [network, prefixText] = String(cidr).split("/");
+  const addressValue = ipv4ToInteger(address);
+  const networkValue = ipv4ToInteger(network);
+  const prefix = Number(prefixText);
+  if (addressValue === null || networkValue === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+    return false;
+  }
+
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  return (addressValue & mask) === (networkValue & mask);
+}
+
+function isDashboardClientAllowed(address, allowedCidrs = []) {
+  const normalized = normalizeRemoteAddress(address);
+  if (normalized === "::1") return true;
+  return allowedCidrs.some((cidr) => matchesIpv4Cidr(normalized, cidr));
+}
 
 function sendJson(res, statusCode, data) {
   const body = JSON.stringify(data);
@@ -110,6 +142,11 @@ const server = http.createServer(async (req, res) => {
   const pathname = url.pathname;
 
   try {
+    if (!isDashboardClientAllowed(req.socket.remoteAddress, config.dashboard?.allowedCidrs)) {
+      sendJson(res, 403, { error: "dashboard access is restricted to the allowed network" });
+      return;
+    }
+
     if (pathname === "/api/config/devices") {
       sendJson(res, 200, {
         adbPath: config.adbPath,
@@ -312,6 +349,28 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`QA Ops 대시보드: http://localhost:${PORT}`);
-});
+function startDashboardServer() {
+  if (server.listening) return Promise.resolve(server);
+
+  return new Promise((resolve, reject) => {
+    const handleError = (error) => reject(error);
+    server.once("error", handleError);
+    server.listen(PORT, () => {
+      server.off("error", handleError);
+      console.log(`QA Ops 대시보드: http://localhost:${PORT}`);
+      resolve(server);
+    });
+  });
+}
+
+if (require.main === module) {
+  startDashboardServer().catch((error) => {
+    console.error(error.stack || error.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  isDashboardClientAllowed,
+  startDashboardServer
+};

@@ -30,6 +30,7 @@ function loadConfig() {
   const localEnv = parseEnvFile(path.join(projectRoot, ".env"));
   const externalEnv = parseEnvFile(process.env.QA_ENV_PATH);
   const env = { ...localEnv, ...externalEnv, ...process.env };
+  const dashboardPort = Number(env.DASHBOARD_PORT || 4321);
 
   return {
     projectRoot,
@@ -41,6 +42,14 @@ function loadConfig() {
     slackResultChannelAllowlist: env.SLACK_RESULT_CHANNEL_ALLOWLIST || "",
     slackTestResultChannel: env.SLACK_TEST_RESULT_CHANNEL || "",
     slackTestResultChannelAllowlist: env.SLACK_TEST_RESULT_CHANNEL_ALLOWLIST || "",
+    dashboard: {
+      port: dashboardPort,
+      publicUrl: env.DASHBOARD_PUBLIC_URL || `http://localhost:${dashboardPort}`,
+      allowedCidrs: String(env.DASHBOARD_ALLOWED_CIDRS || "127.0.0.0/8")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    },
     adbPath: env.ADB_PATH || "adb",
     devices: {
       guest: env.ADB_GUEST_DEVICE || "",

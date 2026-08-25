@@ -718,7 +718,7 @@ async function tapSimpleAiReview(config, device, store, steps, xml) {
       steps,
       "AI 리뷰 본문 오류 자동 확인",
       "pass",
-      "본문이 Android XML에 노출되지 않아 PDF 화면 수동 확인 필요, 리뷰 제출 버튼 활성화 확인"
+      "본문이 Android XML에 노출되지 않아 대시보드 화면 캡처 수동 확인 필요, 리뷰 제출 버튼 활성화 확인"
     );
   } else {
     addStep(

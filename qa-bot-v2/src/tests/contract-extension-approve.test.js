@@ -580,7 +580,7 @@ async function scrollAndValidateExtensionDetail(config, device, store, steps, in
       warnings,
       "host_extension_default_price_limited",
       "기존 계약 박당 금액 기본 선택 상태를 Android XML에서 충분히 확인하지 못했습니다.",
-      ["화면 캡처/PDF에서 선택 상태를 확인해주세요."]
+      ["대시보드 화면 캡처에서 선택 상태를 확인해주세요."]
     );
     addStep(steps, "기존 계약 박당 금액 기본 선택 제한 검증", "pass", "XML 확인 제한");
   } else {

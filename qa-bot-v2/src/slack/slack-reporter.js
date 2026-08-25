@@ -757,21 +757,21 @@ function formatFigmaValidationDetailLines(validation, { maxItems = 4 } = {}) {
     lines.push(`[PASS] ${item}`);
   }
   if (checked.length > maxItems) {
-    lines.push(`[PASS] 외 ${checked.length - maxItems}건은 PDF 리포트에서 확인`);
+    lines.push(`[PASS] 외 ${checked.length - maxItems}건은 대시보드에서 확인`);
   }
 
   for (const item of manualRequired.slice(0, maxItems)) {
     lines.push(`[수동 확인 필요] ${item}`);
   }
   if (manualRequired.length > maxItems) {
-    lines.push(`[수동 확인 필요] 외 ${manualRequired.length - maxItems}건은 PDF 리포트에서 확인`);
+    lines.push(`[수동 확인 필요] 외 ${manualRequired.length - maxItems}건은 대시보드에서 확인`);
   }
 
   for (const item of missing.slice(0, maxItems)) {
     lines.push(`[FAIL] ${item}`);
   }
   if (missing.length > maxItems) {
-    lines.push(`[FAIL] 외 ${missing.length - maxItems}건은 PDF 리포트에서 확인`);
+    lines.push(`[FAIL] 외 ${missing.length - maxItems}건은 대시보드에서 확인`);
   }
 
   if (validation.amounts?.length) {
@@ -882,9 +882,6 @@ function buildResultJudgment(result) {
   const lastPassed = getLastPassedStep(result.steps || []);
   const lastStep = getLastStep(result.steps || []);
   const details = (result.error_details || []).filter(Boolean).slice(0, 3);
-  const shouldMentionPdf = result.test_id !== "TC-CONSOLE-SCHEDULE-CHANGE-001" &&
-    result.test_id !== "TC-CONSOLE-DEPOSIT-RETURN-001" &&
-    result.test_id !== "TC-BUILD-INSTALL-001";
 
   return {
     status,
@@ -906,7 +903,7 @@ function buildResultJudgment(result) {
     nextChecks: result.status === "fail"
       ? [
         ...details,
-        shouldMentionPdf && result.artifacts?.report_dir ? "PDF 리포트와 실패 화면/로그를 함께 확인해주세요." : ""
+        result.artifacts?.report_dir ? "대시보드에서 실패 화면과 로그를 함께 확인해주세요." : ""
       ].filter(Boolean).slice(0, 4)
       : [],
     reportDir: result.artifacts?.report_dir || ""

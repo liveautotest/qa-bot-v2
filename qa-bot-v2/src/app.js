@@ -7,12 +7,12 @@ const {
   routeCommand
 } = require("./slack/command-router");
 const { formatHelp } = require("./slack/slack-reporter");
-const { uploadPdfReports } = require("./slack/pdf-report");
 const { registerValidationUiLab } = require("./validation-ui-lab");
 const { registerBuildInstallUi } = require("./build-install-ui");
 const { registerScheduleChangeUi } = require("./schedule-change-ui");
 const { IOS_BUILD_INSTALL_PATTERN, routeIosBuildInstallCommand } = require("./slack/ios-build-install-router");
 const { IOS_LOGIN_PATTERN, routeIosLoginCommand } = require("./slack/ios-command-router");
+const { startDashboardServer } = require("./dashboard/server");
 
 function isSocketModeExplicitDisconnectRace(error) {
   const message = String(error?.message || error || "");
@@ -76,6 +76,20 @@ process.on("unhandledRejection", (error) => {
 function shouldPostProgressMessage(text = "") {
   const normalized = String(text).trim().replace(/\s+/g, " ");
   return !(/^!qa$/i.test(normalized) || /^!qa help$/i.test(normalized));
+}
+
+function appendDashboardLink(response, config) {
+  const publicUrl = String(config.dashboard?.publicUrl || "").trim().replace(/\/$/, "");
+  const source = String(response || "");
+  const resultLabel = /\[FAIL\]|\bFAIL\b/i.test(source)
+    ? "결과: 실패"
+    : /\[PASS\]|\[(?:기본)?검증 PASS\]|\bPASS\b/i.test(source)
+      ? "결과: 성공"
+      : "";
+  const body = resultLabel ? [resultLabel, "", source].join("\n") : source;
+  if (!publicUrl) return body;
+
+  return [body, "", `<${publicUrl}/runs.html|실행 결과 확인>`].join("\n");
 }
 
 function isConsoleScheduleChangeCommand(text = "") {
@@ -337,6 +351,13 @@ async function main() {
     throw new Error("SLACK_BOT_TOKEN and SLACK_APP_TOKEN are required.");
   }
 
+  try {
+    await startDashboardServer();
+  } catch (error) {
+    if (error.code !== "EADDRINUSE") throw error;
+    console.warn(`Dashboard port ${config.dashboard.port} is already in use. Reusing the existing dashboard server.`);
+  }
+
   const app = new App({
     token: config.slackBotToken,
     appToken: config.slackAppToken,
@@ -414,39 +435,9 @@ async function main() {
 
       await app.client.chat.postMessage({
         channel: resultThread.channel,
-        text: response,
+        text: appendDashboardLink(response, config),
         thread_ts: resultThread.threadTs
       });
-
-      if (!isConsoleScheduleChangeCommand(message.text) && !isConsoleDepositReturnCommand(message.text) && !isBuildInstallCommand(message.text)) {
-        try {
-          const uploadedPdfs = await uploadPdfReports({
-            client: app.client,
-            config,
-            channel: resultThread.channel,
-            threadTs: resultThread.threadTs,
-            responseText: response
-          });
-          if (shouldPostProgressMessage(message.text) && uploadedPdfs.length === 0) {
-            await app.client.chat.postMessage({
-              channel: resultThread.channel,
-              text: "PDF 리포트 생성 대상을 찾지 못했습니다. 결과 메시지의 run_id와 reports 폴더를 확인해주세요.",
-              thread_ts: resultThread.threadTs
-            });
-          }
-        } catch (error) {
-          console.error("Failed to upload PDF report:", error.stack || error.message);
-          const message = String(error.message || "");
-          const helpText = message.includes("missing_scope")
-            ? "PDF 리포트 첨부에 실패했습니다: Slack 앱 권한에 files:write가 필요합니다. Slack 앱 OAuth Scopes에 files:write 추가 후 앱을 다시 설치해주세요."
-            : `PDF 리포트 첨부에 실패했습니다: ${message}`;
-          await app.client.chat.postMessage({
-            channel: resultThread.channel,
-            text: helpText,
-            thread_ts: resultThread.threadTs
-          });
-        }
-      }
     } catch (error) {
       console.error("QA command failed before result message was posted:", error.stack || error.message);
       const failureText = [
@@ -461,13 +452,13 @@ async function main() {
       try {
         await app.client.chat.postMessage({
           channel: resultThread.channel,
-          text: failureText,
+          text: appendDashboardLink(failureText, config),
           thread_ts: resultThread.threadTs
         });
       } catch (postError) {
         console.error("Failed to post QA command failure message:", postError.stack || postError.message);
         await say({
-          text: failureText,
+          text: appendDashboardLink(failureText, config),
           thread_ts: threadTs
         });
       }
@@ -558,6 +549,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  appendDashboardLink,
   formatProgressMessage,
   main,
   resolveConfiguredResultChannel,
