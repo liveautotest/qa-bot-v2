@@ -313,6 +313,23 @@ function deleteRunScreenshots(reportBaseDir, runId) {
   return files.length;
 }
 
+function deleteRecentRuns(reportBaseDir, limit = 30) {
+  const runIds = listRunDirs(reportBaseDir).slice(0, limit);
+  let deletedRuns = 0;
+
+  for (const runId of runIds) {
+    const runDir = path.join(reportBaseDir, runId);
+    try {
+      fs.rmSync(runDir, { recursive: true, force: true });
+      deletedRuns += 1;
+    } catch (error) {
+      // 개별 실행 삭제 실패는 무시하고 계속 진행
+    }
+  }
+
+  return { deletedRuns };
+}
+
 function deleteAllScreenshots(reportBaseDir, maxScan = 5000) {
   const runIds = listRunDirs(reportBaseDir).slice(0, maxScan);
   let deletedFiles = 0;
@@ -352,5 +369,6 @@ module.exports = {
   deleteScreenshotFile,
   deleteRunScreenshots,
   deleteAllScreenshots,
+  deleteRecentRuns,
   readResult
 };

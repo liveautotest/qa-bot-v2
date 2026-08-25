@@ -287,5 +287,15 @@ refreshBtn.addEventListener("click", async () => {
   }
 });
 
+document.getElementById("delete-recent-btn").addEventListener("click", async () => {
+  if (!confirm("최근 실행 기록 30건을 삭제할까요?\n스크린샷/로그와 함께 전부 삭제되며 되돌릴 수 없습니다.\n(그 이전 기록은 남아있어요, 실행 기록 페이지에서 확인 가능합니다)")) return;
+  try {
+    await fetch("/api/runs/recent?limit=30", { method: "DELETE" });
+    refreshAll();
+  } catch (error) {
+    alert("삭제 실패: " + error.message);
+  }
+});
+
 refreshAll();
 setInterval(refreshAll, REFRESH_MS);

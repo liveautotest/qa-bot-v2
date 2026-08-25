@@ -41,7 +41,10 @@
 
   <h2 class="section" style="display:flex;justify-content:space-between;align-items:center;">
     <span>최근 실행 (최근 30건)</span>
-    <a href="/runs.html" style="font-size:11px;color:var(--text-mute);text-transform:none;letter-spacing:0;text-decoration:none;">전체 기록 보기 →</a>
+    <span style="display:flex;align-items:center;gap:12px;">
+      <span id="delete-recent-btn" style="font-size:11px;color:var(--bad);text-transform:none;letter-spacing:0;cursor:pointer;">최근 실행 삭제</span>
+      <a href="/runs.html" style="font-size:11px;color:var(--text-mute);text-transform:none;letter-spacing:0;text-decoration:none;">전체 기록 보기 →</a>
+    </span>
   </h2>
   <div class="filters">
     <span class="chip active" data-filter="all">전체</span>

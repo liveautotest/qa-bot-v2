@@ -174,6 +174,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/runs/recent" && req.method === "DELETE") {
+      const limit = Math.min(Number(url.searchParams.get("limit")) || 30, 200);
+      const result = reports.deleteRecentRuns(config.reportBaseDir, limit);
+      sendJson(res, 200, result);
+      return;
+    }
+
     if (pathname === "/api/runs") {
       const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 200);
       const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
