@@ -348,7 +348,7 @@
   .log-row .chevron{color:var(--text-faint);font-size:11px;text-align:right;}
   .log-row.expanded .chevron{color:var(--text);}
   .log-row:last-child{border-bottom:none;}
-  .log-row .platform{font-size:10px;color:var(--text-faint);font-family:'IBM Plex Mono',monospace;}
+  .log-row .platform{font-size:11px;font-weight:700;color:var(--text);font-family:'IBM Plex Mono',monospace;letter-spacing:0.02em;}
   .log-row .test{color:var(--text);}
   .log-row .device-tag{color:var(--text-mute);font-family:'IBM Plex Mono',monospace;font-size:11px;}
   .log-row .time{color:var(--text-faint);font-family:'IBM Plex Mono',monospace;font-size:11px;text-align:right;}
