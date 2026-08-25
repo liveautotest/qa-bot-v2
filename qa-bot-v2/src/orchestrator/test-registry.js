@@ -26,6 +26,7 @@ const { runReviewWriteTest } = require("../tests/review-write.test");
 const { runBuildInstallTest } = require("../tests/build-install.test");
 const { runIosBuildInstallTest } = require("../tests/ios-build-install.test");
 const { runIosLoginTest } = require("../tests/ios-login.test");
+const { runIosFlexibleSearchTest, runIosSearchTest } = require("../tests/ios-search.test");
 const { runConversationalSearchTest } = require("../tests/conversational-search.test");
 
 const registry = {
@@ -54,7 +55,9 @@ const registry = {
   "review-write": runReviewWriteTest,
   "build-install": runBuildInstallTest,
   "ios-build-install": runIosBuildInstallTest,
-  "ios-login": runIosLoginTest
+  "ios-login": runIosLoginTest,
+  "ios-search": runIosSearchTest,
+  "ios-search-flexible": runIosFlexibleSearchTest
 };
 
 function getTest(name) {

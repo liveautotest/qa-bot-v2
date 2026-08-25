@@ -7,8 +7,16 @@ const VALIDATION_ITEMS = [
     iosCommandTemplate: (env) => `!qa ios-login env=${env === "stg" ? "staging" : env} role=guest`
   },
   { label: "호스트 로그인", commandTemplate: (env) => `!호스트 로그인 ${env}` },
-  { label: "정확한 일정 검색", commandTemplate: (env) => `!게스트 검색 정확한일정 ${env}` },
-  { label: "유연한 일정 검색", commandTemplate: (env) => `!게스트 검색 유연한일정 ${env}` },
+  {
+    label: "정확한 일정",
+    commandTemplate: (env) => `!게스트 검색 정확한일정 ${env}`,
+    iosCommandTemplate: (env) => `!qa ios-search env=${env === "stg" ? "staging" : env} role=guest`
+  },
+  {
+    label: "유연한 일정",
+    commandTemplate: (env) => `!게스트 검색 유연한일정 ${env}`,
+    iosCommandTemplate: (env) => `!qa ios-search-flexible env=${env === "stg" ? "staging" : env} role=guest`
+  },
   {
     label: "대화형 검색 (준비 중)",
     value: "대화형 검색",
@@ -235,7 +243,7 @@ function registerValidationUiLab(app, { runQaCommand } = {}) {
       errors.client = "PC 검증은 준비 중입니다.";
     }
     if (submission.client === "ios-app" && !submission.clientSupported) {
-      errors.validation_item = "iOS APP은 현재 게스트 로그인만 실행할 수 있습니다.";
+      errors.validation_item = "선택한 iOS APP 검증 항목은 아직 준비 중입니다.";
     }
     if (submission.env === "prod") {
       errors.environment = "Prod 검증은 준비 중입니다. 현재는 stg 또는 dev만 선택할 수 있습니다.";

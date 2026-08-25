@@ -109,6 +109,24 @@ async function tap(wdaUrl, sessionId, x, y) {
   });
 }
 
+async function swipe(wdaUrl, sessionId, startX, startY, endX, endY, duration = 250) {
+  await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/actions`, {
+    actions: [
+      {
+        type: "pointer",
+        id: "finger1",
+        parameters: { pointerType: "touch" },
+        actions: [
+          { type: "pointerMove", duration: 0, x: startX, y: startY },
+          { type: "pointerDown", button: 0 },
+          { type: "pointerMove", duration, x: endX, y: endY },
+          { type: "pointerUp", button: 0 }
+        ]
+      }
+    ]
+  });
+}
+
 async function typeText(wdaUrl, sessionId, value) {
   await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/wda/keys`, {
     value: String(value).split("")
@@ -151,6 +169,7 @@ module.exports = {
   pressHome,
   pressKeyName,
   screenshotPng,
+  swipe,
   tap,
   terminateApp,
   typeText

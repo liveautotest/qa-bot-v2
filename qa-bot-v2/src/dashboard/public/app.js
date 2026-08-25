@@ -99,6 +99,23 @@ function renderFailRank(topFailing) {
     .join("");
 }
 
+function deviceIllustrationSvg(platform) {
+  if (platform === "ios") {
+    return `<svg viewBox="0 0 60 100" width="42" height="70" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="2" width="54" height="96" rx="12" stroke="currentColor" stroke-width="2.5"/>
+      <rect x="21" y="7" width="18" height="5" rx="2.5" fill="currentColor" opacity="0.4"/>
+      <rect x="22" y="88" width="16" height="3" rx="1.5" fill="currentColor" opacity="0.4"/>
+    </svg>`;
+  }
+  // 안드로이드 단말은 실제로 폴더블(Galaxy Z Flip 계열)이라 접힌 형태로 표현 (세로로 세운 모양)
+  return `<svg viewBox="0 0 60 100" width="42" height="70" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="3" y="2" width="54" height="96" rx="12" stroke="currentColor" stroke-width="2.5"/>
+    <line x1="3" y1="50" x2="57" y2="50" stroke="currentColor" stroke-width="1.5" opacity="0.55"/>
+    <rect x="19" y="14" width="22" height="16" rx="3" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+    <circle cx="30" cy="40" r="2.2" fill="currentColor" opacity="0.45"/>
+  </svg>`;
+}
+
 function renderDevices(deviceList) {
   const el = document.getElementById("rack");
   el.innerHTML = deviceList
@@ -122,7 +139,7 @@ function renderDevices(deviceList) {
       return `
         <div class="device${offlineClass}">
           <span class="device-led ${ledClass}"></span>
-          <div class="screen-preview"></div>
+          <div class="screen-preview">${deviceIllustrationSvg(d.platform)}</div>
           <p class="name">${d.label}</p>
           <p class="meta">${meta}</p>
           <div class="test-row">${testRow}</div>

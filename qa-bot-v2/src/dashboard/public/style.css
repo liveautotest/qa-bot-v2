@@ -213,7 +213,11 @@
     position:relative;
     overflow:hidden;
     background:#0F1621;
+    display:flex;
+    align-items:center;
+    justify-content:center;
   }
+  .screen-preview svg{color:rgba(255,255,255,.55);}
   .screen-preview .ui-bar{height:14px;background:#1D2733;}
   .screen-preview .ui-block{position:absolute;left:10px;right:10px;background:#26313F;border-radius:3px;}
   .screen-preview .live-tag{
@@ -226,6 +230,7 @@
   }
   .live-tag::before{content:'';width:4px;height:4px;border-radius:50%;background:#fff;}
   .device.offline .screen-preview{background:#EDEFF1;}
+  .device.offline .screen-preview svg{display:none;}
   .device.offline .screen-preview::after{
     content:'신호 없음';
     position:absolute;inset:0;

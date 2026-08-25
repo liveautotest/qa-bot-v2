@@ -9,6 +9,7 @@ const {
   tap
 } = require("../infra/adb");
 const {
+  addDays,
   formatMonthLabel,
   getRandomExactSearchDateRange,
   schedulePattern
@@ -81,6 +82,10 @@ function nodeLabel(node) {
   ].join("\n");
 }
 
+function randomItem(items) {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
 function findNode(xml, labels, options = {}) {
   const labelList = Array.isArray(labels) ? labels : [labels];
   const nodes = parseNodes(xml).filter((node) => {
@@ -131,12 +136,47 @@ function isSearchResults(xml, exactDateRange = null) {
   );
 }
 
-function isFlexibleSearchResults(xml) {
+function isFlexibleSearchResults(xml, selection = null) {
+  const expectedSchedule = selection?.label || "일주일 / 7월, 8월";
   return (
     xml.includes("국내") &&
-    xml.includes("일주일 / 7월, 8월 / 1명") &&
+    xml.includes(`${expectedSchedule} / 1명`) &&
     (xml.includes("개의 집") || xml.includes("필터") || xml.includes("지도로 보기"))
   );
+}
+
+function hasLoadedSearchResultContent(xml) {
+  return (
+    /[\d,]+개의 집/.test(xml) ||
+    (xml.includes("최소") && xml.includes("₩")) ||
+    /검색 결과가 없|집을 찾지 못|조건에 맞는 집이 없/.test(xml)
+  );
+}
+
+function summarizeAndroidSearchResults(xml, schedule) {
+  const labels = parseNodes(xml)
+    .map((node) => String(node.attrs["content-desc"] || node.attrs.text || node.attrs.hint || "").trim())
+    .filter(Boolean);
+  const expectedGuestLabel = schedule.resultGuestLabel || "1명";
+  const condition = labels.find((label) => label.includes("국내") && label.includes(expectedGuestLabel)) || "";
+  const resultCountLabel = labels.find((label) => /[\d,]+개의 집/.test(label)) || "";
+  const resultCountMatch = resultCountLabel.match(/([\d,]+)개의 집/);
+  const noResults = labels.some((label) => /검색 결과가 없|집을 찾지 못|조건에 맞는 집이 없/.test(label));
+  const firstListingLabel = labels.find((label) => label.includes("최소") && /₩[\d,]+/.test(label)) || "";
+  const firstListingLines = firstListingLabel.split("\n").map((line) => line.trim()).filter(Boolean);
+  const minimumStayIndex = firstListingLines.findIndex((line) => line.startsWith("최소 "));
+  const firstListing = minimumStayIndex >= 2 ? firstListingLines[minimumStayIndex - 1] : "";
+
+  return {
+    applied_condition: condition.replace(/\s+/g, " "),
+    condition_matches: condition.includes("국내") && condition.includes(schedule.label) && condition.includes(expectedGuestLabel),
+    result_count: resultCountMatch ? Number(resultCountMatch[1].replace(/,/g, "")) : noResults ? 0 : null,
+    first_listing: firstListing,
+    sort_visible: labels.some((label) => label.includes("리브 추천 순")),
+    filter_visible: labels.some((label) => label.includes("필터")),
+    map_visible: labels.some((label) => label === "지도" || label.includes("지도로 보기")),
+    result_panel_visible: Boolean(resultCountMatch || firstListing || noResults)
+  };
 }
 
 const APP_ERROR_TEXTS = [
@@ -319,6 +359,21 @@ async function ensureMonthVisible(config, device, xml, steps, monthLabel) {
   return currentXml;
 }
 
+async function ensureDateVisible(config, device, xml, steps, monthLabel, dayLabel) {
+  let currentXml = await ensureMonthVisible(config, device, xml, steps, monthLabel);
+  for (let count = 0; count < 4; count += 1) {
+    const dateNode = findDateNodeInMonth(currentXml, monthLabel, dayLabel);
+    if (dateNode?.bounds) return { xml: currentXml, dateNode };
+    await runAdb(config, device, [
+      "shell", "input", "swipe", "540", "1850", "540", "1250", "300"
+    ]);
+    addStep(steps, "달력 날짜 영역 스크롤", "pass", `${monthLabel} ${dayLabel}일 탐색`);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    currentXml = await dumpUi(config, device);
+  }
+  return { xml: currentXml, dateNode: null };
+}
+
 async function selectExactDates(config, device, xml, store, steps, exactDateRange) {
   const scheduleTab = findNode(xml, "일정", { clickable: true });
   await tapNode(config, device, scheduleTab, "일정 탭", steps);
@@ -339,29 +394,62 @@ async function selectExactDates(config, device, xml, store, steps, exactDateRang
   await new Promise((resolve) => setTimeout(resolve, 120));
 
   xml = await dumpUi(config, device);
-  const monthLabel = formatMonthLabel(exactDateRange.start);
-  xml = await ensureMonthVisible(config, device, xml, steps, monthLabel);
+  const startMonthLabel = formatMonthLabel(exactDateRange.start);
+  const endMonthLabel = formatMonthLabel(exactDateRange.end);
+  const visibleStart = await ensureDateVisible(
+    config,
+    device,
+    xml,
+    steps,
+    startMonthLabel,
+    String(exactDateRange.start.getDate())
+  );
+  xml = visibleStart.xml;
   await saveArtifacts(config, device, store, "calendar-before-select", xml);
 
-  const startDate = findDateNodeInMonth(xml, monthLabel, String(exactDateRange.start.getDate()));
-  const endDate = findDateNodeInMonth(xml, monthLabel, String(exactDateRange.end.getDate()));
-  if (!startDate?.bounds || !endDate?.bounds) {
+  const startDate = visibleStart.dateNode;
+  if (!startDate?.bounds) {
     fail(
-      "달력에서 정확한 일정 날짜를 찾지 못했습니다.",
+      "달력에서 정확한 일정 체크인 날짜를 찾지 못했습니다.",
       steps,
       [
         `선택 대상: ${exactDateRange.label}`,
-        "정확한 일정은 8월 달력 안에서 오늘 이후 날짜를 랜덤 선택합니다.",
+        "오늘 이후 날짜 중 랜덤 체크인 날짜를 선택합니다.",
         "리포트의 calendar-before-select.png 화면을 확인해주세요."
       ]
     );
   }
 
   await tap(config, device, startDate.bounds.x, startDate.bounds.y);
-  addStep(steps, "체크인 날짜 선택", "pass", `${monthLabel} ${exactDateRange.start.getDate()}일`);
+  addStep(steps, "체크인 날짜 선택", "pass", `${startMonthLabel} ${exactDateRange.start.getDate()}일`);
   await new Promise((resolve) => setTimeout(resolve, 120));
+
+  xml = await dumpUi(config, device);
+  const visibleEnd = await ensureDateVisible(
+    config,
+    device,
+    xml,
+    steps,
+    endMonthLabel,
+    String(exactDateRange.end.getDate())
+  );
+  xml = visibleEnd.xml;
+  const endDate = visibleEnd.dateNode;
+  if (!endDate?.bounds) {
+    await saveArtifacts(config, device, store, "calendar-end-date-not-found", xml, { screenshot: true });
+    fail(
+      "달력에서 정확한 일정 체크아웃 날짜를 찾지 못했습니다.",
+      steps,
+      [
+        `선택 대상: ${exactDateRange.label}`,
+        "체크인 선택 후 체크아웃 월까지 달력을 내려 날짜를 찾습니다.",
+        "리포트의 calendar-end-date-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
   await tap(config, device, endDate.bounds.x, endDate.bounds.y);
-  addStep(steps, "체크아웃 날짜 선택", "pass", `${monthLabel} ${exactDateRange.end.getDate()}일`);
+  addStep(steps, "체크아웃 날짜 선택", "pass", `${endMonthLabel} ${exactDateRange.end.getDate()}일`);
   await new Promise((resolve) => setTimeout(resolve, 160));
 
   xml = await dumpUi(config, device);
@@ -369,6 +457,29 @@ async function selectExactDates(config, device, xml, store, steps, exactDateRang
   const next = findNode(xml, "다음", { clickable: true, enabled: true });
   await tapNode(config, device, next, "다음 버튼", steps);
   addStep(steps, "일정 다음 버튼 탭");
+}
+
+function findFlexibleMonthNode(xml, target) {
+  return parseNodes(xml).find((node) => {
+    if (!node.bounds || node.attrs.clickable !== "true") return false;
+    const label = nodeLabel(node).replace(/\s+/g, " ");
+    return label.includes(`${target.month}월`) && label.includes(String(target.year));
+  });
+}
+
+async function ensureFlexibleMonthVisible(config, device, xml, steps, target) {
+  let currentXml = xml;
+  for (let count = 0; count < 5; count += 1) {
+    const monthNode = findFlexibleMonthNode(currentXml, target);
+    if (monthNode?.bounds) return { xml: currentXml, monthNode };
+    await runAdb(config, device, [
+      "shell", "input", "swipe", "900", "1190", "180", "1190", "220"
+    ]);
+    addStep(steps, "예상 입주월 목록 넘기기", "pass", `${target.year}년 ${target.month}월 탐색`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    currentXml = await dumpUi(config, device);
+  }
+  return { xml: currentXml, monthNode: null };
 }
 
 async function selectFlexibleSchedule(config, device, xml, store, steps) {
@@ -399,13 +510,16 @@ async function selectFlexibleSchedule(config, device, xml, store, steps) {
   );
   await saveArtifacts(config, device, store, "flex-options", xml);
 
-  const oneWeek = findNode(xml, "일주일", { clickable: true });
-  const july = findNode(xml, "7월", { clickable: true });
-  const august = findNode(xml, "8월", { clickable: true });
+  const duration = randomItem(["일주일", "2주", "한 달", "두 달 이상"]);
+  const targetDate = new Date();
+  targetDate.setDate(1);
+  targetDate.setMonth(targetDate.getMonth() + Math.floor(Math.random() * 8));
+  const target = { year: targetDate.getFullYear(), month: targetDate.getMonth() + 1 };
+  const durationNode = findNode(xml, duration, { clickable: true });
 
-  if (!oneWeek?.bounds || !july?.bounds || !august?.bounds) {
+  if (!durationNode?.bounds) {
     fail(
-      "유연한 일정에서 일주일, 7월, 8월 항목을 찾지 못했습니다.",
+      `유연한 일정에서 '${duration}' 항목을 찾지 못했습니다.`,
       steps,
       [
         "유연한 일정 화면에는 '어느 정도 머물 예정인가요?'와 '예상 입주일이 언제 정도인가요?' 항목이 보여야 합니다.",
@@ -414,21 +528,43 @@ async function selectFlexibleSchedule(config, device, xml, store, steps) {
     );
   }
 
-  await tap(config, device, oneWeek.bounds.x, oneWeek.bounds.y);
-  addStep(steps, "머무는 기간 선택", "pass", "일주일");
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  await tap(config, device, july.bounds.x, july.bounds.y);
-  addStep(steps, "예상 입주월 선택", "pass", "2026년 7월");
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  await tap(config, device, august.bounds.x, august.bounds.y);
-  addStep(steps, "예상 입주월 선택", "pass", "2026년 8월");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await tap(config, device, durationNode.bounds.x, durationNode.bounds.y);
+  addStep(steps, "머무는 기간 랜덤 선택", "pass", duration);
+  await new Promise((resolve) => setTimeout(resolve, 180));
+
+  xml = await dumpUi(config, device);
+  const visibleMonth = await ensureFlexibleMonthVisible(config, device, xml, steps, target);
+  xml = visibleMonth.xml;
+  if (!visibleMonth.monthNode?.bounds) {
+    await saveArtifacts(config, device, store, "flex-month-not-found", xml, { screenshot: true });
+    fail(
+      `유연한 일정에서 ${target.year}년 ${target.month}월 항목을 찾지 못했습니다.`,
+      steps,
+      [
+        "예상 입주월 목록을 오른쪽으로 넘겨 선택 대상을 찾습니다.",
+        "리포트의 flex-month-not-found.png 화면을 확인해주세요."
+      ]
+    );
+  }
+
+  await tap(config, device, visibleMonth.monthNode.bounds.x, visibleMonth.monthNode.bounds.y);
+  addStep(steps, "예상 입주월 랜덤 선택", "pass", `${target.year}년 ${target.month}월`);
+  await new Promise((resolve) => setTimeout(resolve, 220));
 
   xml = await dumpUi(config, device);
   await saveArtifacts(config, device, store, "flex-after-select", xml);
   const next = findNode(xml, "다음", { clickable: true, enabled: true });
   await tapNode(config, device, next, "다음 버튼", steps);
   addStep(steps, "유연한 일정 다음 버튼 탭");
+
+  return {
+    label: `${duration} / ${target.month}월`,
+    schedule: `${duration} / ${target.month}월`,
+    duration,
+    month: `${target.month}월`,
+    move_in_year: target.year,
+    yearMonth: `${target.year}-${String(target.month).padStart(2, "0")}`
+  };
 }
 
 function guestCountSelected(xml) {
@@ -612,7 +748,16 @@ async function runSearchTest({ request, config, store }) {
     xml = await dumpUi(config, device);
     await saveArtifacts(config, device, store, "domestic-selected", xml);
 
-    const exactDateRange = getRandomExactSearchDateRange();
+    const exactDateRange = getRandomExactSearchDateRange(new Date(), {
+      minNights: 1,
+      maxNights: 60,
+      maxEndDate: addDays(new Date(), 90),
+      nightBuckets: [
+        { min: 1, max: 7 },
+        { min: 8, max: 30 },
+        { min: 31, max: 60 }
+      ]
+    });
     addStep(steps, "정확한 일정 랜덤 기간 결정", "pass", exactDateRange.label);
 
     await selectExactDates(config, device, xml, store, steps, exactDateRange);
@@ -638,6 +783,26 @@ async function runSearchTest({ request, config, store }) {
         ]
       );
     }
+    if (!hasLoadedSearchResultContent(xml)) {
+      xml = await waitForUi(config, device, hasLoadedSearchResultContent, 6000, 300);
+    }
+    const resultSummary = summarizeAndroidSearchResults(xml, {
+      ...exactDateRange,
+      // 검색 조건 요약 인원은 성인+어린이만 포함하고 유아/반려동물은 제외한다.
+      resultGuestLabel: "2명"
+    });
+    if (!resultSummary.condition_matches) {
+      await saveArtifacts(config, device, store, "search-condition-mismatch", xml, { screenshot: true });
+      fail(
+        "검색 결과에 선택한 정확한 일정 또는 인원 조건이 반영되지 않았습니다.",
+        steps,
+        [
+          `선택 조건: 국내 / ${exactDateRange.label} / 2명`,
+          `결과 조건: ${resultSummary.applied_condition || "확인 불가"}`,
+          "리포트의 search-condition-mismatch.png 화면을 확인해주세요."
+        ]
+      );
+    }
     const finalArtifacts = await saveArtifacts(config, device, store, "search-results", xml);
 
     if (appWarning) {
@@ -652,11 +817,23 @@ async function runSearchTest({ request, config, store }) {
       status: "pass",
       device,
       steps,
+      search: {
+        type: "exact",
+        region: "국내",
+        label: exactDateRange.label,
+        start_date: exactDateRange.startIso,
+        end_date: exactDateRange.endIso,
+        stay_nights: exactDateRange.nights,
+        guests: "성인 1명, 어린이 1명, 유아 1명, 반려동물 1마리",
+        ...resultSummary
+      },
       search_conditions: {
         region: "국내",
         schedule_type: "정확한 일정",
         start_date: exactDateRange.startIso,
         end_date: exactDateRange.endIso,
+        stay_nights: exactDateRange.nights,
+        adult_count: 1,
         child_count: 1,
         infant_count: 1,
         pet_count: 1
@@ -727,25 +904,41 @@ async function runFlexibleSearchTest({ request, config, store }) {
     xml = await dumpUi(config, device);
     await saveArtifacts(config, device, store, "domestic-selected", xml);
 
-    await selectFlexibleSchedule(config, device, xml, store, steps);
+    const flexibleSelection = await selectFlexibleSchedule(config, device, xml, store, steps);
     xml = await waitForUi(config, device, isGuestScreen, 8000);
     await submitDefaultGuests(config, device, xml, store, steps);
 
     xml = await waitForUi(
       config,
       device,
-      (nextXml) => isFlexibleSearchResults(nextXml) || hasAppError(nextXml),
+      (nextXml) => isFlexibleSearchResults(nextXml, flexibleSelection) || hasAppError(nextXml),
       20000
     );
     const appWarning = await collectAppErrorWarning(config, device, store, xml);
-    if (!isFlexibleSearchResults(xml)) {
+    if (!isFlexibleSearchResults(xml, flexibleSelection)) {
       await saveArtifacts(config, device, store, "search-results", xml, { screenshot: true });
       fail(
         "검색 버튼을 눌렀지만 유연한 일정 검색 결과 목록 화면을 확인하지 못했습니다.",
         steps,
         [
-          "성공 기준은 '국내', '일주일 / 7월, 8월 / 1명', '개의 집/필터/지도로 보기' 신호입니다.",
+          `성공 기준은 '국내', '${flexibleSelection.label} / 1명', '개의 집/필터/지도로 보기' 신호입니다.`,
           "리포트의 search-results.png 화면을 확인해주세요."
+        ]
+      );
+    }
+    if (!hasLoadedSearchResultContent(xml)) {
+      xml = await waitForUi(config, device, hasLoadedSearchResultContent, 6000, 300);
+    }
+    const resultSummary = summarizeAndroidSearchResults(xml, flexibleSelection);
+    if (!resultSummary.condition_matches) {
+      await saveArtifacts(config, device, store, "search-condition-mismatch", xml, { screenshot: true });
+      fail(
+        "검색 결과에 선택한 유연한 일정 또는 인원 조건이 반영되지 않았습니다.",
+        steps,
+        [
+          `선택 조건: 국내 / ${flexibleSelection.label} / 성인 1명`,
+          `결과 조건: ${resultSummary.applied_condition || "확인 불가"}`,
+          "리포트의 search-condition-mismatch.png 화면을 확인해주세요."
         ]
       );
     }
@@ -763,11 +956,18 @@ async function runFlexibleSearchTest({ request, config, store }) {
       status: "pass",
       device,
       steps,
+      search: {
+        type: "flexible",
+        region: "국내",
+        ...flexibleSelection,
+        guests: "성인 1명",
+        ...resultSummary
+      },
       search_conditions: {
         region: "국내",
         schedule_type: "유연한 일정",
-        stay_duration: "일주일",
-        expected_move_in_months: ["2026-07", "2026-08"],
+        stay_duration: flexibleSelection.duration,
+        expected_move_in_months: [flexibleSelection.yearMonth],
         adult_count: 1,
         child_count: 0,
         infant_count: 0,

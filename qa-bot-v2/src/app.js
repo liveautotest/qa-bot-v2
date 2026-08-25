@@ -212,6 +212,8 @@ const PRIMARY_RESULT_CHANNEL_BASIC_PAYMENT_PATTERN =
   /^!기본검증\s+(?:일반\s*결제|무통장\s*결제|등록카드\s*결제|분할\s*결제|연장\s*결제(?:\s+(?:카드|무통장))?)\s+(?:stg|staging|dev)$/i;
 const PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN =
   /^!(?:일정변경\s+\d+\s+.+\s+(?:stg|staging|dev)|보증금\s+(?:반환|보류)\s+\d+\s+(?:stg|staging|dev))$/i;
+const PRIMARY_RESULT_CHANNEL_SEARCH_PATTERN =
+  /^!(?:(?:게스트|계스트)\s+(?:검색\s+(?:정확한일정|정확한\s+일정|유연한일정|유연한\s+일정)|(?:정확한일정|정확한\s+일정|유연한일정|유연한\s+일정)\s+검색)\s+(?:stg|staging|dev)|qa\s+(?:ios-)?search(?:-flexible)?\s+env=(?:stg|staging|dev)\s+role=guest)$/i;
 const TEST_RESULT_CHANNEL_LOGIN_PATTERN =
   /^!(?:게스트|호스트)\s+로그인\s+(?:stg|staging|dev)$/i;
 const TEST_RESULT_CHANNEL_STANDALONE_VALIDATION_PATTERN =
@@ -245,7 +247,8 @@ function shouldRouteToPrimaryResultChannel(text = "") {
   const normalized = normalizeCommandText(text);
   return (
     PRIMARY_RESULT_CHANNEL_BASIC_PAYMENT_PATTERN.test(normalized) ||
-    PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN.test(normalized)
+    PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN.test(normalized) ||
+    PRIMARY_RESULT_CHANNEL_SEARCH_PATTERN.test(normalized)
   );
 }
 
@@ -554,5 +557,7 @@ if (require.main === module) {
 module.exports = {
   formatProgressMessage,
   main,
+  resolveConfiguredResultChannel,
+  shouldRouteToPrimaryResultChannel,
   shouldPostProgressMessage
 };

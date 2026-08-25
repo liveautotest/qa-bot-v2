@@ -437,6 +437,31 @@ function formatAppBuild(build) {
 function formatResultConditionSummary(result) {
   const lines = [];
 
+  if (result.search) {
+    const search = result.search;
+    lines.push(`- 지역: ${search.region || "-"}`);
+    if (search.type === "exact" && search.start_date && search.end_date) {
+      lines.push(`- 정확한 일정: ${search.start_date} ~ ${search.end_date}${search.stay_nights ? ` (${search.stay_nights}박)` : ""}`);
+    } else if (search.schedule || search.label) {
+      lines.push(`- 유연한 일정: ${search.schedule || search.label}${search.move_in_year ? ` (${search.move_in_year}년)` : ""}`);
+    }
+    lines.push(`- 인원: ${search.guests || "-"}`);
+    if (search.applied_condition) lines.push(`- 검색 조건 반영: ${search.applied_condition.replace(/\n/g, " / ")}`);
+    lines.push(
+      Number.isFinite(search.result_count)
+        ? `- 검색 결과: ${search.result_count.toLocaleString("ko-KR")}개의 집`
+        : "- 검색 결과: 결과 화면 진입 확인 (집 개수 자동 추출 불가)"
+    );
+    lines.push(`- 첫 번째 집: ${search.first_listing || "-"}`);
+    const visibleControls = [
+      search.sort_visible ? "리브 추천 순" : "",
+      search.filter_visible ? "필터" : "",
+      search.map_visible ? "지도" : "",
+      search.result_panel_visible ? "하단 검색 결과 영역" : ""
+    ].filter(Boolean);
+    if (visibleControls.length) lines.push(`- 결과 화면: ${visibleControls.join(" · ")} 노출 확인`);
+  }
+
   if (result.conversational_search) {
     lines.push(`- 대화 시나리오: ${result.conversational_search.scenario || "-"}`);
     lines.push(`- 대화 횟수: ${result.conversational_search.turns || 0}회`);
@@ -494,7 +519,7 @@ function formatResultConditionSummary(result) {
     }
   }
 
-  if (result.search_conditions && !result.contract_conditions) {
+  if (result.search_conditions && !result.contract_conditions && !result.search) {
     const { region, schedule_type: scheduleType, start_date: startDate, end_date: endDate, stay_duration: stayDuration } = result.search_conditions;
     if (region) lines.push(`- 지역: ${region}`);
     if (startDate && endDate) {
@@ -667,7 +692,9 @@ function formatResultConditionSummary(result) {
 
   const summaryLimit = result.console_schedule_change || result.console_deposit_return || result.build_install
     ? 10
-    : 6;
+    : result.search
+      ? 8
+      : 6;
   return lines.slice(0, summaryLimit);
 }
 
