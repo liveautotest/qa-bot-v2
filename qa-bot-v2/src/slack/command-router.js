@@ -283,7 +283,7 @@ function shouldAutoApproveTossDeposit({ test, paymentMethod }, result) {
 function shouldAutoApproveHostContract({ test, paymentMethod }, result) {
   return (
     test === "contract-request" &&
-    (!paymentMethod || paymentMethod === "auto-card") &&
+    paymentMethod === "auto-card" &&
     result.status === "pass"
   );
 }
