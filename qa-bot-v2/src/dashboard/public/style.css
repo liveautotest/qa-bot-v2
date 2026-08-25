@@ -473,3 +473,42 @@
     cursor:pointer;
     accent-color:var(--bad);
   }
+
+  /* ===== 반응형 (좁은 화면 / 모바일) ===== */
+  @media (max-width: 768px){
+    body{flex-direction:column;}
+    .sidebar{
+      width:100%;
+      display:flex;
+      align-items:center;
+      gap:4px;
+      padding:10px 12px;
+      overflow-x:auto;
+      white-space:nowrap;
+    }
+    .brand, .brand-sub{display:none;}
+    .nav-item{
+      margin-bottom:0;
+      flex-shrink:0;
+      padding:7px 10px;
+      font-size:12px;
+    }
+    .main{padding:16px;}
+    .topbar{flex-wrap:wrap;gap:10px;}
+    .stats{grid-template-columns:repeat(2,1fr);}
+    .rack{grid-template-columns:repeat(2,1fr);}
+    .filters{flex-wrap:wrap;}
+    .search-box{max-width:none;width:100%;margin-left:0;order:99;}
+    .log{overflow-x:auto;}
+    .log-row{min-width:640px;}
+    .shot-thumbs{gap:8px;}
+    .shot-thumb{width:130px;}
+    .shot-thumb img{width:130px;height:90px;}
+  }
+
+  @media (max-width: 480px){
+    .stats{grid-template-columns:repeat(2,1fr);gap:8px;}
+    .rack{grid-template-columns:1fr;}
+    .main{padding:12px;}
+    .topbar h1{font-size:17px;}
+  }
