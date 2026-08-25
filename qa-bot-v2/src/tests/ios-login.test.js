@@ -1,14 +1,17 @@
 const path = require("path");
 const { withDeviceLock } = require("../infra/device-lock");
 const {
+  acceptAlert,
+  activateApp,
   createSession,
   deleteSession,
+  getAlertText,
   launchApp,
-  terminateApp,
   typeText
 } = require("../infra/ios-wda");
 const {
   dumpNodes,
+  findExactNode,
   findNode,
   saveFailureArtifacts,
   tapNode,
@@ -22,6 +25,9 @@ const {
 
 const LOGIN_ENTRY_LABEL = "이메일/휴대폰 번호로 시작하기";
 const HOME_TAB_LABELS = ["홈", "탐색", "채팅", "내 정보"];
+const NOTIFICATION_PERMISSION_PATTERN = /알림을 보내고자|send you notifications/i;
+const TRACKING_PERMISSION_PATTERN = /추적|track/i;
+const FIRST_LAUNCH_GUIDE_PATTERN = "더 나은 서비스 제공을 위해";
 
 function addStep(steps, name, status = "pass", message) {
   const step = { name, status };
@@ -46,6 +52,55 @@ function isLoginEntryScreen(nodes) {
 
 function findEditableNodes(nodes) {
   return nodes.filter((node) => ["TextField", "SecureTextField"].includes(node.attrs.type));
+}
+
+async function acceptSystemPermissionIfPresent(
+  wdaUrl,
+  sessionId,
+  pattern,
+  stepName,
+  steps,
+  timeoutMs = 1500
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let alertText;
+    try {
+      alertText = await getAlertText(wdaUrl, sessionId);
+    } catch (error) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      continue;
+    }
+
+    // 로그인 오류나 서비스 확인 팝업은 자동 승인하지 않는다.
+    if (!pattern.test(alertText)) return false;
+
+    await acceptAlert(wdaUrl, sessionId);
+    addStep(steps, stepName);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    return true;
+  }
+  return false;
+}
+
+async function advanceFirstLaunchGuideIfPresent(wdaUrl, sessionId, steps, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const nodes = await dumpNodes(wdaUrl, sessionId);
+    const guide = findNode(nodes, [FIRST_LAUNCH_GUIDE_PATTERN], { visible: true });
+    const nextButton = findExactNode(nodes, ["다음"], { visible: true, enabled: true });
+    // WebView에서 '다음'이 Button이 아닌 StaticText로 노출되므로 실제 텍스트 좌표를 누른다.
+    if (guide && nextButton) {
+      await tapNode(wdaUrl, sessionId, nextButton, "iOS 최초 실행 안내 다음 버튼", steps);
+      addStep(steps, "iOS 최초 실행 안내 팝업 다음");
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  return false;
 }
 
 async function runIosLoginTest({ request, config, store }) {
@@ -79,6 +134,34 @@ async function runIosLoginTest({ request, config, store }) {
       await launchApp(wdaUrl, sessionId, bundleId);
       addStep(steps, "iOS 앱 실행", "pass", bundleId);
       await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      const acceptedNotification = await acceptSystemPermissionIfPresent(
+        wdaUrl,
+        sessionId,
+        NOTIFICATION_PERMISSION_PATTERN,
+        "iOS 알림 권한 팝업 허용",
+        steps,
+        3000
+      );
+      const advancedGuide = await advanceFirstLaunchGuideIfPresent(
+        wdaUrl,
+        sessionId,
+        steps,
+        acceptedNotification ? 5000 : 1500
+      );
+      await acceptSystemPermissionIfPresent(
+        wdaUrl,
+        sessionId,
+        TRACKING_PERMISSION_PATTERN,
+        "iOS 추적 권한 팝업 허용",
+        steps,
+        advancedGuide ? 5000 : 700
+      );
+      if (advancedGuide) {
+        await activateApp(wdaUrl, sessionId, bundleId);
+        addStep(steps, "iOS 권한 처리 후 앱 화면 복귀");
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
 
       let nodes = await dumpNodes(wdaUrl, sessionId);
 
@@ -172,9 +255,11 @@ async function runIosLoginTest({ request, config, store }) {
         steps,
         artifacts: { screenshots: [], logs: [] }
       };
+    } catch (error) {
+      if (!error.steps) error.steps = steps;
+      throw error;
     } finally {
       if (sessionId) {
-        await terminateApp(wdaUrl, sessionId, bundleId);
         await deleteSession(wdaUrl, sessionId);
       }
     }

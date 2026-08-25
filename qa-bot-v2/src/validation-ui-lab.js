@@ -1,7 +1,11 @@
 const VALIDATION_MODAL_CALLBACK_ID = "qa_validation_lab_submit";
 const VALIDATION_OPEN_ACTION_ID = "qa_validation_lab_open";
 const VALIDATION_ITEMS = [
-  { label: "게스트 로그인", commandTemplate: (env) => `!게스트 로그인 ${env}` },
+  {
+    label: "게스트 로그인",
+    commandTemplate: (env) => `!게스트 로그인 ${env}`,
+    iosCommandTemplate: (env) => `!qa ios-login env=${env} role=guest`
+  },
   { label: "호스트 로그인", commandTemplate: (env) => `!호스트 로그인 ${env}` },
   { label: "정확한 일정 검색", commandTemplate: (env) => `!게스트 검색 정확한일정 ${env}` },
   { label: "유연한 일정 검색", commandTemplate: (env) => `!게스트 검색 유연한일정 ${env}` },
@@ -60,7 +64,7 @@ function buildValidationModal(privateMetadata) {
           initial_option: { text: plainText("Android APP"), value: "android-app" },
           options: [
             { text: plainText("Android APP"), value: "android-app" },
-            { text: plainText("iOS APP (준비 중)"), value: "ios-app" },
+            { text: plainText("iOS APP"), value: "ios-app" },
             { text: plainText("PC (준비 중)"), value: "pc" }
           ]
         }
@@ -109,10 +113,13 @@ function parseSubmission(view) {
   const client = selectedValue(view, "client").selected_option?.value || "android-app";
   const validationItem = selectedValue(view, "validation_item").selected_option?.value || "";
   const item = VALIDATION_ITEMS.find((candidate) => (candidate.value || candidate.label) === validationItem);
-  const commandText = item?.commandTemplate
-    ? item.commandTemplate(env)
-    : `!기본검증 ${validationItem} ${env}`;
-  const displayTarget = `${validationItem} ${env}`;
+  const commandText = client === "ios-app"
+    ? item?.iosCommandTemplate?.(env) || ""
+    : item?.commandTemplate
+      ? item.commandTemplate(env)
+      : `!기본검증 ${validationItem} ${env}`;
+  const clientLabel = client === "ios-app" ? "iOS APP" : client === "pc" ? "PC" : "Android APP";
+  const displayTarget = `${clientLabel} · ${validationItem} ${env}`;
 
   return {
     tester,
@@ -120,6 +127,7 @@ function parseSubmission(view) {
     client,
     validationItem,
     validationReady: item?.ready !== false,
+    clientSupported: client !== "ios-app" || Boolean(item?.iosCommandTemplate),
     displayTarget,
     commandText
   };
@@ -223,9 +231,11 @@ function registerValidationUiLab(app, { runQaCommand } = {}) {
   app.view(VALIDATION_MODAL_CALLBACK_ID, async ({ ack, body, view, client }) => {
     const submission = parseSubmission(view);
     const errors = {};
-    if (submission.client !== "android-app") {
-      const clientLabel = submission.client === "ios-app" ? "iOS APP" : "PC";
-      errors.client = `${clientLabel} 검증은 준비 중입니다. 현재는 Android APP만 선택할 수 있습니다.`;
+    if (submission.client === "pc") {
+      errors.client = "PC 검증은 준비 중입니다.";
+    }
+    if (submission.client === "ios-app" && !submission.clientSupported) {
+      errors.validation_item = "iOS APP은 현재 게스트 로그인만 실행할 수 있습니다.";
     }
     if (submission.env === "prod") {
       errors.environment = "Prod 검증은 준비 중입니다. 현재는 stg 또는 dev만 선택할 수 있습니다.";

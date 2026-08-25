@@ -55,10 +55,15 @@ async function isReachable(wdaUrl) {
 async function createSession(wdaUrl, bundleId) {
   const json = await wdaRequest(wdaUrl, "POST", "/session", {
     capabilities: {
-      alwaysMatch: {
-        bundleId,
-        shouldWaitForQuiescence: false
-      }
+      firstMatch: [
+        {
+          bundleId,
+          shouldWaitForQuiescence: false,
+          shouldTerminateApp: false,
+          forceAppLaunch: false
+        }
+      ],
+      alwaysMatch: {}
     }
   });
   return json.sessionId || json.value?.sessionId;
@@ -71,6 +76,10 @@ async function deleteSession(wdaUrl, sessionId) {
 
 async function launchApp(wdaUrl, sessionId, bundleId) {
   await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/wda/apps/launch`, { bundleId });
+}
+
+async function activateApp(wdaUrl, sessionId, bundleId) {
+  await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/wda/apps/activate`, { bundleId });
 }
 
 async function terminateApp(wdaUrl, sessionId, bundleId) {
@@ -121,10 +130,22 @@ async function screenshotPng(wdaUrl, sessionId) {
   return Buffer.from(json.value, "base64");
 }
 
+async function getAlertText(wdaUrl, sessionId) {
+  const json = await wdaRequest(wdaUrl, "GET", `/session/${sessionId}/alert/text`);
+  return String(json.value || "");
+}
+
+async function acceptAlert(wdaUrl, sessionId) {
+  await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/alert/accept`, {});
+}
+
 module.exports = {
+  acceptAlert,
+  activateApp,
   createSession,
   deleteSession,
   dumpUiTree,
+  getAlertText,
   isReachable,
   launchApp,
   pressHome,

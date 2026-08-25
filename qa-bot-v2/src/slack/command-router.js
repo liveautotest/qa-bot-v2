@@ -1027,6 +1027,7 @@ async function routeCommand(text, context) {
     command === "basic-validation" ||
     command === "build-install" ||
     command === "ios-build-install" ||
+    command === "ios-login" ||
     command === "toss-deposit-approve" ||
     command === "console-schedule-change" ||
     command === "console-deposit-return"
