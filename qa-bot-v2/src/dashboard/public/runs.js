@@ -14,15 +14,19 @@ function buildQuery() {
   params.set("offset", currentPage * PAGE_SIZE);
   if (activeFilter === "android") params.set("platform", "android");
   if (activeFilter === "ios") params.set("platform", "ios");
+  if (activeFilter === "pass") params.set("status", "pass");
   if (activeFilter === "fail") params.set("status", "fail");
-  if (activeFilter === "critical") params.set("critical", "true");
+  if (activeFilter === "critical") params.set("failureClass", "critical");
+  if (activeFilter === "infra") params.set("failureClass", "infra");
+  if (activeFilter === "script") params.set("failureClass", "script");
   if (searchTerm) params.set("q", searchTerm);
   return params.toString();
 }
 
 function failureBadgeHtml(failureClass) {
   if (failureClass === "critical") return `<span class="badge critical">기능장애</span>`;
-  if (failureClass === "script") return `<span class="badge script">코드 확인 필요</span>`;
+  if (failureClass === "script") return `<span class="badge script">자동화코드이슈</span>`;
+  if (failureClass === "infra") return `<span class="badge retry">인프라</span>`;
   return `<span class="badge retry">재시도 대상</span>`;
 }
 

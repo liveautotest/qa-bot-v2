@@ -42,7 +42,7 @@ function renderStats(stats) {
       <p class="delta">${stats.passed} 성공 · <span style="color:var(--bad);">${stats.failed} 실패</span></p></div>
     <div class="stat"><p class="label">성공률</p><p class="value ok">${passRate}</p></div>
     <div class="stat"><p class="label">실패율</p><p class="value" style="color:var(--bad);">${failRate}</p>
-      <p class="delta">기능장애 ${stats.critical} · 코드이슈 ${stats.script} · 인프라 ${stats.infra}</p></div>
+      <p class="delta">기능장애 ${stats.critical} · 자동화코드이슈 ${stats.script} · 인프라 ${stats.infra}</p></div>
     <div class="stat"><p class="label">평균 소요</p><p class="value">${stats.avgDurationSec}<span style="font-size:14px;">s</span></p></div>
   `;
 }
@@ -73,7 +73,7 @@ function renderTrend(trend) {
 
 function failureBadgeHtml(failureClass) {
   if (failureClass === "critical") return `<span class="badge critical">기능장애</span>`;
-  if (failureClass === "script") return `<span class="badge script">코드 확인 필요</span>`;
+  if (failureClass === "script") return `<span class="badge script">자동화코드이슈</span>`;
   return `<span class="badge retry">재시도 대상</span>`;
 }
 

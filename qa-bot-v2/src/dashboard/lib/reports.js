@@ -4,17 +4,42 @@ const path = require("path");
 const RUN_ID_PATTERN = /^qa-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-(.+)$/;
 
 const CODE_ISSUE_PATTERNS = [
-  /찾지 못했습니다/,
+  /찾지 못/,
+  /Cannot find/i,
   /Unhandled endpoint/,
-  /홈 화면으로 이동하지 않았습니다/,
-  /보안키패드가 열리지 않았습니다/
+  /화면.{0,15}(못했습니다|않았습니다)/,
+  /확인하지 못/,
+  /보안키패드가 열리지 않았습니다/,
+  /본문이 비어 있습니다/,
+  /실제 입력되지 않았습니다/,
+  /눌렀지만.{0,25}(않았습니다|유지되었습니다)/,
+  /눌러도.{0,25}않았습니다/,
+  /did not (leave|appear|reach)/i,
+  /Missing device id for role/i,
+  /role에서만 실행할 수 있습니다/,
+  /saveXml is not defined/,
+  /Maximum call stack size exceeded/,
+  /로그아웃된 상태라/,
+  /URL 또는 MID 설정이 없습니다/,
+  /입력 안내 팝업이 반복됩니다/,
+  /자동 검증에 실패했습니다/,
+  /App data should be cleared before this test/i,
+  /예금주 확인.{0,20}않았습니다/
 ];
 
 const INFRA_PATTERNS = [
   /fetch failed/i,
   /연결/,
   /timeout/i,
-  /already busy/i
+  /already busy/i,
+  /device '[^']*' not found/i,
+  /interrupted by another navigation/i,
+  /Command failed:.*adb/i,
+  /browserType\.launchPersistentContext/i,
+  /system UI\/lock screen/i,
+  /ERR_CHILD_PROCESS_STDIO_MAXBUFFER/,
+  /ENOTFOUND/i,
+  /API가 실패했습니다/
 ];
 
 function parseRunIdDate(runId) {
@@ -207,14 +232,108 @@ function platformOfTest(run) {
 }
 
 function getFilteredRuns(reportBaseDir, filters = {}, maxScan = 5000) {
-  const { platform, status, critical, q } = filters;
+  const { platform, status, critical, failureClass, q } = filters;
+  const effectiveFailureClass = failureClass || (critical ? "critical" : "");
   return getAllRuns(reportBaseDir, maxScan).filter((run) => {
     if (platform && platformOfTest(run) !== platform) return false;
     if (status && run.status !== status) return false;
-    if (critical && run.failure_class !== "critical") return false;
+    if (effectiveFailureClass && run.failure_class !== effectiveFailureClass) return false;
     if (q && !String(run.name || run.test_id || "").toLowerCase().includes(q)) return false;
     return true;
   });
+}
+
+function getRunsWithScreenshots(reportBaseDir, { limit = 20, offset = 0, maxScan = 5000 } = {}) {
+  const runIds = listRunDirs(reportBaseDir).slice(0, maxScan);
+  const matched = [];
+
+  for (const runId of runIds) {
+    const shotDir = path.join(reportBaseDir, runId, "screenshots");
+    if (!fs.existsSync(shotDir)) continue;
+
+    const files = fs.readdirSync(shotDir).filter((f) => /\.(png|jpg|jpeg)$/i.test(f));
+    if (!files.length) continue;
+
+    const result = readResult(reportBaseDir, runId);
+    if (!result) continue;
+
+    const screenshots = files
+      .map((name) => {
+        let size = 0;
+        try {
+          size = fs.statSync(path.join(shotDir, name)).size;
+        } catch (error) {
+          size = 0;
+        }
+        return { name, size };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    matched.push({
+      run_id: runId,
+      name: result.name,
+      test_id: result.test_id,
+      env: result.env,
+      status: result.status,
+      failure_class: result.failure_class,
+      error: result.error,
+      ran_at: result.ran_at,
+      screenshots,
+      totalSize: screenshots.reduce((sum, s) => sum + s.size, 0)
+    });
+  }
+
+  const total = matched.length;
+  const totalFileCount = matched.reduce((sum, r) => sum + r.screenshots.length, 0);
+  const totalSizeBytes = matched.reduce((sum, r) => sum + r.totalSize, 0);
+  const page = matched.slice(offset, offset + limit);
+
+  return { runs: page, total, totalFileCount, totalSizeBytes };
+}
+
+function deleteScreenshotFile(reportBaseDir, runId, filename) {
+  const filePath = path.join(reportBaseDir, runId, "screenshots", filename);
+  if (!fs.existsSync(filePath)) return false;
+  fs.unlinkSync(filePath);
+  return true;
+}
+
+function deleteRunScreenshots(reportBaseDir, runId) {
+  const shotDir = path.join(reportBaseDir, runId, "screenshots");
+  if (!fs.existsSync(shotDir)) return 0;
+  const files = fs.readdirSync(shotDir);
+  files.forEach((f) => {
+    try {
+      fs.unlinkSync(path.join(shotDir, f));
+    } catch (error) {
+      // 이미 지워졌거나 권한 문제 - 개별 파일 실패는 무시하고 계속 진행
+    }
+  });
+  return files.length;
+}
+
+function deleteAllScreenshots(reportBaseDir, maxScan = 5000) {
+  const runIds = listRunDirs(reportBaseDir).slice(0, maxScan);
+  let deletedFiles = 0;
+  let affectedRuns = 0;
+
+  for (const runId of runIds) {
+    const shotDir = path.join(reportBaseDir, runId, "screenshots");
+    if (!fs.existsSync(shotDir)) continue;
+    const files = fs.readdirSync(shotDir);
+    if (!files.length) continue;
+    files.forEach((f) => {
+      try {
+        fs.unlinkSync(path.join(shotDir, f));
+        deletedFiles += 1;
+      } catch (error) {
+        // 개별 파일 실패는 무시하고 계속 진행
+      }
+    });
+    affectedRuns += 1;
+  }
+
+  return { deletedFiles, affectedRuns };
 }
 
 module.exports = {
@@ -228,5 +347,9 @@ module.exports = {
   getTrend,
   getTeamActivity,
   getBuildHistory,
+  getRunsWithScreenshots,
+  deleteScreenshotFile,
+  deleteRunScreenshots,
+  deleteAllScreenshots,
   readResult
 };

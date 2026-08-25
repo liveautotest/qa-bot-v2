@@ -180,12 +180,13 @@ const server = http.createServer(async (req, res) => {
       const platform = url.searchParams.get("platform") || "";
       const status = url.searchParams.get("status") || "";
       const critical = url.searchParams.get("critical") === "true";
+      const failureClass = url.searchParams.get("failureClass") || "";
       const q = (url.searchParams.get("q") || "").toLowerCase().trim();
-      const hasFilter = Boolean(platform || status || critical || q);
+      const hasFilter = Boolean(platform || status || critical || failureClass || q);
 
       let allMatching;
       if (hasFilter) {
-        allMatching = reports.getFilteredRuns(config.reportBaseDir, { platform, status, critical, q }, 5000);
+        allMatching = reports.getFilteredRuns(config.reportBaseDir, { platform, status, critical, failureClass, q }, 5000);
       } else {
         allMatching = null;
       }
@@ -211,6 +212,44 @@ const server = http.createServer(async (req, res) => {
         error: run.error || null
       }));
       sendJson(res, 200, { runs, total, limit, offset });
+      return;
+    }
+
+    if (pathname === "/api/screenshots" && req.method === "GET") {
+      const limit = Math.min(Number(url.searchParams.get("limit")) || 10, 50);
+      const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
+      const data = reports.getRunsWithScreenshots(config.reportBaseDir, { limit, offset });
+      sendJson(res, 200, data);
+      return;
+    }
+
+    if (pathname === "/api/screenshots" && req.method === "DELETE") {
+      const result = reports.deleteAllScreenshots(config.reportBaseDir);
+      sendJson(res, 200, result);
+      return;
+    }
+
+    const screenshotFileMatch = pathname.match(/^\/api\/screenshots\/([^/]+)\/([^/]+)$/);
+    if (screenshotFileMatch && req.method === "DELETE") {
+      const [, runId, filename] = screenshotFileMatch;
+      if (!isSafeSegment(runId) || !isSafeSegment(filename)) {
+        sendJson(res, 400, { error: "invalid path" });
+        return;
+      }
+      const deleted = reports.deleteScreenshotFile(config.reportBaseDir, runId, filename);
+      sendJson(res, deleted ? 200 : 404, { deleted });
+      return;
+    }
+
+    const screenshotRunMatch = pathname.match(/^\/api\/screenshots\/([^/]+)$/);
+    if (screenshotRunMatch && req.method === "DELETE") {
+      const [, runId] = screenshotRunMatch;
+      if (!isSafeSegment(runId)) {
+        sendJson(res, 400, { error: "invalid path" });
+        return;
+      }
+      const deletedCount = reports.deleteRunScreenshots(config.reportBaseDir, runId);
+      sendJson(res, 200, { deletedCount });
       return;
     }
 

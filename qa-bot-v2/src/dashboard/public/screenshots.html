@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>QA Ops — 실행 기록</title>
+<title>QA Ops — 실패 스크린샷</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
@@ -14,32 +14,26 @@
   <p class="brand-sub">liveanywhere / ops</p>
   <a class="nav-item" href="/index.html"><span class="nav-dot"></span>대시보드</a>
   <a class="nav-item" href="/devices.html"><span class="nav-dot"></span>단말 관리</a>
-  <div class="nav-item active"><span class="nav-dot"></span>실행 기록</div>
+  <a class="nav-item" href="/runs.html"><span class="nav-dot"></span>실행 기록</a>
   <a class="nav-item" href="/builds.html"><span class="nav-dot"></span>빌드 이력</a>
-  <a class="nav-item" href="/screenshots.html"><span class="nav-dot"></span>실패 스크린샷</a>
+  <div class="nav-item active"><span class="nav-dot"></span>실패 스크린샷</div>
   <a class="nav-item" href="/settings.html"><span class="nav-dot"></span>설정</a>
 </div>
 
 <div class="main">
   <div class="topbar">
     <div>
-      <h1>실행 기록</h1>
+      <h1>실패 스크린샷</h1>
       <p id="count-label">불러오는 중…</p>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <div class="refresh" id="delete-selected-btn" style="display:none;color:var(--bad);border-color:var(--bad);">선택 삭제 (0)</div>
+      <div class="refresh" id="delete-all-btn" style="color:var(--bad);border-color:var(--bad);">전체 삭제</div>
     </div>
   </div>
 
-  <div class="filters">
-    <span class="chip active" data-filter="all">전체</span>
-    <span class="chip" data-filter="android">Android</span>
-    <span class="chip" data-filter="ios">iOS</span>
-    <span class="chip" data-filter="pass">성공</span>
-    <span class="chip" data-filter="fail">실패</span>
-    <span class="chip chip-critical" data-filter="critical">기능장애</span>
-    <span class="chip chip-infra" data-filter="infra">인프라</span>
-    <span class="chip chip-script" data-filter="script">자동화코드이슈</span>
-    <input class="search-box" id="search-box" placeholder="테스트명으로 검색…" style="max-width:220px;margin-left:auto;">
-  </div>
-  <div class="log" id="log"></div>
+  <div class="shot-list" id="shot-list"></div>
+
   <div class="pagination" style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px;">
     <button id="prev-page" class="load-more" style="width:auto;padding:8px 20px;margin-top:0;">← 이전</button>
     <span id="page-info" style="font-size:12px;color:var(--text-mute);font-family:'IBM Plex Mono',monospace;"></span>
@@ -48,6 +42,6 @@
 </div>
 
 <script src="/common.js"></script>
-<script src="/runs.js"></script>
+<script src="/screenshots.js"></script>
 </body>
 </html>
