@@ -39,7 +39,8 @@ const INFRA_PATTERNS = [
   /system UI\/lock screen/i,
   /ERR_CHILD_PROCESS_STDIO_MAXBUFFER/,
   /ENOTFOUND/i,
-  /API가 실패했습니다/
+  /API가 실패했습니다/,
+  /is not running, possibly crashed/i
 ];
 
 function parseRunIdDate(runId) {

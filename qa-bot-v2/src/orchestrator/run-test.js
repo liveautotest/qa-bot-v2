@@ -207,7 +207,11 @@ async function runTest(request, config) {
     const finalResult = {
       run_id: store.runId,
       test_id: testIds[request.test] || "TC-UNKNOWN",
-      name: testNames[request.test] ? `${role} ${testNames[request.test]}` : request.test,
+      name: testNames[request.test]
+        ? (String(request.test).startsWith("ios-")
+            ? testNames[request.test].replace(/^iOS\s+/, `iOS ${role} `)
+            : `${role} ${testNames[request.test]}`)
+        : request.test,
       env: request.env,
       status: "fail",
       device: request.test === "toss-deposit-approve" ||

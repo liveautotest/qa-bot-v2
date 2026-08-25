@@ -1,0 +1,14 @@
+services:
+  qa-dashboard:
+    build: .
+    container_name: qa-ops-dashboard
+    ports:
+      - "4321:4321"
+    volumes:
+      # Mac에서 rsync로 동기화되는 reports 폴더를 이 경로에 연결하세요.
+      # 예: rsync 대상 경로가 /home/ubuntu/qa-reports-sync 라면 아래처럼 지정
+      - ./reports-sync:/app/reports
+    environment:
+      - DASHBOARD_PORT=4321
+      - QA_REPORT_BASE_DIR=/app/reports
+    restart: unless-stopped

@@ -4,7 +4,7 @@ const VALIDATION_ITEMS = [
   {
     label: "게스트 로그인",
     commandTemplate: (env) => `!게스트 로그인 ${env}`,
-    iosCommandTemplate: (env) => `!qa ios-login env=${env} role=guest`
+    iosCommandTemplate: (env) => `!qa ios-login env=${env === "stg" ? "staging" : env} role=guest`
   },
   { label: "호스트 로그인", commandTemplate: (env) => `!호스트 로그인 ${env}` },
   { label: "정확한 일정 검색", commandTemplate: (env) => `!게스트 검색 정확한일정 ${env}` },
