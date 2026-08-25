@@ -127,6 +127,18 @@ async function swipe(wdaUrl, sessionId, startX, startY, endX, endY, duration = 2
   });
 }
 
+async function drag(wdaUrl, sessionId, startX, startY, endX, endY, duration = 0.2) {
+  // Flutter WebView처럼 W3C actions 스와이프가 응답하지 않는 화면에서는
+  // WDA의 drag 엔드포인트를 사용해 한 번의 제스처로 스크롤한다.
+  await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/wda/dragfromtoforduration`, {
+    fromX: startX,
+    fromY: startY,
+    toX: endX,
+    toY: endY,
+    duration
+  });
+}
+
 async function typeText(wdaUrl, sessionId, value) {
   await wdaRequest(wdaUrl, "POST", `/session/${sessionId}/wda/keys`, {
     value: String(value).split("")
@@ -162,6 +174,7 @@ module.exports = {
   activateApp,
   createSession,
   deleteSession,
+  drag,
   dumpUiTree,
   getAlertText,
   isReachable,

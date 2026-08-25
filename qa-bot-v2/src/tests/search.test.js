@@ -459,27 +459,19 @@ async function selectExactDates(config, device, xml, store, steps, exactDateRang
   addStep(steps, "일정 다음 버튼 탭");
 }
 
-function findFlexibleMonthNode(xml, target) {
-  return parseNodes(xml).find((node) => {
+function findVisibleFlexibleMonths(xml) {
+  return parseNodes(xml).map((node) => {
     if (!node.bounds || node.attrs.clickable !== "true") return false;
     const label = nodeLabel(node).replace(/\s+/g, " ");
-    return label.includes(`${target.month}월`) && label.includes(String(target.year));
-  });
-}
-
-async function ensureFlexibleMonthVisible(config, device, xml, steps, target) {
-  let currentXml = xml;
-  for (let count = 0; count < 5; count += 1) {
-    const monthNode = findFlexibleMonthNode(currentXml, target);
-    if (monthNode?.bounds) return { xml: currentXml, monthNode };
-    await runAdb(config, device, [
-      "shell", "input", "swipe", "900", "1190", "180", "1190", "220"
-    ]);
-    addStep(steps, "예상 입주월 목록 넘기기", "pass", `${target.year}년 ${target.month}월 탐색`);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    currentXml = await dumpUi(config, device);
-  }
-  return { xml: currentXml, monthNode: null };
+    const match = label.match(/(\d{1,2})월\s*(\d{4})/);
+    if (!match || node.bounds.bottom <= 0 || node.bounds.top >= 2340) return null;
+    return {
+      node,
+      month: Number(match[1]),
+      year: Number(match[2]),
+      label: `${Number(match[1])}월 / ${Number(match[2])}`
+    };
+  }).filter(Boolean);
 }
 
 async function selectFlexibleSchedule(config, device, xml, store, steps) {
@@ -511,10 +503,6 @@ async function selectFlexibleSchedule(config, device, xml, store, steps) {
   await saveArtifacts(config, device, store, "flex-options", xml);
 
   const duration = randomItem(["일주일", "2주", "한 달", "두 달 이상"]);
-  const targetDate = new Date();
-  targetDate.setDate(1);
-  targetDate.setMonth(targetDate.getMonth() + Math.floor(Math.random() * 8));
-  const target = { year: targetDate.getFullYear(), month: targetDate.getMonth() + 1 };
   const durationNode = findNode(xml, duration, { clickable: true });
 
   if (!durationNode?.bounds) {
@@ -533,21 +521,35 @@ async function selectFlexibleSchedule(config, device, xml, store, steps) {
   await new Promise((resolve) => setTimeout(resolve, 180));
 
   xml = await dumpUi(config, device);
-  const visibleMonth = await ensureFlexibleMonthVisible(config, device, xml, steps, target);
-  xml = visibleMonth.xml;
-  if (!visibleMonth.monthNode?.bounds) {
+  const pageMoves = Math.floor(Math.random() * 3);
+  for (let count = 0; count < pageMoves; count += 1) {
+    const before = findVisibleFlexibleMonths(xml).map(({ label }) => label).join("|");
+    await runAdb(config, device, [
+      "shell", "input", "swipe", "900", "1190", "360", "1190", "220"
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    const nextXml = await dumpUi(config, device);
+    const after = findVisibleFlexibleMonths(nextXml).map(({ label }) => label).join("|");
+    xml = nextXml;
+    if (!after || after === before) break;
+    addStep(steps, "예상 입주월 목록 랜덤 이동", "pass", `${count + 1}회`);
+  }
+
+  const monthCandidates = findVisibleFlexibleMonths(xml);
+  const target = randomItem(monthCandidates);
+  if (!target?.node?.bounds) {
     await saveArtifacts(config, device, store, "flex-month-not-found", xml, { screenshot: true });
     fail(
-      `유연한 일정에서 ${target.year}년 ${target.month}월 항목을 찾지 못했습니다.`,
+      "유연한 일정에서 현재 화면에 보이는 예상 입주월을 찾지 못했습니다.",
       steps,
       [
-        "예상 입주월 목록을 오른쪽으로 넘겨 선택 대상을 찾습니다.",
+        "예상 입주월 목록에서 실제로 보이고 탭 가능한 월 중 하나를 랜덤 선택합니다.",
         "리포트의 flex-month-not-found.png 화면을 확인해주세요."
       ]
     );
   }
 
-  await tap(config, device, visibleMonth.monthNode.bounds.x, visibleMonth.monthNode.bounds.y);
+  await tap(config, device, target.node.bounds.x, target.node.bounds.y);
   addStep(steps, "예상 입주월 랜덤 선택", "pass", `${target.year}년 ${target.month}월`);
   await new Promise((resolve) => setTimeout(resolve, 220));
 
@@ -812,7 +814,7 @@ async function runSearchTest({ request, config, store }) {
 
     return {
       test_id: "TC-SEARCH-001",
-      name: `${role} 집 검색`,
+      name: `${role} 정확한 일정 검색`,
       env,
       status: "pass",
       device,
@@ -991,5 +993,6 @@ async function runFlexibleSearchTest({ request, config, store }) {
 
 module.exports = {
   runFlexibleSearchTest,
-  runSearchTest
+  runSearchTest,
+  selectFlexibleSchedule
 };

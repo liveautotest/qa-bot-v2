@@ -1,5 +1,6 @@
 const VALIDATION_MODAL_CALLBACK_ID = "qa_validation_lab_submit";
 const VALIDATION_OPEN_ACTION_ID = "qa_validation_lab_open";
+const DEFAULT_VALIDATION_TESTER_USER_ID = process.env.SLACK_DEFAULT_VALIDATION_TESTER_USER_ID || "U058U199W1W";
 const VALIDATION_ITEMS = [
   {
     label: "게스트 로그인",
@@ -23,8 +24,16 @@ const VALIDATION_ITEMS = [
     ready: false,
     commandTemplate: (env) => `!게스트 대화형 검색 ${env}`
   },
-  { label: "게스트 계약 요청", commandTemplate: (env) => `!게스트 계약 요청 ${env}` },
-  { label: "게스트 계약 요청 취소", commandTemplate: (env) => `!게스트 계약 요청 취소 ${env}` },
+  {
+    label: "게스트 계약 요청",
+    commandTemplate: (env) => `!게스트 계약 요청 ${env}`,
+    iosCommandTemplate: (env) => `!qa ios-contract-request env=${env === "stg" ? "staging" : env} role=guest`
+  },
+  {
+    label: "게스트 계약 요청 취소",
+    commandTemplate: (env) => `!게스트 계약 요청 취소 ${env}`,
+    iosCommandTemplate: (env) => `!qa ios-contract-cancel-request env=${env === "stg" ? "staging" : env} role=guest`
+  },
   { label: "호스트 계약 승인", commandTemplate: (env) => `!호스트 계약 승인 ${env}` },
   { label: "호스트 계약 요청 거절", commandTemplate: (env) => `!호스트 계약 요청 거절 ${env}` },
   { label: "게스트 연장요청", commandTemplate: (env) => `!게스트 연장요청 ${env}` },
@@ -58,7 +67,8 @@ function buildValidationModal(privateMetadata) {
         element: {
           type: "users_select",
           action_id: "value",
-          placeholder: plainText("테스터 선택")
+          placeholder: plainText("테스터 선택"),
+          initial_user: DEFAULT_VALIDATION_TESTER_USER_ID
         }
       },
       {
@@ -156,7 +166,7 @@ function buildValidationOpenBlocks(metadata) {
         {
           type: "button",
           action_id: VALIDATION_OPEN_ACTION_ID,
-          text: plainText("검증 선택 열기"),
+          text: plainText("검증 항목 선택"),
           style: "primary",
           value: JSON.stringify(metadata)
         }

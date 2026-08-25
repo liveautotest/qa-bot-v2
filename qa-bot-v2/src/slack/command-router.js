@@ -531,10 +531,13 @@ function formatBasicContractConditions(result, fallbackPaymentLabel) {
     `유아${conditions.infant_count ?? 0}`,
     `반려동물${conditions.pet_count ?? 0}`
   ];
+  const scheduleLine = conditions.schedule_type === "유연한 일정"
+    ? `- 유연한 일정 선택: ${conditions.stay_duration || "-"} / ${(conditions.expected_move_in_months || []).join(", ") || "-"}`
+    : `- 정확한 일정 선택: ${conditions.start_date || "-"} ~ ${conditions.end_date || "-"}${conditions.stay_nights ? ` (${conditions.stay_nights}박)` : ""}`;
   return [
     "검증 항목:",
     `- 집 이름: ${selectedTitle || "-"}`,
-    `- 정확한 일정 선택: ${conditions.start_date || "-"} ~ ${conditions.end_date || "-"}${conditions.stay_nights ? ` (${conditions.stay_nights}박)` : ""}`,
+    scheduleLine,
     `- 인원 선택: ${guestParts.join(", ")}`,
     ...(conditions.pet_info ? [`- 반려동물 정보 입력: ${conditions.pet_info}`] : []),
     `- 계약 요청/승인/결제: 게스트 계약 요청 > 호스트 계약 승인 > 게스트 ${fallbackPaymentLabel}`
@@ -1031,6 +1034,8 @@ async function routeCommand(text, context) {
     command === "ios-login" ||
     command === "ios-search" ||
     command === "ios-search-flexible" ||
+    command === "ios-contract-request" ||
+    command === "ios-contract-cancel-request" ||
     command === "toss-deposit-approve" ||
     command === "console-schedule-change" ||
     command === "console-deposit-return"

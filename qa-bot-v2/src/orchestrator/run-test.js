@@ -176,12 +176,14 @@ async function runTest(request, config) {
       "ios-build-install": "TC-IOS-BUILD-INSTALL-001",
       "ios-login": "TC-IOS-LOGIN-001",
       "ios-search": "TC-IOS-SEARCH-001",
-      "ios-search-flexible": "TC-IOS-SEARCH-002"
+      "ios-search-flexible": "TC-IOS-SEARCH-002",
+      "ios-contract-request": "TC-IOS-CONTRACT-REQUEST-001",
+      "ios-contract-cancel-request": "TC-IOS-CONTRACT-CANCEL-REQUEST-001"
     };
     const testNames = {
       login: "로그인",
       logout: "로그아웃",
-      search: "집 검색",
+      search: "정확한 일정 검색",
       "search-flexible": "유연한 일정 검색",
       "conversational-search": "대화형 검색",
       "contract-request": "계약 요청",
@@ -206,7 +208,9 @@ async function runTest(request, config) {
       "ios-build-install": "iOS 빌드 설치",
       "ios-login": "iOS 로그인",
       "ios-search": "iOS 정확한 일정 검색",
-      "ios-search-flexible": "iOS 유연한 일정 검색"
+      "ios-search-flexible": "iOS 유연한 일정 검색",
+      "ios-contract-request": "iOS 계약 요청",
+      "ios-contract-cancel-request": "iOS 계약 요청 취소"
     };
     const finalResult = {
       run_id: store.runId,

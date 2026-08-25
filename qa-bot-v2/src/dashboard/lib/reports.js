@@ -24,7 +24,8 @@ const CODE_ISSUE_PATTERNS = [
   /입력 안내 팝업이 반복됩니다/,
   /자동 검증에 실패했습니다/,
   /App data should be cleared before this test/i,
-  /예금주 확인.{0,20}않았습니다/
+  /예금주 확인.{0,20}않았습니다/,
+  /조건이.{0,10}반영되지 않았습니다/
 ];
 
 const INFRA_PATTERNS = [

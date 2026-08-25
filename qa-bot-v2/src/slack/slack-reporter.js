@@ -197,6 +197,22 @@ function formatPassSummary(result) {
     ];
   }
 
+  if (result.test_id === "TC-IOS-CONTRACT-REQUEST-001") {
+    return [
+      `- iOS ${result.contract_conditions?.schedule_type || "일정"} 검색 결과에서 계약 가능한 숙소 상세로 진입했습니다.`,
+      "- 호스트 수락 후 직접 결제와 필수 약관 전체 동의를 선택했습니다.",
+      "- 계약 요청 완료 화면의 홈으로 버튼을 누르고 홈 화면 복귀까지 확인했습니다."
+    ];
+  }
+
+  if (result.test_id === "TC-IOS-CONTRACT-CANCEL-REQUEST-001") {
+    return [
+      "- iOS 홈의 요청 중 계약 카드와 계약 상세를 확인했습니다.",
+      `- 취소 사유 '${result.cancel_conditions?.reason || "선택됨"}' 선택 후 취소 완료 화면을 확인했습니다.`,
+      "- 계약 요청 취소 완료 후 앱을 종료하고 재실행해 홈 화면을 확인했습니다."
+    ];
+  }
+
   if (result.test_id === "TC-CONVERSATIONAL-SEARCH-001") {
     return [
       `- '${result.conversational_search?.scenario || "대화형 검색"}' 사용자 시나리오로 ${result.conversational_search?.turns || 0}회 대화를 진행했습니다.`,
@@ -289,9 +305,17 @@ function formatPassSummary(result) {
   }
 
   if (result.test_id === "TC-CONTRACT-001") {
+    const conditions = result.contract_conditions || {};
+    const scheduleType = conditions.schedule_type || "일정";
+    const guests = [
+      `성인 ${conditions.adult_count ?? 1}`,
+      `어린이 ${conditions.child_count ?? 0}`,
+      `유아 ${conditions.infant_count ?? 0}`,
+      `반려동물 ${conditions.pet_count ?? 0}`
+    ].join(", ");
     if (result.contract_conditions?.payment_method === "호스트 수락 즉시 자동 결제") {
       return [
-        "- 앱 재실행 후 정확한 일정 검색 결과 목록으로 진입했습니다.",
+        `- 앱 재실행 후 ${scheduleType} 검색 결과 목록으로 진입했습니다.`,
         "- 검색 결과 목록을 더 내려 3~4번째 숙소 후보 중 하나의 상세로 이동했습니다.",
         "- 계약 요청 화면의 결제 수단 영역에서 호스트 수락 즉시 자동 결제를 선택했습니다.",
         "- 필수 약관 전체 동의 후 계약 요청 완료 화면과 홈 화면 복귀까지 확인했습니다."
@@ -299,9 +323,9 @@ function formatPassSummary(result) {
     }
 
     return [
-      "- 앱 재실행 후 정확한 일정 검색 결과 목록으로 진입했습니다.",
+      `- 앱 재실행 후 ${scheduleType} 검색 결과 목록으로 진입했습니다.`,
       "- 검색 결과 목록을 더 내려 3~4번째 숙소 후보 중 하나의 상세로 이동했습니다.",
-      "- 기본 성인 1명 조건으로 필수 약관 전체 동의와 계약 요청 완료 화면을 확인했습니다.",
+      `- ${guests} 조건으로 필수 약관 전체 동의와 계약 요청 완료 화면을 확인했습니다.`,
       "- 완료 화면의 홈으로 버튼을 눌러 홈 화면 복귀까지 확인했습니다."
     ];
   }

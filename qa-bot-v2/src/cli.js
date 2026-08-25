@@ -18,7 +18,7 @@ async function main() {
   const args = parseArgs(rest);
 
   if (!testName) {
-    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|ios-login|ios-search|ios-search-flexible|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|toss-deposit-approve|console-schedule-change|console-deposit-return|build-install|ios-build-install> --env=staging --role=guest");
+    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|ios-login|ios-search|ios-search-flexible|ios-contract-request|ios-contract-cancel-request|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|toss-deposit-approve|console-schedule-change|console-deposit-return|build-install|ios-build-install> --env=staging --role=guest");
   }
 
   const hostDefaultTests = new Set(["contract-approve", "contract-reject", "contract-extension-approve"]);

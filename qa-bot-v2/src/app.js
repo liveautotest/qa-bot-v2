@@ -214,6 +214,8 @@ const PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN =
   /^!(?:일정변경\s+\d+\s+.+\s+(?:stg|staging|dev)|보증금\s+(?:반환|보류)\s+\d+\s+(?:stg|staging|dev))$/i;
 const PRIMARY_RESULT_CHANNEL_SEARCH_PATTERN =
   /^!(?:(?:게스트|계스트)\s+(?:검색\s+(?:정확한일정|정확한\s+일정|유연한일정|유연한\s+일정)|(?:정확한일정|정확한\s+일정|유연한일정|유연한\s+일정)\s+검색)\s+(?:stg|staging|dev)|qa\s+(?:ios-)?search(?:-flexible)?\s+env=(?:stg|staging|dev)\s+role=guest)$/i;
+const PRIMARY_RESULT_CHANNEL_CONTRACT_REQUEST_PATTERN =
+  /^!(?:(?:게스트|계스트)\s+계약\s+요청(?:\s+취소)?\s+(?:stg|staging|dev)|qa\s+ios-contract-(?:request|cancel-request)\s+env=(?:stg|staging|dev)\s+role=guest)$/i;
 const TEST_RESULT_CHANNEL_LOGIN_PATTERN =
   /^!(?:게스트|호스트)\s+로그인\s+(?:stg|staging|dev)$/i;
 const TEST_RESULT_CHANNEL_STANDALONE_VALIDATION_PATTERN =
@@ -248,7 +250,8 @@ function shouldRouteToPrimaryResultChannel(text = "") {
   return (
     PRIMARY_RESULT_CHANNEL_BASIC_PAYMENT_PATTERN.test(normalized) ||
     PRIMARY_RESULT_CHANNEL_CONSOLE_PATTERN.test(normalized) ||
-    PRIMARY_RESULT_CHANNEL_SEARCH_PATTERN.test(normalized)
+    PRIMARY_RESULT_CHANNEL_SEARCH_PATTERN.test(normalized) ||
+    PRIMARY_RESULT_CHANNEL_CONTRACT_REQUEST_PATTERN.test(normalized)
   );
 }
 

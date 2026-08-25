@@ -1,6 +1,6 @@
 const path = require("path");
 const { withDeviceLock } = require("../infra/device-lock");
-const { activateApp, createSession, deleteSession, swipe } = require("../infra/ios-wda");
+const { activateApp, createSession, deleteSession } = require("../infra/ios-wda");
 const {
   dumpNodes,
   findExactNode,
@@ -219,11 +219,13 @@ async function selectExactSchedule(wdaUrl, sessionId, nodes, steps) {
     .filter(({ date, node }) => date > today && node.attrs.enabled !== false)
     .sort((left, right) => left.date - right.date);
   const selectableCheckins = candidates.filter((candidate, index) => (
-    candidates.slice(index + 1).some(({ date }) => date > candidate.date)
+    candidates.slice(index + 1).some(({ date }) => (
+      Math.round((date - candidate.date) / 86400000) >= 6
+    ))
   ));
   const checkin = randomItem(selectableCheckins);
   const checkoutCandidates = checkin
-    ? candidates.filter(({ date }) => date > checkin.date)
+    ? candidates.filter(({ date }) => Math.round((date - checkin.date) / 86400000) >= 6)
     : [];
   const checkout = randomItem(checkoutCandidates);
 
@@ -290,7 +292,9 @@ async function selectFlexibleSchedule(wdaUrl, sessionId, nodes, steps) {
     .map((node) => {
       const rawLabel = String(node.attrs.label || node.attrs.name || "").trim();
       const match = rawLabel.match(/^(\d{1,2})월\s*(\d{4})$/);
-      return match ? { month: `${Number(match[1])}월`, year: Number(match[2]), rawLabel } : null;
+      return match && node.bounds && node.attrs.visible !== false && node.attrs.enabled !== false
+        ? { month: `${Number(match[1])}월`, year: Number(match[2]), rawLabel, node }
+        : null;
     })
     .filter(Boolean)
     .filter((candidate, index, all) => all.findIndex(({ rawLabel }) => rawLabel === candidate.rawLabel) === index);
@@ -298,20 +302,7 @@ async function selectFlexibleSchedule(wdaUrl, sessionId, nodes, steps) {
   if (!selectedMonth) {
     fail("iOS 유연한 일정에서 예상 입주월 선택지를 찾지 못했습니다.", steps);
   }
-  let monthNode;
-  for (let attempt = 0; attempt < 4 && !monthNode; attempt += 1) {
-    nodes = await dumpNodesWithRetry(wdaUrl, sessionId);
-    monthNode = nodes.find((node) => {
-      const rawLabel = String(node.attrs.label || node.attrs.name || "").trim();
-      return rawLabel === selectedMonth?.rawLabel && node.bounds && node.attrs.visible !== false;
-    });
-    if (!monthNode) {
-      await swipe(wdaUrl, sessionId, 335, 413, 65, 413, 220);
-      addStep(steps, "유연한 일정 입주월 목록 가로 이동", "pass", `${attempt + 1}회`);
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-  }
-  await tapNode(wdaUrl, sessionId, monthNode, "유연한 일정 입주월", steps);
+  await tapNode(wdaUrl, sessionId, selectedMonth.node, "유연한 일정 입주월", steps);
   addStep(steps, "유연한 일정 입주월 랜덤 선택", "pass", selectedMonth.rawLabel.replace(/\s+/g, " "));
 
   nodes = await dumpNodes(wdaUrl, sessionId);
@@ -411,7 +402,6 @@ async function runIosSearch({ request, config, store, flexible }) {
         env,
         status: "pass",
         device: wdaUrl,
-        role,
         search: {
           type: flexible ? "flexible" : "exact",
           region: "국내",
@@ -439,4 +429,16 @@ function runIosFlexibleSearchTest(context) {
   return runIosSearch({ ...context, flexible: true });
 }
 
-module.exports = { runIosFlexibleSearchTest, runIosSearchTest };
+module.exports = {
+  ensureHome,
+  hasLoadedSearchResultContent,
+  isHome,
+  isSearchResults,
+  openSchedule,
+  runIosFlexibleSearchTest,
+  runIosSearchTest,
+  selectExactSchedule,
+  selectFlexibleSchedule,
+  submitSearch,
+  summarizeSearchResults
+};

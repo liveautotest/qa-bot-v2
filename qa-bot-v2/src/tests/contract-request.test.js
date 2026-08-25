@@ -17,6 +17,7 @@ const {
   schedulePattern
 } = require("./helpers/exact-date-range");
 const { inputUnicodeText } = require("./aos-text-input");
+const { selectFlexibleSchedule } = require("./search.test");
 
 const PET_INFO_CANDIDATES = [
   "사자", "호랑이", "치타", "표범", "재규어", "늑대", "여우", "곰", "판다", "코끼리",
@@ -215,12 +216,17 @@ function isGuestScreen(xml) {
   );
 }
 
-function isContractSearchResults(xml, exactDateRange = null) {
-  const dateOk = exactDateRange ? xml.includes(exactDateRange.label) : schedulePattern().test(xml);
+function isContractSearchResults(xml, scheduleSelection = null) {
+  const isFlexible = scheduleSelection?.type === "flexible";
+  const dateOk = isFlexible
+    ? xml.includes(scheduleSelection.duration) && xml.includes(scheduleSelection.month)
+    : scheduleSelection
+      ? xml.includes(scheduleSelection.label)
+      : schedulePattern().test(xml);
   return (
     xml.includes("국내") &&
     dateOk &&
-    !xml.includes("일주일 / 1명") &&
+    (isFlexible || !xml.includes("일주일 / 1명")) &&
     xml.includes("필터") &&
     (/\d[\d,]*개의 집/.test(xml) || xml.includes("지도로 보기") || xml.includes("리브 추천 순"))
   );
@@ -2609,33 +2615,44 @@ async function runContractRequestTest({ request, config, store }) {
     await saveArtifacts(config, device, store, "domestic-selected", xml);
 
     const useRandomProfile = request.random_search_profile === true;
-    const exactDateRange = getRandomExactSearchDateRange(
-      new Date(),
-      useRandomProfile
-        ? {
-            minNights: 6,
-            maxNights: 180,
-            maxEndDate: new Date(new Date().getFullYear() + 1, 0, 31, 12, 0, 0, 0),
-            nightBuckets: [
-              { min: 6, max: 30 },
-              { min: 31, max: 90 },
-              { min: 91, max: 180 }
-            ]
-          }
-        : undefined
-    );
+    // 분할결제는 계약 요청 화면에서 장기 일정을 다시 선택하므로 정확한 일정으로 고정한다.
+    const useFlexibleSchedule = paymentMethod !== "split-payment" && Math.random() < 0.5;
+    const exactDateRange = useFlexibleSchedule
+      ? null
+      : getRandomExactSearchDateRange(
+          new Date(),
+          useRandomProfile
+            ? {
+                minNights: 6,
+                maxNights: 180,
+                maxEndDate: new Date(new Date().getFullYear() + 1, 0, 31, 12, 0, 0, 0),
+                nightBuckets: [
+                  { min: 6, max: 30 },
+                  { min: 31, max: 90 },
+                  { min: 91, max: 180 }
+                ]
+              }
+            : undefined
+        );
     const guestProfile = useRandomProfile
       ? makeRandomGuestProfile(request)
       : { adultCount: 1, childCount: 0, infantCount: 0, petCount: 0 };
     const petInfoText = useRandomProfile && guestProfile.petCount > 0 ? pickRandomItem(PET_INFO_CANDIDATES) : "";
-    addStep(
-      steps,
-      useRandomProfile ? "정확한 일정 랜덤 장기 기간 결정" : "정확한 일정 랜덤 기간 결정",
-      "pass",
-      `${exactDateRange.label}${exactDateRange.nights ? ` (${exactDateRange.nights}박)` : ""}`
-    );
-
-    await selectExactDates(config, device, xml, store, steps, exactDateRange);
+    let scheduleSelection;
+    if (useFlexibleSchedule) {
+      const flexible = await selectFlexibleSchedule(config, device, xml, store, steps);
+      scheduleSelection = { type: "flexible", ...flexible };
+      addStep(steps, "계약 요청 일정 유형 랜덤 선택", "pass", `유연한 일정 / ${flexible.label}`);
+    } else {
+      addStep(
+        steps,
+        useRandomProfile ? "정확한 일정 랜덤 장기 기간 결정" : "정확한 일정 랜덤 기간 결정",
+        "pass",
+        `${exactDateRange.label}${exactDateRange.nights ? ` (${exactDateRange.nights}박)` : ""}`
+      );
+      await selectExactDates(config, device, xml, store, steps, exactDateRange);
+      scheduleSelection = { type: "exact", ...exactDateRange };
+    }
     xml = await waitForUi(config, device, isGuestScreen, 3500, 180);
     if (useRandomProfile) {
       await submitRandomProfileGuests(config, device, xml, store, steps, guestProfile);
@@ -2643,24 +2660,24 @@ async function runContractRequestTest({ request, config, store }) {
       await submitDefaultGuests(config, device, xml, store, steps);
     }
 
-    xml = await waitForUi(config, device, (nextXml) => isContractSearchResults(nextXml, exactDateRange), 20000);
+    xml = await waitForUi(config, device, (nextXml) => isContractSearchResults(nextXml, scheduleSelection), 20000);
     await saveArtifacts(config, device, store, "search-results", xml);
-    if (!isContractSearchResults(xml, exactDateRange)) {
+    if (!isContractSearchResults(xml, scheduleSelection)) {
       await saveFailureArtifacts(config, device, store, "search-results", xml);
       fail(
         "계약 요청용 검색 결과 목록 화면을 확인하지 못했습니다.",
         steps,
         [
-          `성공 기준은 '국내', '${exactDateRange.label}', 검색 결과 화면의 숙소 수/필터/정렬/지도 신호입니다.`,
-          "검색 결과가 '일주일 / 1명'이면 정확한 일정 선택 실패로 처리합니다.",
+          `성공 기준은 '국내', '${scheduleSelection.label}', 검색 결과 화면의 숙소 수/필터/정렬/지도 신호입니다.`,
+          `${useFlexibleSchedule ? "유연한" : "정확한"} 일정 선택값이 결과 조건에 유지되어야 합니다.`,
           "리포트의 search-results.png 화면을 확인해주세요."
         ]
       );
     }
     addStep(steps, "계약 요청용 검색 결과 목록 확인");
 
-    xml = await selectNewestSort(config, device, store, steps, xml, exactDateRange);
-    const openedListing = await openContractableListing(config, device, store, steps, exactDateRange);
+    xml = await selectNewestSort(config, device, store, steps, xml, scheduleSelection);
+    const openedListing = await openContractableListing(config, device, store, steps, scheduleSelection);
     const contractDetailXml = await tapContractCondition(config, device, store, steps, openedListing.detailXml);
     const submitOptions = {
       paymentMethod,
@@ -2672,8 +2689,8 @@ async function runContractRequestTest({ request, config, store }) {
     addStep(steps, "계약 요청 완료 후 홈 화면 확인");
 
     const splitRange = submitOptions.splitRange;
-    const contractStart = splitRange?.startIso || exactDateRange.startIso;
-    const contractEnd = splitRange?.endIso || exactDateRange.endIso;
+    const contractStart = splitRange?.startIso || exactDateRange?.startIso || "";
+    const contractEnd = splitRange?.endIso || exactDateRange?.endIso || "";
     const paymentMethodLabel =
       paymentMethod === "auto-card"
         ? "호스트 수락 즉시 자동 결제"
@@ -2695,10 +2712,17 @@ async function runContractRequestTest({ request, config, store }) {
       steps,
       contract_conditions: {
         region: "국내",
-        schedule_type: "정확한 일정",
-        start_date: contractStart,
-        end_date: contractEnd,
-        stay_nights: splitRange?.nights || exactDateRange.nights,
+        schedule_type: useFlexibleSchedule ? "유연한 일정" : "정확한 일정",
+        ...(useFlexibleSchedule
+          ? {
+              stay_duration: scheduleSelection.duration,
+              expected_move_in_months: [scheduleSelection.yearMonth]
+            }
+          : {
+              start_date: contractStart,
+              end_date: contractEnd,
+              stay_nights: splitRange?.nights || exactDateRange.nights
+            }),
         adult_count: guestProfile.adultCount,
         child_count: guestProfile.childCount,
         infant_count: guestProfile.infantCount,
@@ -2714,7 +2738,7 @@ async function runContractRequestTest({ request, config, store }) {
             ? {
                 status: "요청 중",
                 title: openedListing.title,
-                schedule: exactDateRange.label,
+                schedule: scheduleSelection.label,
                 guest: `성인 ${guestProfile.adultCount} · 어린이 ${guestProfile.childCount} · 유아 ${guestProfile.infantCount} · 반려동물 ${guestProfile.petCount}`
               }
             : null
