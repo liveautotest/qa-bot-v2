@@ -146,6 +146,7 @@ function parseSubmission(view) {
     validationItem,
     validationReady: item?.ready !== false,
     clientSupported: client !== "ios-app" || Boolean(item?.iosCommandTemplate),
+    clientLabel,
     displayTarget,
     commandText
   };
@@ -283,7 +284,7 @@ function registerValidationUiLab(app, { runQaCommand } = {}) {
             type: "section",
             text: {
               type: "mrkdwn",
-              text: `*검증을 시작했습니다.*\n검증 대상: ${submission.displayTarget}`
+              text: `*검증을 시작했습니다.*\n클라이언트: ${submission.clientLabel}\n검증 항목: ${submission.validationItem} ${submission.env}`
             }
           }
         ]
@@ -296,7 +297,8 @@ function registerValidationUiLab(app, { runQaCommand } = {}) {
         thread_ts: metadata.threadTs,
         text: [
           "검증 UI 실행 핸들러가 연결되지 않았습니다.",
-          `검증 대상: ${submission.displayTarget}`
+          `클라이언트: ${submission.clientLabel}`,
+          `검증 항목: ${submission.validationItem} ${submission.env}`
         ].join("\n")
       });
       return;
@@ -308,7 +310,8 @@ function registerValidationUiLab(app, { runQaCommand } = {}) {
         channel,
         text: [
           "검증 UI에서 선택한 항목으로 자동화를 시작합니다.",
-          `검증 대상: ${submission.displayTarget}`
+          `클라이언트: ${submission.clientLabel}`,
+          `검증 항목: ${submission.validationItem} ${submission.env}`
         ].join("\n")
       });
       threadTs = seed.ts;

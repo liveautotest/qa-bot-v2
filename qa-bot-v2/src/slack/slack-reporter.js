@@ -926,7 +926,7 @@ function formatJudgmentLines(result) {
     const titlePrefix = result.status === "pass" ? "[검증 완료]" : `[${judgment.status}]`;
     const lines = [
       `${titlePrefix} ${judgment.title}`,
-      `요청자: ${judgment.requester} / 환경: ${judgment.env} / 소요시간: ${judgment.duration}`,
+      `테스터: ${judgment.requester} / 환경: ${judgment.env} / 소요시간: ${judgment.duration}`,
       `run_id: ${judgment.runId}`
     ];
 
@@ -975,7 +975,7 @@ function formatJudgmentLines(result) {
   const titlePrefix = result.status === "pass" ? "[검증 완료]" : `[${judgment.status}]`;
   const lines = [
     `${titlePrefix} ${judgment.title}`,
-    `요청자: ${judgment.requester} / 환경: ${judgment.env} / 디바이스: ${judgment.device} / 소요시간: ${judgment.duration}`,
+    `테스터: ${judgment.requester} / 환경: ${judgment.env} / 디바이스: ${judgment.device} / 소요시간: ${judgment.duration}`,
     `run_id: ${judgment.runId}`
   ];
 

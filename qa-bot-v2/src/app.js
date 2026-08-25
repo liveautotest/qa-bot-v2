@@ -116,7 +116,7 @@ function formatProgressMessage(text = "") {
   }
 
   return [
-    "테스트를 시작했습니다.",
+    "자동화 테스트를 시작했습니다.",
     "완료되면 이 스레드에 결과를 남길게요."
   ].join("\n");
 }
@@ -131,7 +131,7 @@ function formatDelegatedProgressMessage(resultTarget, text = "", displayText = "
   }
 
   return [
-    "테스트를 시작했습니다.",
+    "자동화 테스트를 시작했습니다.",
     `결과는 ${resultTarget.label} 채널에 새 스레드로 남길게요.`
   ].join("\n");
 }
@@ -195,21 +195,21 @@ async function openResultThread({ client, resultTarget, sourceMessage }) {
         isConsoleDepositReturnCommand(sourceMessage.text)
           ? "보증금 반환 처리 진행중입니다. 잠시만 기다려주세요."
           : "일정 변경 진행중입니다. 잠시만 기다려주세요.",
-        `요청자: <@${sourceMessage.user}>`,
-        `검증 대상: ${displayText}`
+        `테스터: <@${sourceMessage.user}>`,
+        ...formatValidationMetadata(sourceMessage)
       ].join("\n")
       : isBuildInstallCommand(sourceMessage.text)
         ? [
           "빌드 설치중입니다.",
           "완료되면 이 스레드에 결과를 남길게요.",
-          `요청자: <@${sourceMessage.user}>`,
+          `테스터: <@${sourceMessage.user}>`,
           `설치 대상: ${displayText}`
         ].join("\n")
         : [
-        "테스트를 시작했습니다.",
+        "자동화 테스트를 시작했습니다.",
         "완료되면 이 스레드에 결과를 남길게요.",
-        `요청자: <@${sourceMessage.user}>`,
-        `검증 대상: ${displayText}`
+        `테스터: <@${sourceMessage.user}>`,
+        ...formatValidationMetadata(sourceMessage)
       ].join("\n")
   });
 
@@ -318,6 +318,25 @@ function formatCommandDisplayText(text = "") {
     return `${basicValidation[1]} ${basicValidation[2]}`;
   }
   return normalized;
+}
+
+function formatValidationMetadata(sourceMessage = {}) {
+  const text = normalizeCommandText(sourceMessage.text || "");
+  const displayText = sourceMessage.displayText || formatCommandDisplayText(text);
+  const structuredTarget = String(displayText).match(/^(Android APP|iOS APP|PC)\s*·\s*(.+)$/i);
+  const clientLabel = structuredTarget
+    ? structuredTarget[1].replace(/^ios$/i, "iOS")
+    : /\bios-/i.test(text)
+      ? "iOS APP"
+      : isConsoleScheduleChangeCommand(text) || isConsoleDepositReturnCommand(text)
+        ? "PC"
+        : "Android APP";
+  const validationItem = structuredTarget ? structuredTarget[2] : displayText;
+
+  return [
+    `클라이언트: ${clientLabel}`,
+    `검증 항목: ${validationItem}`
+  ];
 }
 
 function normalizeValidationSuccessResponse(text = "") {
@@ -442,7 +461,7 @@ async function main() {
       console.error("QA command failed before result message was posted:", error.stack || error.message);
       const failureText = [
         "[FAIL] QA 자동화 실행",
-        `검증 대상: ${message.displayText || formatCommandDisplayText(message.text || "")}`,
+        ...formatValidationMetadata(message),
         `실패 사유: ${error.message || error}`,
         "",
         "자동화 실행 중 예외가 발생해서 정상 결과 리포트를 만들지 못했습니다.",
@@ -550,6 +569,7 @@ if (require.main === module) {
 
 module.exports = {
   appendDashboardLink,
+  formatValidationMetadata,
   formatProgressMessage,
   main,
   resolveConfiguredResultChannel,
