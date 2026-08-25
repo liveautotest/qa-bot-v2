@@ -291,7 +291,7 @@ function shouldAutoApproveHostContract({ test, paymentMethod }, result) {
 function shouldAutoLoginAfterBuildInstall(test, result) {
   const installAction = result.build_install?.action;
   return (
-    test === "build-install" &&
+    (test === "build-install" || test === "ios-build-install") &&
     result.status === "pass" &&
     (
       ["new-install", "downgrade-reinstall"].includes(installAction) ||
@@ -429,9 +429,10 @@ async function runQaCommand(command, context) {
   const { result, formatted: formattedResult } = await runQaCommandWithPrerequisite(command, context);
 
   if (shouldAutoLoginAfterBuildInstall(test, result)) {
+    const isIosInstall = test === "ios-build-install";
     const loginResult = await runSingleQaCommand(
       {
-        test: "login",
+        test: isIosInstall ? "ios-login" : "login",
         env,
         role
       },
@@ -443,7 +444,7 @@ async function runQaCommand(command, context) {
       "",
       "-----",
       "",
-      `[연결 실행] ${role === "host" ? "호스트" : "게스트"} 로그인`,
+      `[연결 실행] ${isIosInstall ? "iOS " : ""}${role === "host" ? "호스트" : "게스트"} 로그인`,
       formatResult(loginResult)
     ].join("\n");
   }

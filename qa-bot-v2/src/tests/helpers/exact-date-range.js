@@ -61,15 +61,14 @@ function getRandomExactSearchDateRange(now = new Date(), options = {}) {
   const windowStart = new Date(year, 7, 1, 12, 0, 0, 0);
   const tomorrow = addDays(now, 1);
   const minStart = tomorrow > windowStart ? tomorrow : windowStart;
-  const maxStart = new Date(year, 7, 25, 12, 0, 0, 0);
-
-  if (minStart > maxStart) {
-    const cappedMaxNights = maxEndDate
-      ? Math.max(minNights, Math.min(maxNights, Math.floor((maxEndDate - windowStart) / 86400000)))
-      : Math.max(minNights, maxNights);
-    const nights = pickRandomNights(minNights, cappedMaxNights, nightBuckets);
-    return makeRange(windowStart, nights);
-  }
+  // 8월 후반에도 과거인 8월 1일로 돌아가지 않도록, 제한일이 있으면
+  // 제한일에서 최소 박수를 뺀 날까지를 체크인 후보로 사용한다.
+  const requestedMaxStart = maxEndDate
+    ? addDays(maxEndDate, -minNights)
+    : new Date(year, 7, 25, 12, 0, 0, 0);
+  const maxStart = requestedMaxStart >= minStart
+    ? requestedMaxStart
+    : minStart;
 
   const days = Math.floor((maxStart - minStart) / 86400000);
   const offset = Math.floor(Math.random() * (days + 1));

@@ -858,6 +858,22 @@ async function selectCalendarDate(config, device, store, steps, xml, date, stepN
 }
 
 async function selectExactDates(config, device, xml, store, steps, exactDateRange) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const checkin = new Date(exactDateRange.start);
+  checkin.setHours(0, 0, 0, 0);
+  if (checkin <= today) {
+    fail(
+      "검색용 체크인 날짜가 오늘 이후가 아닙니다.",
+      steps,
+      [
+        `생성된 체크인: ${formatDateIso(checkin)}`,
+        `기준일: ${formatDateIso(today)}`,
+        "과거 날짜는 앱 달력에서 탭이 전달되어도 선택되지 않으므로 검색을 진행하지 않습니다."
+      ]
+    );
+  }
+
   const scheduleTab = findNode(xml, "일정", { clickable: true });
   await tapNode(config, device, scheduleTab, "일정 탭", steps);
   addStep(steps, "일정 탭 진입");
