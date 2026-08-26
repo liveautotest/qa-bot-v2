@@ -191,6 +191,7 @@ function routeEntry({
   base = guestBaseUrl,
   signals = [],
   signalMatch = "any",
+  failureMessage,
   defaults = {},
   inputs = [],
   manual = false
@@ -216,6 +217,7 @@ function routeEntry({
       return { url: `${base(env)}${rendered}` };
     },
     expectedSignals: signals,
+    failureMessage,
     verify: (text) => signals.length > 0 && (signalMatch === "all" ? includesAll(text, signals) : includesAny(text, signals)),
     manual
   };
@@ -349,7 +351,10 @@ const GUEST_DEEP_LINK_CATALOG = [
     label: "로그인 화면(네이티브)",
     route: "/third-party-sign-up",
     signals: ["이메일 혹은 휴대폰 번호", "비밀번호"],
-    signalMatch: "all"
+    signalMatch: "all",
+    failureMessage: (text) => includesAny(text, ["로그인해 주세요", "회원가입 / 로그인하기"])
+      ? "로그인 입력 화면 대신 내 정보의 로그아웃 안내 화면으로 이동했습니다."
+      : "로그인 입력 화면으로 이동하지 않았습니다."
   }),
   deepRouteEntry({ id: "deep-guest-account", label: "프로필 화면", route: "/account", signals: ["프로필", "내 정보"] }),
   deepRouteEntry({ id: "deep-guest-notification-setting", label: "알림 설정 화면(네이티브)", route: "/notification/setting", signals: ["알림 설정", "알림"] }),
@@ -490,7 +495,9 @@ async function evaluateEntry(entry, target, pageText, screenshotPath) {
   }
   return {
     status: "fail",
-    message: entry.expectedSignals?.length
+    message: typeof entry.failureMessage === "function"
+      ? entry.failureMessage(pageText)
+      : entry.expectedSignals?.length
       ? `목표 화면 신호 미확인: ${entry.expectedSignals.join(" / ")}`
       : "목표 화면으로 이동한 증거를 확인하지 못했습니다."
   };
