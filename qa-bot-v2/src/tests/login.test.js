@@ -701,6 +701,52 @@ async function launchApp(config, device, appPackage, steps) {
   ]);
 }
 
+async function finishReusedSession({
+  config,
+  device,
+  env,
+  hostHomeOnly,
+  role,
+  sessionArtifact,
+  steps,
+  store
+}) {
+  addStep(steps, `기존 ${role} 로그인 세션 확인`);
+
+  if (role === "host") {
+    await verifyHostMode(config, device, store, steps, { hostHomeOnly });
+    addStep(steps, "호스트 로그인 완료 확인");
+  } else {
+    addStep(steps, "게스트 로그인 완료 확인");
+  }
+
+  const sessionLogs = role === "host"
+    ? [
+        sessionArtifact,
+        path.join(store.logsDir, "host-home.xml"),
+        path.join(store.logsDir, "host-my-info.xml"),
+        path.join(store.logsDir, "host-mode.xml"),
+        path.join(store.logsDir, "host-home-final.xml"),
+        path.join(store.logsDir, "host-contract.xml")
+      ]
+    : [sessionArtifact];
+
+  return {
+    test_id: "TC-LOGIN-001",
+    name: `${role} 로그인`,
+    env,
+    status: "pass",
+    device,
+    steps,
+    session_reused: true,
+    security_checks: sessionReuseSecurityChecks(),
+    artifacts: {
+      screenshots: [],
+      logs: existingPaths(sessionLogs)
+    }
+  };
+}
+
 async function recoverSystemUiAfterLaunch(config, device, appPackage, store, steps, xml) {
   if (!xml.includes('package="com.android.systemui"')) return xml;
 
@@ -800,6 +846,30 @@ async function runLoginTest({ request, config, store }) {
 
     await wakeAndUnlock(config, device, steps, store);
 
+    // 이미 대상 앱의 홈 화면에 있다면 앱을 종료하지 않고 현재 세션을 그대로 쓴다.
+    // 화면 덤프가 실패하거나 다른 화면이면 기존 재실행/로그인 복구 흐름으로 이어간다.
+    try {
+      const currentXml = await dumpUi(config, device);
+      const isTargetAppVisible = currentXml.includes(`package="${appPackage}"`);
+      if (isTargetAppVisible && isLoggedInHome(currentXml)) {
+        const currentSessionArtifact = path.join(store.logsDir, "current-session.xml");
+        fs.writeFileSync(currentSessionArtifact, currentXml);
+        addStep(steps, "현재 앱 화면 로그인 세션 재사용");
+        return await finishReusedSession({
+          config,
+          device,
+          env,
+          hostHomeOnly,
+          role,
+          sessionArtifact: currentSessionArtifact,
+          steps,
+          store
+        });
+      }
+    } catch (error) {
+      store.appendLog("runner.log", `current session check skipped: ${error.message}`);
+    }
+
     await launchApp(config, device, appPackage, steps);
 
     await new Promise((resolve) => setTimeout(resolve, 2500));
@@ -833,41 +903,16 @@ async function runLoginTest({ request, config, store }) {
     }
 
     if (isLoggedInHome(xml)) {
-      addStep(steps, `기존 ${role} 로그인 세션 확인`);
-
-      if (role === "host") {
-        await verifyHostMode(config, device, store, steps, { hostHomeOnly });
-        addStep(steps, "호스트 로그인 완료 확인");
-      } else {
-        addStep(steps, "게스트 로그인 완료 확인");
-      }
-
-      const sessionLogs =
-        role === "host"
-          ? [
-              path.join(store.logsDir, "after-launch.xml"),
-              path.join(store.logsDir, "host-home.xml"),
-              path.join(store.logsDir, "host-my-info.xml"),
-              path.join(store.logsDir, "host-mode.xml"),
-              path.join(store.logsDir, "host-home-final.xml"),
-              path.join(store.logsDir, "host-contract.xml")
-            ]
-          : [path.join(store.logsDir, "after-launch.xml")];
-
-      return {
-        test_id: "TC-LOGIN-001",
-        name: `${role} 로그인`,
-        env,
-        status: "pass",
+      return finishReusedSession({
+        config,
         device,
+        env,
+        hostHomeOnly,
+        role,
+        sessionArtifact: path.join(store.logsDir, "after-launch.xml"),
         steps,
-        session_reused: true,
-        security_checks: sessionReuseSecurityChecks(),
-        artifacts: {
-          screenshots: [],
-          logs: existingPaths(sessionLogs)
-        }
-      };
+        store
+      });
     }
 
     if (!(isStillOnLoginForm(xml) && findEditableNodes(xml).length >= 2)) {

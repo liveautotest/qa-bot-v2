@@ -131,6 +131,29 @@ async function runIosLoginTest({ request, config, store }) {
       sessionId = await createSession(wdaUrl, bundleId);
       addStep(steps, "WDA 세션 생성", "pass", wdaUrl);
 
+      // 대상 앱이 이미 홈 화면에 열려 있으면 launch API를 호출하지 않고 세션을 재사용한다.
+      // 현재 화면을 읽을 수 없거나 홈이 아니면 아래의 기존 앱 실행/로그인 복구를 수행한다.
+      try {
+        const currentNodes = await dumpNodes(wdaUrl, sessionId);
+        if (isLoggedInHome(currentNodes)) {
+          addStep(steps, "현재 iOS 앱 화면 로그인 세션 재사용");
+          addStep(steps, `기존 ${role} 로그인 세션 확인`);
+          return {
+            test_id: "TC-IOS-LOGIN-001",
+            name: `iOS ${role} 로그인`,
+            env,
+            status: "pass",
+            device: wdaUrl,
+            steps,
+            session_reused: true,
+            artifacts: { screenshots: [], logs: [] }
+          };
+        }
+      } catch (error) {
+        // 빠른 확인 실패는 로그인 실패가 아니다. 기존 복구 흐름이 앱을 실행해 다시 판정한다.
+        store.appendLog("runner.log", `current iOS session check skipped: ${error.message}`);
+      }
+
       await launchApp(wdaUrl, sessionId, bundleId);
       addStep(steps, "iOS 앱 실행", "pass", bundleId);
       await new Promise((resolve) => setTimeout(resolve, 2500));
