@@ -18,7 +18,7 @@ async function main() {
   const args = parseArgs(rest);
 
   if (!testName) {
-    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|ios-login|ios-search|ios-search-flexible|ios-contract-request|ios-contract-cancel-request|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|toss-deposit-approve|console-schedule-change|console-deposit-return|build-install|ios-build-install> --env=staging --role=guest");
+    throw new Error("Usage: node src/cli.js <login|logout|search|search-flexible|universal-link|deep-link|ios-login|ios-search|ios-search-flexible|ios-contract-request|ios-contract-cancel-request|contract-request|contract-cancel-request|contract-cancel-confirmed|contract-extension|contract-extension-approve|contract-approve|contract-reject|contract-payment|toss-deposit-approve|console-schedule-change|console-deposit-return|build-install|ios-build-install> --env=staging --role=guest");
   }
 
   const hostDefaultTests = new Set(["contract-approve", "contract-reject", "contract-extension-approve"]);
@@ -27,6 +27,8 @@ async function main() {
     test: testName,
     env: args.env || (testName === "toss-deposit-approve" ? "toss" : "staging"),
     role: args.role || (testName === "toss-deposit-approve" || testName === "console-schedule-change" || testName === "console-deposit-return" ? "admin" : hostDefaultTests.has(testName) ? "host" : "guest"),
+    platform: args.platform,
+    link_id: args.link_id,
     payment_method: args.method || args.payment_method,
     split_start: args.split_start,
     split_end: args.split_end,

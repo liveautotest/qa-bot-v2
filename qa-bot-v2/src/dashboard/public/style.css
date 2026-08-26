@@ -474,6 +474,16 @@
     accent-color:var(--bad);
   }
 
+  .runner-columns{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;}
+  .runner-column{flex:1;min-width:320px;max-width:420px;}
+  .runner-column-title{
+    font-size:12px;
+    font-weight:600;
+    color:var(--text);
+    margin:0 0 8px;
+    text-transform:uppercase;
+    letter-spacing:0.03em;
+  }
   .runner-card{
     background:var(--card);
     border:1px solid var(--line);
@@ -519,6 +529,20 @@
     cursor:pointer;
   }
   .platform-btn.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .ulink-btn{
+    flex:1;
+    padding:9px 0;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:#fff;
+    color:var(--text-mute);
+    font-size:13px;
+    font-weight:500;
+    font-family:'IBM Plex Sans KR','IBM Plex Sans',sans-serif;
+    cursor:pointer;
+  }
+  .ulink-btn.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .ulink-btn:disabled{opacity:.4;cursor:not-allowed;}
   .runner-field select:disabled{background:var(--off-bg);color:var(--text-mute);}
 
   /* ===== 반응형 (좁은 화면 / 모바일) ===== */

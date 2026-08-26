@@ -32,13 +32,15 @@ const {
   runIosContractRequestTest
 } = require("../tests/ios-contract.test");
 const { runConversationalSearchTest } = require("../tests/conversational-search.test");
-
+const { runDeepLinkTest, runUniversalLinkTest } = require("../tests/universal-link.test");
 const registry = {
   login: runLoginTest,
   logout: runLogoutTest,
   search: runSearchTest,
   "search-flexible": runFlexibleSearchTest,
   "conversational-search": runConversationalSearchTest,
+  "deep-link": runDeepLinkTest,
+  "universal-link": runUniversalLinkTest,
   "contract-approve": runContractApproveTest,
   "contract-reject": runContractRejectTest,
   "contract-cancel-confirmed": runContractCancelConfirmedTest,

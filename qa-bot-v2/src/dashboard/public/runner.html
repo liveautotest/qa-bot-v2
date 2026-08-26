@@ -30,43 +30,138 @@
     </div>
   </div>
 
-  <div class="runner-card">
-    <div class="runner-field">
-      <label>플랫폼</label>
-      <div class="platform-toggle">
-        <button type="button" class="platform-btn active" data-platform="android">Android</button>
-        <button type="button" class="platform-btn" data-platform="ios">iOS</button>
+  <div class="runner-columns">
+    <div class="runner-column">
+      <p class="runner-column-title">APP 검증</p>
+      <div class="runner-card">
+        <div class="runner-field">
+          <label>플랫폼</label>
+          <div class="platform-toggle">
+            <button type="button" class="platform-btn active" data-platform="android">Android</button>
+            <button type="button" class="platform-btn" data-platform="ios">iOS</button>
+          </div>
+        </div>
+
+        <div class="runner-field">
+          <label for="test-select">테스트 항목</label>
+          <select id="test-select"></select>
+        </div>
+
+        <div class="runner-field">
+          <label for="role-select">역할</label>
+          <select id="role-select">
+            <option value="guest">게스트 (guest)</option>
+            <option value="host">호스트 (host)</option>
+            <option value="admin">어드민 (admin)</option>
+          </select>
+        </div>
+
+        <div class="runner-field">
+          <label for="env-select">환경</label>
+          <select id="env-select">
+            <option value="stg">stg (staging)</option>
+            <option value="dev">dev</option>
+            <option value="prod">prod</option>
+          </select>
+        </div>
+
+        <div id="extra-fields"></div>
+
+        <button id="run-btn" class="load-more" style="width:auto;padding:10px 24px;margin-top:6px;">▶ 실행</button>
+
+        <div id="run-status"></div>
       </div>
     </div>
 
-    <div class="runner-field">
-      <label for="test-select">테스트 항목</label>
-      <select id="test-select"></select>
+    <div class="runner-column">
+      <p class="runner-column-title">유니버설 링크 검증</p>
+      <div class="runner-card">
+        <div class="runner-field">
+          <label>플랫폼</label>
+          <div class="platform-toggle">
+            <button type="button" class="ulink-btn active" data-ulink-platform="android">Android</button>
+            <button type="button" class="ulink-btn" data-ulink-platform="ios">iOS</button>
+          </div>
+        </div>
+
+        <div class="runner-field">
+          <label>링크 세트 (역할)</label>
+          <div class="platform-toggle">
+            <button type="button" class="ulink-btn active" data-ulink-role="guest">게스트</button>
+            <button type="button" class="ulink-btn" data-ulink-role="host" disabled title="호스트 유니버설 링크 검증은 준비 중입니다.">호스트 (준비중)</button>
+          </div>
+        </div>
+
+        <div class="runner-field">
+          <label for="ulink-env-select">환경</label>
+          <select id="ulink-env-select">
+            <option value="stg">stg (staging)</option>
+          </select>
+        </div>
+
+        <div class="runner-field">
+          <label>테스트 범위</label>
+          <div class="platform-toggle">
+            <button type="button" class="ulink-btn active" data-ulink-scope="all">전체</button>
+            <button type="button" class="ulink-btn" data-ulink-scope="single">개별 선택</button>
+          </div>
+        </div>
+
+        <div class="runner-field" id="ulink-single-field" style="display:none;">
+          <label for="ulink-link-select">링크 선택</label>
+          <select id="ulink-link-select"></select>
+        </div>
+
+        <button id="ulink-run-btn" class="load-more" style="width:auto;padding:10px 24px;margin-top:6px;">▶ 실행</button>
+
+        <div id="ulink-run-status"></div>
+      </div>
     </div>
 
-    <div class="runner-field">
-      <label for="role-select">역할</label>
-      <select id="role-select">
-        <option value="guest">게스트 (guest)</option>
-        <option value="host">호스트 (host)</option>
-        <option value="admin">어드민 (admin)</option>
-      </select>
+    <div class="runner-column">
+      <p class="runner-column-title">딥링크 검증</p>
+      <div class="runner-card">
+        <div class="runner-field">
+          <label>플랫폼</label>
+          <div class="platform-toggle">
+            <button type="button" class="ulink-btn active" data-dlink-platform="android">Android</button>
+            <button type="button" class="ulink-btn" data-dlink-platform="ios">iOS</button>
+          </div>
+        </div>
+
+        <div class="runner-field">
+          <label>링크 세트 (역할)</label>
+          <div class="platform-toggle">
+            <button type="button" class="ulink-btn active" data-dlink-role="guest">게스트</button>
+            <button type="button" class="ulink-btn" data-dlink-role="host">호스트</button>
+          </div>
+        </div>
+
+        <div class="runner-field">
+          <label for="dlink-env-select">환경</label>
+          <select id="dlink-env-select">
+            <option value="stg">stg (staging)</option>
+          </select>
+        </div>
+
+        <div class="runner-field">
+          <label>테스트 범위</label>
+          <div class="platform-toggle">
+            <button type="button" class="ulink-btn active" data-dlink-scope="all">전체</button>
+            <button type="button" class="ulink-btn" data-dlink-scope="single">개별 선택</button>
+          </div>
+        </div>
+
+        <div class="runner-field" id="dlink-single-field" style="display:none;">
+          <label for="dlink-link-select">링크 선택</label>
+          <select id="dlink-link-select"></select>
+        </div>
+
+        <button id="dlink-run-btn" class="load-more" style="width:auto;padding:10px 24px;margin-top:6px;">▶ 실행</button>
+
+        <div id="dlink-run-status"></div>
+      </div>
     </div>
-
-    <div class="runner-field">
-      <label for="env-select">환경</label>
-      <select id="env-select">
-        <option value="stg">stg (staging)</option>
-        <option value="dev">dev</option>
-        <option value="prod">prod</option>
-      </select>
-    </div>
-
-    <div id="extra-fields"></div>
-
-    <button id="run-btn" class="load-more" style="width:auto;padding:10px 24px;margin-top:6px;">▶ 실행</button>
-
-    <div id="run-status"></div>
   </div>
 </div>
 

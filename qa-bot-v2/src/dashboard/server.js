@@ -86,20 +86,21 @@ function readJsonBody(req) {
   });
 }
 
-async function postDashboardStartMessage(testId, platform, role, config) {
-  if (!config.slackBotToken || !config.slackTestResultChannel) return null;
+async function postDashboardStartMessage(testId, platform, role, config, labelOverride, channelOverride) {
+  const channel = channelOverride || config.slackTestResultChannel;
+  if (!config.slackBotToken || !channel) return null;
 
   const test = TEST_CATALOG.find((t) => t.id === testId);
   const clientLabel =
     platform === "ios" ? "iOS APP" : platform === "android" ? "Android APP" : test?.platform === "ios" ? "iOS APP" : test?.platform === "android" ? "Android APP" : "Android APP / iOS APP";
   const roleLabel = { guest: "게스트", host: "호스트", admin: "어드민" }[role] || role;
-  const validationItem = `${roleLabel} ${test?.label || testId}`;
+  const validationItem = labelOverride || `${roleLabel} ${test?.label || testId}`;
 
   try {
     const { WebClient } = require("@slack/web-api");
     const client = new WebClient(config.slackBotToken, { retryConfig: { retries: 1 } });
     const posted = await client.chat.postMessage({
-      channel: config.slackTestResultChannel,
+      channel,
       text: [
         "자동화 테스트를 시작했습니다.",
         "완료되면 이 스레드에 결과를 남길게요.",
@@ -108,15 +109,16 @@ async function postDashboardStartMessage(testId, platform, role, config) {
         `검증 항목: ${validationItem}`
       ].join("\n")
     });
-    return { channel: config.slackTestResultChannel, threadTs: posted.ts };
+    return { channel, threadTs: posted.ts };
   } catch (error) {
     console.warn("대시보드 시작 알림 전송 실패:", error.message);
     return null;
   }
 }
 
-async function postDashboardResultToSlack(result, config, thread) {
-  if (!result || !config.slackBotToken || !config.slackTestResultChannel) return;
+async function postDashboardResultToSlack(result, config, thread, channelOverride) {
+  const channel = thread?.channel || channelOverride || config.slackTestResultChannel;
+  if (!result || !config.slackBotToken || !channel) return;
 
   let formatResult;
   try {
@@ -129,9 +131,14 @@ async function postDashboardResultToSlack(result, config, thread) {
   try {
     const { WebClient } = require("@slack/web-api");
     const client = new WebClient(config.slackBotToken, { retryConfig: { retries: 1 } });
+    const publicUrl = String(config.dashboard?.publicUrl || "").trim().replace(/\/$/, "");
+    const resultText = formatResult(result);
+    const text = publicUrl
+      ? `${resultText}\n\n<${publicUrl}/runs.html|실행 결과 확인>`
+      : resultText;
     await client.chat.postMessage({
-      channel: thread?.channel || config.slackTestResultChannel,
-      text: formatResult(result),
+      channel,
+      text,
       thread_ts: thread?.threadTs
     });
   } catch (error) {
@@ -335,6 +342,199 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/universal-link-catalog" && req.method === "GET") {
+      try {
+        const {
+          GUEST_LINK_CATALOG,
+          HOST_LINK_CATALOG
+        } = require("../tests/universal-link.test");
+        sendJson(res, 200, {
+          guest: GUEST_LINK_CATALOG.map((entry) => ({ id: entry.id, label: entry.label })),
+          host: HOST_LINK_CATALOG.map((entry) => ({ id: entry.id, label: entry.label }))
+        });
+      } catch (error) {
+        sendJson(res, 500, { error: "유니버설 링크 카탈로그를 불러오지 못했습니다." });
+      }
+      return;
+    }
+
+    if (pathname === "/api/deep-link-catalog" && req.method === "GET") {
+      try {
+        const {
+          GUEST_DEEP_LINK_CATALOG,
+          HOST_DEEP_LINK_CATALOG
+        } = require("../tests/universal-link.test");
+        sendJson(res, 200, {
+          guest: GUEST_DEEP_LINK_CATALOG.map((entry) => ({ id: entry.id, label: entry.label })),
+          host: HOST_DEEP_LINK_CATALOG.map((entry) => ({ id: entry.id, label: entry.label }))
+        });
+      } catch (error) {
+        sendJson(res, 500, { error: "딥링크 카탈로그를 불러오지 못했습니다." });
+      }
+      return;
+    }
+
+    if (pathname === "/api/run-universal-link" && req.method === "POST") {
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch (error) {
+        sendJson(res, 400, { error: error.message });
+        return;
+      }
+
+      const env = body.env || "stg";
+      const role = body.role || "guest";
+      const platform = body.platform || "android";
+      const linkId = body.link_id || undefined;
+
+      if (env !== "stg") {
+        sendJson(res, 400, { error: "현재 유니버설 링크 검증은 stg 환경만 지원합니다." });
+        return;
+      }
+      if (!["guest", "host"].includes(role)) {
+        sendJson(res, 400, { error: "유니버설 링크 역할은 guest 또는 host여야 합니다." });
+        return;
+      }
+      if (role === "host") {
+        sendJson(res, 400, { error: "호스트 유니버설 링크 검증은 현재 준비 중입니다." });
+        return;
+      }
+      if (!["android", "ios"].includes(platform)) {
+        sendJson(res, 400, { error: "유니버설 링크 플랫폼은 android 또는 ios여야 합니다." });
+        return;
+      }
+
+      let runTest;
+      try {
+        runTest = require("../orchestrator/run-test").runTest;
+      } catch (error) {
+        console.error("테스트 실행 모듈 로드 실패:", error.message);
+        sendJson(res, 500, {
+          error: "테스트 실행 모듈을 불러오지 못했습니다. 이 서버에 전체 의존성(npm install)이 설치되어 있는지 확인해주세요."
+        });
+        return;
+      }
+
+      const { GUEST_LINK_CATALOG } = require("../tests/universal-link.test");
+      const selectedLabel = linkId
+        ? GUEST_LINK_CATALOG.find((entry) => entry.id === linkId)?.label
+        : "게스트 유니버설 링크 전체";
+
+      const request = {
+        test: "universal-link",
+        env,
+        role,
+        platform,
+        link_id: linkId,
+        display_name: selectedLabel || "게스트 유니버설 링크",
+        requested_by: "dashboard",
+        source: "dashboard"
+      };
+
+      (async () => {
+        const resultChannel = config.slackResultChannel || config.slackTestResultChannel;
+        const threadPromise = postDashboardStartMessage(
+          "universal-link",
+          platform,
+          role,
+          config,
+          selectedLabel || "게스트 유니버설 링크",
+          resultChannel
+        );
+        try {
+          const result = await runTest(request, config);
+          await postDashboardResultToSlack(result, config, await threadPromise, resultChannel);
+        } catch (error) {
+          console.error("[대시보드 유니버설 링크 실행 실패]", error.message);
+        }
+      })();
+
+      sendJson(res, 202, { started: true });
+      return;
+    }
+
+    if (pathname === "/api/run-deep-link" && req.method === "POST") {
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch (error) {
+        sendJson(res, 400, { error: error.message });
+        return;
+      }
+
+      const env = body.env || "stg";
+      const role = body.role || "guest";
+      const platform = body.platform || "android";
+      const linkId = body.link_id || undefined;
+
+      if (env !== "stg") {
+        sendJson(res, 400, { error: "현재 딥링크 검증은 stg 환경만 지원합니다." });
+        return;
+      }
+      if (!["guest", "host"].includes(role)) {
+        sendJson(res, 400, { error: "딥링크 역할은 guest 또는 host여야 합니다." });
+        return;
+      }
+      if (!["android", "ios"].includes(platform)) {
+        sendJson(res, 400, { error: "딥링크 플랫폼은 android 또는 ios여야 합니다." });
+        return;
+      }
+
+      let runTest;
+      try {
+        runTest = require("../orchestrator/run-test").runTest;
+      } catch (error) {
+        console.error("테스트 실행 모듈 로드 실패:", error.message);
+        sendJson(res, 500, {
+          error: "테스트 실행 모듈을 불러오지 못했습니다. 이 서버에 전체 의존성(npm install)이 설치되어 있는지 확인해주세요."
+        });
+        return;
+      }
+
+      const {
+        GUEST_DEEP_LINK_CATALOG,
+        HOST_DEEP_LINK_CATALOG
+      } = require("../tests/universal-link.test");
+      const roleLabel = role === "host" ? "호스트" : "게스트";
+      const selectedCatalog = role === "host" ? HOST_DEEP_LINK_CATALOG : GUEST_DEEP_LINK_CATALOG;
+      const selectedLabel = linkId
+        ? selectedCatalog.find((entry) => entry.id === linkId)?.label
+        : `${roleLabel} 딥링크 전체`;
+
+      const request = {
+        test: "deep-link",
+        env,
+        role,
+        platform,
+        link_id: linkId,
+        display_name: selectedLabel || `${roleLabel} 딥링크`,
+        requested_by: "dashboard",
+        source: "dashboard"
+      };
+
+      (async () => {
+        const resultChannel = config.slackResultChannel || config.slackTestResultChannel;
+        const threadPromise = postDashboardStartMessage(
+          "deep-link",
+          platform,
+          role,
+          config,
+          selectedLabel || `${roleLabel} 딥링크`,
+          resultChannel
+        );
+        try {
+          const result = await runTest(request, config);
+          await postDashboardResultToSlack(result, config, await threadPromise, resultChannel);
+        } catch (error) {
+          console.error("[대시보드 딥링크 실행 실패]", error.message);
+        }
+      })();
+
+      sendJson(res, 202, { started: true });
+      return;
+    }
+
     if (pathname === "/api/run-test" && req.method === "POST") {
       let body;
       try {
@@ -533,6 +733,7 @@ const server = http.createServer(async (req, res) => {
         run_id: run.run_id,
         name: run.name,
         test_id: run.test_id,
+        platform: run.platform || platformOfTestId(run.test_id),
         env: run.env,
         role: run.role,
         device: run.device,

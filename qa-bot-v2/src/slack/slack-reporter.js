@@ -461,6 +461,15 @@ function formatAppBuild(build) {
 function formatResultConditionSummary(result) {
   const lines = [];
 
+  const linkSummary = result.universal_link_summary || result.deep_link_summary;
+  if (linkSummary?.link_results?.length) {
+    const linkType = result.universal_link_summary ? "유니버설 링크" : "딥링크";
+    lines.push(`- 테스트한 ${linkType}: ${linkSummary.link_results.length}개`);
+    for (const link of linkSummary.link_results) {
+      lines.push(`- ${link.label}: ${link.url || "-"}`);
+    }
+  }
+
   if (result.search) {
     const search = result.search;
     lines.push(`- 지역: ${search.region || "-"}`);
@@ -865,7 +874,9 @@ function buildResultJudgment(result) {
   const status = String(result.status || "unknown").toUpperCase();
   const passSummary = formatPassSummary(result).map((line) => line.replace(/^- /, ""));
   const figmaSummary = formatFigmaValidationSummary(result.figma_validation);
-  const conditionLimit = result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001" ||
+  const conditionLimit = String(result.test_id || "").includes("-LINK-")
+    ? 80
+    : result.test_id === "TC-CONSOLE-SCHEDULE-CHANGE-001" ||
     result.test_id === "TC-CONSOLE-DEPOSIT-RETURN-001" ||
     result.test_id === "TC-BUILD-INSTALL-001"
     ? 10

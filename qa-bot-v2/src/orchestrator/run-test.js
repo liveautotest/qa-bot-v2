@@ -12,6 +12,7 @@ function getAndroidPostTestTarget(request, config) {
   if (request.test === "console-schedule-change") return null;
   if (request.test === "console-deposit-return") return null;
   if (request.test === "build-install") return null;
+  if (request.platform === "ios") return null;
   if (String(request.test || "").startsWith("ios-")) return null;
   if (request.env === "api" || request.env === "toss") return null;
 
@@ -99,6 +100,7 @@ async function runTest(request, config) {
       store.request.test === "console-schedule-change" ||
       store.request.test === "console-deposit-return" ||
       store.request.test === "build-install" ||
+      store.request.platform === "ios" ||
       String(store.request.test || "").startsWith("ios-")
       ? {
         status: "skipped",
@@ -154,6 +156,8 @@ async function runTest(request, config) {
       search: "TC-SEARCH-001",
       "search-flexible": "TC-SEARCH-002",
       "conversational-search": "TC-CONVERSATIONAL-SEARCH-001",
+      "deep-link": "TC-DEEP-LINK-001",
+      "universal-link": "TC-UNIVERSAL-LINK-001",
       "contract-request": "TC-CONTRACT-001",
       "contract-approve": "TC-CONTRACT-APPROVE-001",
       "contract-reject": "TC-CONTRACT-REJECT-001",
@@ -186,6 +190,8 @@ async function runTest(request, config) {
       search: "정확한 일정 검색",
       "search-flexible": "유연한 일정 검색",
       "conversational-search": "대화형 검색",
+      "deep-link": "딥링크",
+      "universal-link": "유니버설 링크",
       "contract-request": "계약 요청",
       "contract-approve": "계약 승인",
       "contract-reject": "계약 요청 거절",
@@ -214,19 +220,25 @@ async function runTest(request, config) {
     };
     const finalResult = {
       run_id: store.runId,
-      test_id: testIds[request.test] || "TC-UNKNOWN",
-      name: testNames[request.test]
+      test_id: ["universal-link", "deep-link"].includes(request.test) && request.platform === "ios"
+        ? request.test === "deep-link" ? "TC-IOS-DEEP-LINK-001" : "TC-IOS-UNIVERSAL-LINK-001"
+        : testIds[request.test] || "TC-UNKNOWN",
+      name: ["universal-link", "deep-link"].includes(request.test)
+        ? request.display_name || `${role === "host" ? "호스트" : "게스트"} ${testNames[request.test]}`
+        : testNames[request.test]
         ? (String(request.test).startsWith("ios-")
             ? testNames[request.test].replace(/^iOS\s+/, `iOS ${role} `)
             : `${role} ${testNames[request.test]}`)
         : request.test,
       env: request.env,
       status: "fail",
+      platform: request.platform,
+      role,
       device: request.test === "toss-deposit-approve" ||
         request.test === "console-schedule-change" ||
         request.test === "console-deposit-return"
         ? "browser"
-        : String(request.test || "").startsWith("ios-")
+        : request.platform === "ios" || String(request.test || "").startsWith("ios-")
           ? (config.appBuild && config.appBuild.ios && config.appBuild.ios.devices && config.appBuild.ios.devices[role]) || "unknown"
           : config.devices && config.devices[role] ? config.devices[role] : "unknown",
       duration_ms: Date.now() - startedAt,

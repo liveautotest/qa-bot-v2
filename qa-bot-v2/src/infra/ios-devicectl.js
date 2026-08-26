@@ -36,6 +36,19 @@ async function installApp(deviceId, appBundlePath) {
   return runDevicectl(["device", "install", "app", "--device", deviceId, appBundlePath]);
 }
 
+async function launchAppWithUrl(deviceId, bundleId, url) {
+  return runDevicectl([
+    "device",
+    "process",
+    "launch",
+    "--device",
+    deviceId,
+    "--payload-url",
+    url,
+    bundleId
+  ]);
+}
+
 async function uninstallApp(deviceId, bundleId) {
   // 검증 필요: devicectl의 실제 uninstall 서브커맨드 문법과 다를 수 있음.
   return runDevicectl(["device", "uninstall", "app", "--device", deviceId, bundleId]);
@@ -76,5 +89,6 @@ async function getInstalledAppVersion(deviceId, bundleId) {
 module.exports = {
   getInstalledAppVersion,
   installApp,
+  launchAppWithUrl,
   uninstallApp
 };
