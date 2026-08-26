@@ -7,6 +7,7 @@ const {
   releaseSession,
   getAlertText,
   launchApp,
+  terminateApp,
   typeText
 } = require("../infra/ios-wda");
 const {
@@ -131,28 +132,9 @@ async function runIosLoginTest({ request, config, store }) {
       sessionId = await createSession(wdaUrl, bundleId);
       addStep(steps, "WDA 세션 생성", "pass", wdaUrl);
 
-      // 대상 앱이 이미 홈 화면에 열려 있으면 launch API를 호출하지 않고 세션을 재사용한다.
-      // 현재 화면을 읽을 수 없거나 홈이 아니면 아래의 기존 앱 실행/로그인 복구를 수행한다.
-      try {
-        const currentNodes = await dumpNodes(wdaUrl, sessionId);
-        if (isLoggedInHome(currentNodes)) {
-          addStep(steps, "현재 iOS 앱 화면 로그인 세션 재사용");
-          addStep(steps, `기존 ${role} 로그인 세션 확인`);
-          return {
-            test_id: "TC-IOS-LOGIN-001",
-            name: `iOS ${role} 로그인`,
-            env,
-            status: "pass",
-            device: wdaUrl,
-            steps,
-            session_reused: true,
-            artifacts: { screenshots: [], logs: [] }
-          };
-        }
-      } catch (error) {
-        // 빠른 확인 실패는 로그인 실패가 아니다. 기존 복구 흐름이 앱을 실행해 다시 판정한다.
-        store.appendLog("runner.log", `current iOS session check skipped: ${error.message}`);
-      }
+      await terminateApp(wdaUrl, sessionId, bundleId);
+      addStep(steps, "iOS 앱 완전 종료");
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       await launchApp(wdaUrl, sessionId, bundleId);
       addStep(steps, "iOS 앱 실행", "pass", bundleId);
@@ -187,20 +169,6 @@ async function runIosLoginTest({ request, config, store }) {
       }
 
       let nodes = await dumpNodes(wdaUrl, sessionId);
-
-      if (isLoggedInHome(nodes)) {
-        addStep(steps, `기존 ${role} 로그인 세션 확인`);
-        return {
-          test_id: "TC-IOS-LOGIN-001",
-          name: `iOS ${role} 로그인`,
-          env,
-          status: "pass",
-          device: wdaUrl,
-          steps,
-          session_reused: true,
-          artifacts: { screenshots: [], logs: [] }
-        };
-      }
 
       if (!isLoginEntryScreen(nodes)) {
         nodes = await waitForNodes(wdaUrl, sessionId, isLoginEntryScreen, 10000);
@@ -265,6 +233,36 @@ async function runIosLoginTest({ request, config, store }) {
           steps,
           [`리포트의 ${path.basename(artifacts.screenshotPath)} 화면을 확인해주세요.`]
         );
+      }
+
+      if (role === "guest") {
+        // 하단 탭 문구("홈"/"탐색"/"채팅"/"내 정보")는 로그인 여부와 무관하게 항상 보이므로,
+        // 실제로 "내 정보" 탭에 들어가서 "OOO님, 환영합니다!" 문구가 있는지까지 확인해야
+        // 진짜 로그인 성공으로 판단할 수 있다.
+        const myInfoTab = findNode(nodes, ["내 정보"], { visible: true });
+        if (myInfoTab) {
+          await tapNode(wdaUrl, sessionId, myInfoTab, "내 정보 탭", steps);
+          const myInfoNodes = await waitForNodes(
+            wdaUrl,
+            sessionId,
+            (candidateNodes) =>
+              !!findNode(candidateNodes, ["환영합니다"], { visible: true }) ||
+              !!findNode(candidateNodes, ["로그인해주세요"], { visible: true }),
+            6000
+          );
+          const isActuallyLoggedIn = !!findNode(myInfoNodes, ["환영합니다"], { visible: true });
+
+          if (!isActuallyLoggedIn) {
+            const artifacts = await saveFailureArtifacts(wdaUrl, sessionId, store, "login-my-info", myInfoNodes);
+            fail(
+              "로그인 제출 후 '내 정보' 화면에서 환영 문구를 확인하지 못했습니다.",
+              steps,
+              [`리포트의 ${path.basename(artifacts.screenshotPath)} 화면을 확인해주세요.`]
+            );
+          }
+
+          addStep(steps, "'내 정보' 화면에서 로그인 완료 확인");
+        }
       }
 
       addStep(steps, "로그인 완료 확인");

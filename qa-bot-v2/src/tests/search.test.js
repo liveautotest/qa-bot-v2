@@ -718,6 +718,7 @@ async function runSearchTest({ request, config, store }) {
     let xml = await openSearchConditionAfterLaunch(config, device, store, steps);
 
     if (!isSearchConditionScreen(xml) && !hasHomeSearchBar(xml)) {
+      await saveArtifacts(config, device, store, "search-home", xml, { screenshot: true });
       fail(
         "앱 재실행 후 홈 검색바를 확인하지 못했습니다.",
         steps,
@@ -874,6 +875,7 @@ async function runFlexibleSearchTest({ request, config, store }) {
     let xml = await openSearchConditionAfterLaunch(config, device, store, steps);
 
     if (!isSearchConditionScreen(xml) && !hasHomeSearchBar(xml)) {
+      await saveArtifacts(config, device, store, "search-home", xml, { screenshot: true });
       fail(
         "앱 재실행 후 홈 검색바를 확인하지 못했습니다.",
         steps,

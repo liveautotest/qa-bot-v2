@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Ops — 테스트 실행</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="sidebar">
+  <p class="brand">QA Ops</p>
+  <p class="brand-sub">liveanywhere / ops</p>
+  <a class="nav-item" href="/index.html"><span class="nav-dot"></span>대시보드</a>
+  <a class="nav-item" href="/devices.html"><span class="nav-dot"></span>단말 관리</a>
+  <a class="nav-item" href="/runs.html"><span class="nav-dot"></span>실행 기록</a>
+  <a class="nav-item" href="/builds.html"><span class="nav-dot"></span>빌드 이력</a>
+  <a class="nav-item" href="/screenshots.html"><span class="nav-dot"></span>실패 스크린샷</a>
+  <div class="nav-item active"><span class="nav-dot"></span>테스트 실행</div>
+  <a class="nav-item" href="/settings.html"><span class="nav-dot"></span>설정</a>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div>
+      <h1>테스트 실행</h1>
+      <p id="hint-label">이 Mac에 연결된 실제 단말로 테스트를 실행합니다. 슬랙으로 !검증 명령어를 보내는 것과 동일합니다.</p>
+    </div>
+  </div>
+
+  <div class="runner-card">
+    <div class="runner-field">
+      <label>플랫폼</label>
+      <div class="platform-toggle">
+        <button type="button" class="platform-btn active" data-platform="android">Android</button>
+        <button type="button" class="platform-btn" data-platform="ios">iOS</button>
+      </div>
+    </div>
+
+    <div class="runner-field">
+      <label for="test-select">테스트 항목</label>
+      <select id="test-select"></select>
+    </div>
+
+    <div class="runner-field">
+      <label for="role-select">역할</label>
+      <select id="role-select">
+        <option value="guest">게스트 (guest)</option>
+        <option value="host">호스트 (host)</option>
+        <option value="admin">어드민 (admin)</option>
+      </select>
+    </div>
+
+    <div class="runner-field">
+      <label for="env-select">환경</label>
+      <select id="env-select">
+        <option value="stg">stg (staging)</option>
+        <option value="dev">dev</option>
+        <option value="prod">prod</option>
+      </select>
+    </div>
+
+    <div id="extra-fields"></div>
+
+    <button id="run-btn" class="load-more" style="width:auto;padding:10px 24px;margin-top:6px;">▶ 실행</button>
+
+    <div id="run-status"></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script src="/runner.js"></script>
+</body>
+</html>

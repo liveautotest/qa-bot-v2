@@ -474,6 +474,53 @@
     accent-color:var(--bad);
   }
 
+  .runner-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:24px;
+    max-width:480px;
+  }
+  .runner-field{margin-bottom:16px;}
+  .runner-field label{
+    display:block;
+    font-size:12px;
+    color:var(--text-mute);
+    margin-bottom:6px;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .runner-field select,
+  .runner-field input{
+    width:100%;
+    padding:9px 10px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    font-size:13px;
+    font-family:'IBM Plex Sans KR','IBM Plex Sans',sans-serif;
+    background:#fff;
+    color:var(--text);
+  }
+  #run-status{margin-top:14px;}
+  .runner-pending{color:var(--run);font-size:13px;}
+  .runner-ok{color:var(--ok);font-size:13px;}
+  .runner-ok a{color:var(--ok);text-decoration:underline;}
+  .runner-error{color:var(--bad);font-size:13px;}
+  .platform-toggle{display:flex;gap:8px;}
+  .platform-btn{
+    flex:1;
+    padding:9px 0;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:#fff;
+    color:var(--text-mute);
+    font-size:13px;
+    font-weight:500;
+    font-family:'IBM Plex Sans KR','IBM Plex Sans',sans-serif;
+    cursor:pointer;
+  }
+  .platform-btn.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .runner-field select:disabled{background:var(--off-bg);color:var(--text-mute);}
+
   /* ===== 반응형 (좁은 화면 / 모바일) ===== */
   @media (max-width: 768px){
     body{flex-direction:column;}

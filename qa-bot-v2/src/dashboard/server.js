@@ -61,6 +61,189 @@ function sendJson(res, statusCode, data) {
   res.end(body);
 }
 
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 1_000_000) {
+        req.destroy();
+        reject(new Error("요청 본문이 너무 큽니다."));
+      }
+    });
+    req.on("end", () => {
+      if (!raw) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch (error) {
+        reject(new Error("요청 본문이 올바른 JSON이 아닙니다."));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+async function postDashboardStartMessage(testId, platform, role, config) {
+  if (!config.slackBotToken || !config.slackTestResultChannel) return null;
+
+  const test = TEST_CATALOG.find((t) => t.id === testId);
+  const clientLabel =
+    platform === "ios" ? "iOS APP" : platform === "android" ? "Android APP" : test?.platform === "ios" ? "iOS APP" : test?.platform === "android" ? "Android APP" : "Android APP / iOS APP";
+  const roleLabel = { guest: "게스트", host: "호스트", admin: "어드민" }[role] || role;
+  const validationItem = `${roleLabel} ${test?.label || testId}`;
+
+  try {
+    const { WebClient } = require("@slack/web-api");
+    const client = new WebClient(config.slackBotToken, { retryConfig: { retries: 1 } });
+    const posted = await client.chat.postMessage({
+      channel: config.slackTestResultChannel,
+      text: [
+        "자동화 테스트를 시작했습니다.",
+        "완료되면 이 스레드에 결과를 남길게요.",
+        "테스터: 대시보드",
+        `클라이언트: ${clientLabel}`,
+        `검증 항목: ${validationItem}`
+      ].join("\n")
+    });
+    return { channel: config.slackTestResultChannel, threadTs: posted.ts };
+  } catch (error) {
+    console.warn("대시보드 시작 알림 전송 실패:", error.message);
+    return null;
+  }
+}
+
+async function postDashboardResultToSlack(result, config, thread) {
+  if (!result || !config.slackBotToken || !config.slackTestResultChannel) return;
+
+  let formatResult;
+  try {
+    ({ formatResult } = require("../slack/slack-reporter"));
+  } catch (error) {
+    console.warn("슬랙 결과 포맷 모듈 로드 실패, 알림을 건너뜁니다:", error.message);
+    return;
+  }
+
+  try {
+    const { WebClient } = require("@slack/web-api");
+    const client = new WebClient(config.slackBotToken, { retryConfig: { retries: 1 } });
+    await client.chat.postMessage({
+      channel: thread?.channel || config.slackTestResultChannel,
+      text: formatResult(result),
+      thread_ts: thread?.threadTs
+    });
+  } catch (error) {
+    console.warn("대시보드 실행 결과 슬랙 알림 실패:", error.message);
+  }
+}
+
+const TEST_CATALOG = [
+  { id: "login", label: "로그인", platform: "android" },
+  { id: "logout", label: "로그아웃", platform: "android" },
+  { id: "search", label: "정확한 일정 검색", platform: "android" },
+  { id: "search-flexible", label: "유연한 일정 검색", platform: "android" },
+  { id: "conversational-search", label: "대화형 검색", platform: "android" },
+  {
+    id: "contract-request",
+    label: "계약 요청",
+    platform: "android",
+    extraFields: [
+      {
+        key: "payment_method",
+        label: "결제수단 (분할결제 테스트 시 선택)",
+        type: "select",
+        optional: true,
+        options: [
+          { value: "", label: "(선택 안 함)" },
+          { value: "card", label: "일반카드" },
+          { value: "bank-transfer", label: "무통장" },
+          { value: "auto-card", label: "등록카드" },
+          { value: "split-payment", label: "분할결제" }
+        ]
+      }
+    ]
+  },
+  { id: "contract-cancel-request", label: "계약 요청 취소", platform: "android" },
+  { id: "contract-cancel-confirmed", label: "계약 확정 취소", platform: "android" },
+  { id: "contract-extension", label: "계약 연장", platform: "android" },
+  { id: "contract-extension-approve", label: "계약 연장 승인", platform: "android" },
+  {
+    id: "contract-payment",
+    label: "계약 결제",
+    platform: "android",
+    extraFields: [
+      {
+        key: "payment_method",
+        label: "결제수단",
+        type: "select",
+        options: [
+          { value: "card", label: "일반카드" },
+          { value: "bank-transfer", label: "무통장" },
+          { value: "auto-card", label: "등록카드" },
+          { value: "split-payment", label: "분할결제" }
+        ]
+      }
+    ]
+  },
+  { id: "contract-approve", label: "계약 승인", platform: "android" },
+  { id: "contract-reject", label: "계약 요청 거절", platform: "android" },
+  { id: "toss-deposit-approve", label: "무통장 입금 승인 (토스)", platform: "android", fixedEnv: "toss" },
+  {
+    id: "console-schedule-change",
+    label: "콘솔 일정 변경",
+    platform: "android",
+    fixedEnv: "api",
+    extraFields: [{ key: "reservation_id", label: "예약 번호", type: "text" }]
+  },
+  {
+    id: "console-deposit-return",
+    label: "콘솔 보증금 반환/보류",
+    platform: "android",
+    extraFields: [
+      { key: "reservation_id", label: "예약 번호", type: "text" },
+      {
+        key: "deposit_action",
+        label: "처리 방식",
+        type: "select",
+        options: [
+          { value: "반환", label: "반환" },
+          { value: "보류", label: "보류" }
+        ]
+      }
+    ]
+  },
+  { id: "review-profile", label: "리브후기 프로필", platform: "android" },
+  { id: "review-schedule-select", label: "리브후기 일정선택", platform: "android" },
+  { id: "review-detail", label: "리브후기 상세", platform: "android" },
+  { id: "review-write", label: "리뷰 작성", platform: "android" },
+  { id: "review-edit", label: "리뷰 수정", platform: "android" },
+  { id: "review-delete", label: "리뷰 삭제", platform: "android" },
+  { id: "coupon-box", label: "쿠폰함", platform: "android" },
+  {
+    id: "build-install",
+    label: "빌드 설치",
+    platform: "android",
+    extraFields: [
+      { key: "release_name", label: "릴리즈명 (선택)", type: "text", optional: true },
+      { key: "build_version", label: "빌드 버전 (선택)", type: "text", optional: true }
+    ]
+  },
+  {
+    id: "ios-build-install",
+    label: "빌드 설치",
+    platform: "ios",
+    extraFields: [{ key: "release_name", label: "릴리즈명 (선택)", type: "text", optional: true }]
+  },
+  { id: "ios-login", label: "로그인", platform: "ios" },
+  { id: "ios-search", label: "정확한 일정 검색", platform: "ios" },
+  { id: "ios-search-flexible", label: "유연한 일정 검색", platform: "ios" },
+  { id: "ios-contract-request", label: "계약 요청", platform: "ios" },
+  { id: "ios-contract-cancel-request", label: "계약 요청 취소", platform: "ios" }
+];
+
+
 function serveStaticFile(res, filePath) {
   fs.readFile(filePath, (error, content) => {
     if (error) {
@@ -144,6 +327,112 @@ const server = http.createServer(async (req, res) => {
   try {
     if (!isDashboardClientAllowed(req.socket.remoteAddress, config.dashboard?.allowedCidrs)) {
       sendJson(res, 403, { error: "dashboard access is restricted to the allowed network" });
+      return;
+    }
+
+    if (pathname === "/api/test-catalog" && req.method === "GET") {
+      sendJson(res, 200, { tests: TEST_CATALOG });
+      return;
+    }
+
+    if (pathname === "/api/run-test" && req.method === "POST") {
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch (error) {
+        sendJson(res, 400, { error: error.message });
+        return;
+      }
+
+      const testId = String(body.test || "");
+      const selectedPlatform = String(body.platform || "");
+      if (!TEST_CATALOG.some((t) => t.id === testId)) {
+        sendJson(res, 400, { error: `알 수 없는 테스트입니다: ${testId}` });
+        return;
+      }
+      if (!body.env) {
+        sendJson(res, 400, { error: "env 값이 필요합니다." });
+        return;
+      }
+
+      let runTest;
+      try {
+        runTest = require("../orchestrator/run-test").runTest;
+      } catch (error) {
+        console.error("테스트 실행 모듈 로드 실패:", error.message);
+        sendJson(res, 500, {
+          error:
+            "테스트 실행 모듈을 불러오지 못했습니다. 이 서버에 전체 의존성(npm install)이 설치되어 있는지 확인해주세요."
+        });
+        return;
+      }
+
+      const request = {
+        test: testId,
+        env: body.env,
+        role: body.role || "guest",
+        payment_method: body.payment_method || undefined,
+        split_start: body.split_start || undefined,
+        split_end: body.split_end || undefined,
+        reservation_id: body.reservation_id || undefined,
+        deposit_action: body.deposit_action || undefined,
+        release_name: body.release_name || undefined,
+        build_version: body.build_version || undefined,
+        requested_by: "dashboard",
+        source: "dashboard"
+      };
+
+      // 결과를 기다리지 않고 즉시 응답 - 실제 실행은 백그라운드에서 진행되고
+      // 완료되면 다른 실행들과 동일하게 reports/ 에 기록되어 실행 기록에서 확인 가능
+      (async () => {
+        const threadPromise = postDashboardStartMessage(testId, selectedPlatform, request.role, config);
+        try {
+          // 슬랙 !검증과 동일하게, 이 테스트가 사전 로그인이 필요한지 판단해서
+          // 필요하면 실제 테스트 전에 로그인을 먼저 실행한다 (command-router.js와 같은 판단 로직 재사용)
+          let loginRole = "";
+          let buildLoginTestId = null;
+          try {
+            const router = require("../slack/command-router");
+            if (typeof router.requiredLoginRoleForTest === "function") {
+              loginRole = router.requiredLoginRoleForTest(testId);
+            }
+            buildLoginTestId = router.prerequisiteLoginTestFor;
+          } catch (error) {
+            console.warn("사전 로그인 판단 모듈 로드 실패, 사전 로그인 없이 진행:", error.message);
+          }
+
+          // contract-extension/contract-extension-approve는 슬랙에서도 사전 로그인 대신
+          // "일단 실행해보고 세션 문제면 재시도"하는 lazy-login 방식이라 여기서는 건너뜀
+          const usesLazyLogin = testId === "contract-extension" || testId === "contract-extension-approve";
+
+          if (loginRole && buildLoginTestId && !usesLazyLogin) {
+            const loginTestId = buildLoginTestId(testId);
+            const loginResult = await runTest(
+              {
+                test: loginTestId,
+                env: request.env,
+                role: loginRole,
+                host_home_only: loginRole === "host",
+                requested_by: "dashboard",
+                source: "dashboard-prerequisite"
+              },
+              config
+            );
+            if (loginResult && loginResult.status !== "pass") {
+              console.warn(`[대시보드 사전 로그인 실패] ${testId}는 로그인 실패로 실행하지 않습니다.`);
+              await postDashboardResultToSlack(loginResult, config, await threadPromise);
+              return;
+            }
+          }
+
+          const result = await runTest(request, config);
+          await postDashboardResultToSlack(result, config, await threadPromise);
+        } catch (error) {
+          console.error(`[대시보드 테스트 실행 실패] ${testId}:`, error.message);
+        }
+      })();
+
+      sendJson(res, 202, { started: true, test: testId });
       return;
     }
 

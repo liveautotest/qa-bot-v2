@@ -846,30 +846,6 @@ async function runLoginTest({ request, config, store }) {
 
     await wakeAndUnlock(config, device, steps, store);
 
-    // 이미 대상 앱의 홈 화면에 있다면 앱을 종료하지 않고 현재 세션을 그대로 쓴다.
-    // 화면 덤프가 실패하거나 다른 화면이면 기존 재실행/로그인 복구 흐름으로 이어간다.
-    try {
-      const currentXml = await dumpUi(config, device);
-      const isTargetAppVisible = currentXml.includes(`package="${appPackage}"`);
-      if (isTargetAppVisible && isLoggedInHome(currentXml)) {
-        const currentSessionArtifact = path.join(store.logsDir, "current-session.xml");
-        fs.writeFileSync(currentSessionArtifact, currentXml);
-        addStep(steps, "현재 앱 화면 로그인 세션 재사용");
-        return await finishReusedSession({
-          config,
-          device,
-          env,
-          hostHomeOnly,
-          role,
-          sessionArtifact: currentSessionArtifact,
-          steps,
-          store
-        });
-      }
-    } catch (error) {
-      store.appendLog("runner.log", `current session check skipped: ${error.message}`);
-    }
-
     await launchApp(config, device, appPackage, steps);
 
     await new Promise((resolve) => setTimeout(resolve, 2500));
@@ -900,19 +876,6 @@ async function runLoginTest({ request, config, store }) {
         6000
       );
       fs.writeFileSync(path.join(store.logsDir, "after-update-dismiss.xml"), xml);
-    }
-
-    if (isLoggedInHome(xml)) {
-      return finishReusedSession({
-        config,
-        device,
-        env,
-        hostHomeOnly,
-        role,
-        sessionArtifact: path.join(store.logsDir, "after-launch.xml"),
-        steps,
-        store
-      });
     }
 
     if (!(isStillOnLoginForm(xml) && findEditableNodes(xml).length >= 2)) {
@@ -1088,6 +1051,49 @@ async function runLoginTest({ request, config, store }) {
         steps,
         getLoginFailureDetails(xml)
       );
+    }
+
+    if (role === "guest") {
+      // 하단 탭 문구("내 정보"/"계약"/"리브후기")는 로그인 여부와 무관하게 항상 보이므로,
+      // 실제로 "내 정보" 탭에 들어가서 "OOO님, 환영합니다!" 문구가 있는지까지 확인해야
+      // 진짜 로그인 성공으로 판단할 수 있다.
+      const myInfoBounds =
+        findBottomTabBounds(xml, "내 정보") ||
+        findButtonBoundsByLabel(xml, "내 정보") ||
+        findBoundsByTextIncludes(xml, "내 정보");
+
+      if (myInfoBounds) {
+        await tap(config, device, myInfoBounds.x, myInfoBounds.y);
+        const myInfoXml = await waitForUi(
+          config,
+          device,
+          (nextXml) => nextXml.includes("환영합니다") || nextXml.includes("로그인해주세요"),
+          6000
+        );
+        fs.writeFileSync(path.join(store.logsDir, "post-login-my-info.xml"), myInfoXml);
+
+        const isActuallyLoggedIn = myInfoXml.includes("환영합니다") && !myInfoXml.includes("로그인해주세요");
+
+        if (!isActuallyLoggedIn) {
+          await saveArtifacts(config, device, store, "final", accountSecrets);
+          fail(
+            "로그인 제출 후 '내 정보' 화면에서 환영 문구를 확인하지 못했습니다.",
+            steps,
+            [
+              "하단 탭 문구만으로는 게스트 상태에서도 홈 화면처럼 보일 수 있어 '내 정보' 탭에서 재확인했습니다.",
+              "리포트의 final.png와 logs/post-login-my-info.xml을 확인해주세요."
+            ]
+          );
+        }
+
+        addStep(steps, "'내 정보' 화면에서 로그인 완료 확인");
+
+        const homeBounds = findBottomTabBounds(myInfoXml, "홈");
+        if (homeBounds) {
+          await tap(config, device, homeBounds.x, homeBounds.y);
+          await waitForUi(config, device, isLoggedInHome, 6000).catch(() => {});
+        }
+      }
     }
 
     if (role === "host") {
