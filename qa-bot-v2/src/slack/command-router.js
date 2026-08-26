@@ -302,6 +302,10 @@ function shouldAutoLoginAfterBuildInstall(test, result) {
 
 function requiredLoginRoleForTest(test) {
   const guestRequired = [
+    "search",
+    "search-flexible",
+    "ios-search",
+    "ios-search-flexible",
     "contract-request",
     "contract-payment",
     "contract-cancel-request",
@@ -324,13 +328,18 @@ function shouldUseLazyLogin(test) {
   return test === "contract-extension" || test === "contract-extension-approve";
 }
 
+function prerequisiteLoginTestFor(test) {
+  return test.startsWith("ios-") ? "ios-login" : "login";
+}
+
 async function runPrerequisiteLogin({ test, env }, context) {
   const loginRole = requiredLoginRoleForTest(test);
   if (!loginRole) return null;
+  const loginTest = prerequisiteLoginTestFor(test);
 
   return runTest(
     {
-      test: "login",
+      test: loginTest,
       env,
       role: loginRole,
       host_home_only: loginRole === "host",
@@ -1088,6 +1097,8 @@ module.exports = {
   CONSOLE_DEPOSIT_RETURN_PATTERN,
   CONSOLE_SCHEDULE_CHANGE_PATTERN,
   KOREAN_SHORTCUT_PATTERN,
+  prerequisiteLoginTestFor,
+  requiredLoginRoleForTest,
   shouldAutoLoginAfterBuildInstall,
   TOSS_DEPOSIT_APPROVE_PATTERN,
   routeCommand
